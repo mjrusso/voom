@@ -1,0 +1,264 @@
+package vm
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/mjrusso/voom/internal/host"
+	"github.com/mjrusso/voom/internal/share"
+	"github.com/mjrusso/voom/internal/state"
+)
+
+func TestRequireGuestPortReportNeedsControlShare(t *testing.T) {
+	im := &state.ImageRecord{Name: "nixos", Capabilities: state.ImageCapabilities{GuestPortReport: true}}
+	if err := RequireGuestPortReport(im, "guest listener inspection"); err == nil {
+		t.Fatal("expected controlShare capability gate")
+	}
+}
+
+func TestQEMUArgsIncludeSeedDiskAndVirtioFS(t *testing.T) {
+	st, _ := newTestStore(t)
+	mgr := New(st)
+	vmRec := &state.VMRecord{
+		ID:        "vm1",
+		Name:      "scratch",
+		Driver:    "qemu",
+		Arch:      host.System(),
+		Resources: state.VMResources{CPUs: 2, MemoryMiB: 512},
+	}
+	shares := []share.Runtime{{Tag: state.ControlShareTag, Sock: filepath.Join(st.Runtime(vmRec).Dir(), "virtiofs-"+state.ControlShareTag+".sock")}}
+	args := mgr.qemuArgs(vmRec, shares)
+	if !hasArgPair(args, "-drive", "file="+st.SeedImagePath(vmRec)+",if=virtio,format=raw,readonly=on") {
+		t.Fatalf("missing seed drive: %#v", args)
+	}
+	if !hasArgPair(args, "-device", "vhost-user-fs-pci,chardev=chrfs0,tag="+state.ControlShareTag+",queue-size=1024") {
+		t.Fatalf("missing control share device: %#v", args)
+	}
+}
+
+func TestWriteControlFilesIncludesMountsAndControlPaths(t *testing.T) {
+	st, _ := newTestStore(t)
+	mgr := New(st)
+	vmRec := &state.VMRecord{
+		ID:   "vm1",
+		Name: "scratch",
+		Shares: []share.Decl{
+			{Tag: "src", HostPath: "/host/src", GuestPath: "/workspace/src", Readonly: true},
+		},
+	}
+	if err := mgr.WriteControlFiles(vmRec); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(st.ControlShareDir(vmRec), "metadata.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Hostname     string `json:"hostname"`
+		ControlShare struct {
+			Tag        string `json:"tag"`
+			GuestPath  string `json:"guestPath"`
+			PortsPath  string `json:"portsPath"`
+			MountsPath string `json:"mountsPath"`
+		} `json:"controlShare"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ControlShare.Tag != state.ControlShareTag || payload.ControlShare.GuestPath != state.ControlShareGuestPath() || payload.ControlShare.MountsPath != filepath.Join(state.ControlShareGuestPath(), "mounts.json") {
+		t.Fatalf("unexpected metadata payload: %#v", payload)
+	}
+	mountsRaw, err := os.ReadFile(st.ControlShareMountsPath(vmRec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mounts []struct {
+		Tag       string `json:"tag"`
+		GuestPath string `json:"guestPath"`
+		Readonly  bool   `json:"readonly"`
+	}
+	if err := json.Unmarshal(mountsRaw, &mounts); err != nil {
+		t.Fatal(err)
+	}
+	if len(mounts) != 1 || mounts[0].Tag != "src" || mounts[0].GuestPath != "/workspace/src" || !mounts[0].Readonly {
+		t.Fatalf("unexpected mounts payload: %#v", mounts)
+	}
+}
+
+func TestWriteSeedImageCreatesNoCloudDisk(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	t.Setenv("HOME", home)
+	t.Setenv("VOOM_STATE_DIR", filepath.Join(dir, "state"))
+	t.Setenv("VOOM_CONFIG_DIR", filepath.Join(dir, "config"))
+	t.Setenv("VOOM_CACHE_DIR", filepath.Join(dir, "cache"))
+	t.Setenv("VOOM_RUNTIME_DIR", filepath.Join(dir, "runtime"))
+	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".ssh", "id_ed25519.pub"), []byte("ssh-ed25519 AAAATEST user@example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := state.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := New(st)
+	im := &state.ImageRecord{
+		SchemaVersion: state.SchemaVersion,
+		ID:            "img1",
+		Name:          "seedimg",
+		Arch:          host.System(),
+		Format:        "raw",
+		Disk:          "disk.raw",
+		Metadata:      state.ImageMetadata{SSHUser: "root", NixosTargetUser: "root"},
+	}
+	if err := os.MkdirAll(st.ImageDir(im.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(im.ID), "image.json"), im); err != nil {
+		t.Fatal(err)
+	}
+	vmRec := &state.VMRecord{
+		ID:    "vm1",
+		Name:  "scratch",
+		Image: state.VMImageRef{ID: im.ID, Name: im.Name},
+		Access: state.VMAccess{
+			SSHUser: "root",
+		},
+	}
+	if err := os.MkdirAll(st.Runtime(vmRec).Dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.WriteSeedImage(vmRec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(st.SeedImagePath(vmRec)); err != nil {
+		t.Fatalf("expected seed image at %s: %v", st.SeedImagePath(vmRec), err)
+	}
+}
+
+func TestVFKitControlAndUserSharesDoNotRequireVirtiofsd(t *testing.T) {
+	st, dir := newTestStore(t)
+	hostShare := filepath.Join(dir, "share")
+	if err := os.MkdirAll(hostShare, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mgr := New(st)
+	vmRec := &state.VMRecord{
+		ID:     "vm1",
+		Name:   "scratch",
+		Driver: "vfkit",
+		Shares: []share.Decl{
+			{Tag: "src", HostPath: hostShare, GuestPath: "/workspace/src", Readonly: true},
+		},
+	}
+	controlShare, err := mgr.StartControlShare(context.Background(), vmRec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if controlShare.Tag != state.ControlShareTag || controlShare.HostPath != st.ControlShareDir(vmRec) || controlShare.Sock != "" {
+		t.Fatalf("unexpected vfkit control share runtime: %#v", controlShare)
+	}
+	userShares, err := mgr.StartUserShares(context.Background(), vmRec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(userShares) != 1 || userShares[0].Tag != "src" || userShares[0].HostPath != hostShare || !userShares[0].Readonly || userShares[0].Sock != "" {
+		t.Fatalf("unexpected vfkit user shares: %#v", userShares)
+	}
+}
+
+func TestReadGuestPortsRejectsMalformedAndStaleReports(t *testing.T) {
+	st, _ := newTestStore(t)
+	mgr := New(st)
+	vmRec := &state.VMRecord{ID: "vm1", Name: "scratch"}
+	reportDir := filepath.Join(st.Runtime(vmRec).Dir(), "control")
+	if err := os.MkdirAll(reportDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(reportDir, "ports.json")
+	if err := os.WriteFile(reportPath, []byte(`{`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.ReadGuestPorts(vmRec); err == nil || !contains(err.Error(), "malformed") {
+		t.Fatalf("expected malformed report rejection, got %v", err)
+	}
+	report := GuestPortsReport{
+		SchemaVersion: 1,
+		GeneratedAt:   time.Now().Add(-time.Minute).UTC(),
+		Listeners:     []GuestListener{{Proto: "tcp", Addr: "0.0.0.0", Port: 8080}},
+	}
+	b, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reportPath, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.ReadGuestPorts(vmRec); err == nil || !contains(err.Error(), "stale") {
+		t.Fatalf("expected stale report rejection, got %v", err)
+	}
+}
+
+func TestCreateUsesVFKitDiskExtension(t *testing.T) {
+	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
+		t.Skip("vfkit driver is supported only on Apple Silicon macOS")
+	}
+	st, _ := newTestStore(t)
+
+	im := &state.ImageRecord{
+		SchemaVersion: state.SchemaVersion,
+		ID:            "img1",
+		Name:          "nixos",
+		Arch:          host.System(),
+		Format:        "raw",
+		Disk:          "disk.raw",
+		Metadata:      state.ImageMetadata{SSHUser: "root", NixosTargetUser: "root"},
+	}
+	if err := os.MkdirAll(st.ImageDir(im.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(st.ImageDiskPath(im), []byte("raw-image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(im.ID), "image.json"), im); err != nil {
+		t.Fatal(err)
+	}
+	idx := st.IndexSnapshot()
+	idx.Images[im.Name] = im.ID
+	if err := st.SetIndexSnapshot(idx); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := New(st)
+	vmRec, err := mgr.Create(context.Background(), "scratch", im.Name, "vfkit", 2, 512, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(st.VMDiskPath(vmRec)); err != nil {
+		t.Fatalf("expected vfkit VM disk at %s: %v", st.VMDiskPath(vmRec), err)
+	}
+	if _, err := os.Stat(filepath.Join(st.VMDir(vmRec.ID), "disk.raw")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected raw disk path for vfkit VM: %v", err)
+	}
+}
+
+func contains(s, want string) bool {
+	return strings.Contains(s, want)
+}
+
+func hasArgPair(args []string, key, value string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == key && args[i+1] == value {
+			return true
+		}
+	}
+	return false
+}
