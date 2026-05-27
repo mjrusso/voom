@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "vms": {
+    "scratch": "vm-scratch"
+  },
+  "images": {
+    "nixos": "img-nixos"
+  }
+}

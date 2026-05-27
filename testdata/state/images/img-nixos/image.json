@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "img-nixos",
+  "name": "nixos",
+  "arch": "x86_64-linux",
+  "format": "qcow2",
+  "disk": "disk.qcow2",
+  "createdAt": "2026-05-19T00:00:00Z",
+  "metadata": {
+    "source": "fixture",
+    "flakeRev": "",
+    "bakedAt": "",
+    "sshUser": "root",
+    "sshIdentityPath": "",
+    "nixosTargetUser": "root"
+  },
+  "capabilities": {
+    "metadataDisk": false,
+    "controlShare": false,
+    "guestPortReport": false,
+    "guestShareMount": false,
+    "nixosSwitch": false
+  }
+}

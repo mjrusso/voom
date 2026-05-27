@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "vm-scratch",
+  "name": "scratch",
+  "driver": "qemu",
+  "arch": "x86_64-linux",
+  "createdAt": "2026-05-19T00:00:00Z",
+  "updatedAt": "2026-05-19T00:00:00Z",
+  "image": {
+    "id": "img-nixos",
+    "name": "nixos"
+  },
+  "resources": {
+    "cpus": 4,
+    "memoryMiB": 4096
+  },
+  "access": {
+    "sshUser": "root",
+    "sshIdentityPath": "",
+    "nixosTargetUser": "root"
+  },
+  "network": {
+    "sshPort": 2222,
+    "sshBind": "127.0.0.1",
+    "forwards": [
+      {
+        "protocol": "tcp",
+        "guestPort": 8080,
+        "hostPort": 18080,
+        "bind": "127.0.0.1"
+      }
+    ],
+    "autoForward": false,
+    "autoForwardHostOffset": 0
+  },
+  "shares": []
+}
