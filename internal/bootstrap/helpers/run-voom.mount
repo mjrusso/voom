@@ -1,0 +1,11 @@
+[Unit]
+Description=Mount voom-control virtiofs share at /run/voom
+
+[Mount]
+What=voom-control
+Where=/run/voom
+Type=virtiofs
+Options=nofail
+
+[Install]
+WantedBy=multi-user.target

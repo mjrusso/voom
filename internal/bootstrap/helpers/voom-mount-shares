@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+mounts_file="${VOOM_MOUNTS_FILE:-/run/voom/mounts.json}"
+
+for _ in $(seq 1 10); do
+  [ -f "$mounts_file" ] && break
+  sleep 1
+done
+[ -f "$mounts_file" ] || exit 0
+
+tab="$(printf '\t')"
+jq -r '
+  .[] | [
+    (.tag // ""),
+    (.guestPath // ""),
+    (if (.readonly // false) then "ro" else "rw" end)
+  ] | @tsv
+' "$mounts_file" | while IFS="$tab" read -r tag guest_path mode; do
+  [ -n "$tag" ] || continue
+  [ -n "$guest_path" ] || continue
+  mkdir -p "$guest_path"
+  if mountpoint -q "$guest_path" 2>/dev/null; then
+    continue
+  fi
+  if [ "$mode" = "ro" ]; then
+    mount -t virtiofs -o ro "$tag" "$guest_path"
+  else
+    mount -t virtiofs "$tag" "$guest_path"
+  fi
+done

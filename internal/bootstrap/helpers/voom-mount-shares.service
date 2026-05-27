@@ -1,0 +1,12 @@
+[Unit]
+Description=Mount voom-declared virtiofs shares
+Wants=run-voom.mount
+After=run-voom.mount
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/voom-mount-shares
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

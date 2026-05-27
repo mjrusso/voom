@@ -1,0 +1,12 @@
+[Unit]
+Description=Report guest TCP listeners to voom
+Wants=network-online.target run-voom.mount
+After=network-online.target run-voom.mount
+
+[Service]
+ExecStart=/usr/local/sbin/voom-portfwd
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

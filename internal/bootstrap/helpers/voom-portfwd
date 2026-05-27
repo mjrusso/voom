@@ -1,0 +1,59 @@
+#!/bin/sh
+set -u
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+output="${VOOM_PORTFWD_OUTPUT:-/run/voom/ports.json}"
+interval="${VOOM_PORTFWD_INTERVAL:-2}"
+dir="$(dirname "$output")"
+
+while true; do
+  if mountpoint -q "$dir"; then
+    tmp="$output.tmp.$$"
+    generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    listeners="$(
+      ss -tlnpH 2>/dev/null \
+        | awk '
+            function json_escape(s) {
+              gsub(/\\/, "\\\\", s)
+              gsub(/"/, "\\\"", s)
+              return s
+            }
+            function emit(local, proc, addr, port, pid, name, n) {
+              if (local ~ /^\[/) {
+                n = split(local, parts, "]:")
+                addr = substr(parts[1], 2)
+                port = parts[2]
+              } else {
+                n = split(local, parts, ":")
+                port = parts[n]
+                addr = substr(local, 1, length(local) - length(port) - 1)
+              }
+              sub(/%.*/, "", addr)
+              if (addr == "") addr = "*"
+              pid = ""
+              name = ""
+              if (match(proc, /pid=[0-9]+/)) pid = substr(proc, RSTART + 4, RLENGTH - 4)
+              if (match(proc, /"[^"]+"/)) name = substr(proc, RSTART + 1, RLENGTH - 2)
+              printf "{\"proto\":\"tcp\",\"addr\":\"%s\",\"port\":%s", json_escape(addr), port
+              if (pid != "") printf ",\"pid\":%s", pid
+              if (name != "") printf ",\"process\":\"%s\"", json_escape(name)
+              printf "}\n"
+            }
+            $1 == "LISTEN" { emit($4, $0) }
+          ' \
+        | jq -s '.'
+    )"
+
+    if jq -n \
+        --arg generatedAt "$generated_at" \
+        --argjson listeners "$listeners" \
+        '{schemaVersion: 1, generatedAt: $generatedAt, listeners: $listeners}' > "$tmp"; then
+      chmod 0644 "$tmp"
+      mv "$tmp" "$output"
+    else
+      rm -f "$tmp"
+    fi
+  fi
+  sleep "$interval"
+done
