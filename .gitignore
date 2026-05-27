@@ -1,0 +1,22 @@
+# Local build and release outputs
+/bin/
+/dist/
+/result
+/result-*
+
+# Disposable local voom test state
+/.voom-test/
+/.voom-realtest/
+/voom-test/
+/voom-live.*/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.partial
+
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo
+*~
