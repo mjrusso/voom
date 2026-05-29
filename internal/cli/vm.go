@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -380,5 +381,56 @@ func diskCommand() *cobra.Command {
 	}}
 	reset.Flags().StringVar(&resetImage, "image", "", "image name")
 	cmd.AddCommand(reset)
+	return cmd
+}
+
+func resourcesCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "resources", Short: "Manage VM resource allocations"}
+	cmd.AddCommand(&cobra.Command{Use: "cpus <name> <n>", Short: "Set CPU allocation for a stopped VM", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		cpus, err := strconv.Atoi(args[1])
+		if err != nil || cpus < 1 {
+			return errors.New("cpus must be at least 1")
+		}
+		deps, err := loadRuntimeDeps()
+		if err != nil {
+			return err
+		}
+		vmRec, changed, err := deps.vm.SetCPUs(args[0], cpus)
+		if err != nil {
+			return err
+		}
+		if outputFormat(cmd) == "json" {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": vmRec.Name, "changed": changed, "cpus": vmRec.Resources.CPUs})
+		}
+		if changed {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "set VM %s CPUs to %d\n", vmRec.Name, vmRec.Resources.CPUs)
+		} else {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "VM %s CPUs already set to %d\n", vmRec.Name, vmRec.Resources.CPUs)
+		}
+		return nil
+	}})
+	cmd.AddCommand(&cobra.Command{Use: "memory <name> <size>", Short: "Set memory allocation for a stopped VM", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		memoryMiB, err := state.ParseMemoryMiB(args[1])
+		if err != nil {
+			return err
+		}
+		deps, err := loadRuntimeDeps()
+		if err != nil {
+			return err
+		}
+		vmRec, changed, err := deps.vm.SetMemory(args[0], memoryMiB)
+		if err != nil {
+			return err
+		}
+		if outputFormat(cmd) == "json" {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": vmRec.Name, "changed": changed, "memoryMiB": vmRec.Resources.MemoryMiB})
+		}
+		if changed {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "set VM %s memory to %dMiB\n", vmRec.Name, vmRec.Resources.MemoryMiB)
+		} else {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "VM %s memory already set to %dMiB\n", vmRec.Name, vmRec.Resources.MemoryMiB)
+		}
+		return nil
+	}})
 	return cmd
 }

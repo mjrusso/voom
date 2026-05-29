@@ -1,11 +1,14 @@
 package vm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +22,109 @@ func TestRequireGuestPortReportNeedsControlShare(t *testing.T) {
 	im := &state.ImageRecord{Name: "nixos", Capabilities: state.ImageCapabilities{GuestPortReport: true}}
 	if err := RequireGuestPortReport(im, "guest listener inspection"); err == nil {
 		t.Fatal("expected controlShare capability gate")
+	}
+}
+
+func TestSetResourcesUpdatesStoppedVM(t *testing.T) {
+	st, _ := newTestStore(t)
+	mgr := New(st)
+	vmRec := &state.VMRecord{
+		SchemaVersion: state.SchemaVersion,
+		ID:            "vm1",
+		Name:          "scratch",
+		Driver:        "qemu",
+		Resources:     state.VMResources{CPUs: 2, MemoryMiB: 512},
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if err := os.MkdirAll(st.VMDir(vmRec.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveVM(vmRec); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RegisterVM(vmRec.Name, vmRec.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, changed, err := mgr.SetCPUs("scratch", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || updated.Resources.CPUs != 4 {
+		t.Fatalf("SetCPUs changed=%t resources=%#v", changed, updated.Resources)
+	}
+	updated, changed, err = mgr.SetMemory("scratch", 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || updated.Resources.MemoryMiB != 1024 {
+		t.Fatalf("SetMemory changed=%t resources=%#v", changed, updated.Resources)
+	}
+	updated, changed, err = mgr.SetMemory("scratch", 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed || updated.Resources.MemoryMiB != 1024 {
+		t.Fatalf("idempotent SetMemory changed=%t resources=%#v", changed, updated.Resources)
+	}
+	reloaded, err := st.LoadVM("scratch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Resources.CPUs != 4 || reloaded.Resources.MemoryMiB != 1024 {
+		t.Fatalf("persisted resources = %#v", reloaded.Resources)
+	}
+	if _, _, err := mgr.SetCPUs("scratch", 0); err == nil || !strings.Contains(err.Error(), "at least 1") {
+		t.Fatalf("expected CPU validation error, got %v", err)
+	}
+	if _, _, err := mgr.SetMemory("scratch", 0); err == nil || !strings.Contains(err.Error(), "at least 1MiB") {
+		t.Fatalf("expected memory validation error, got %v", err)
+	}
+}
+
+func TestSetResourcesRejectsRunningVM(t *testing.T) {
+	st, _ := newTestStore(t)
+	mgr := New(st)
+	vmRec := &state.VMRecord{
+		SchemaVersion: state.SchemaVersion,
+		ID:            "vm1",
+		Name:          "scratch",
+		Driver:        "qemu",
+		Resources:     state.VMResources{CPUs: 2, MemoryMiB: 512},
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if err := os.MkdirAll(st.VMDir(vmRec.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveVM(vmRec); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RegisterVM(vmRec.Name, vmRec.ID); err != nil {
+		t.Fatal(err)
+	}
+	cmd := fakeNamedVMProcess(t, "qemu-system-test")
+	pidfile := st.Runtime(vmRec).VMPid()
+	if err := os.MkdirAll(filepath.Dir(pidfile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pidfile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := mgr.SetCPUs("scratch", 4); err == nil || !strings.Contains(err.Error(), "running") {
+		t.Fatalf("expected running CPU mutation rejection, got %v", err)
+	}
+	if _, _, err := mgr.SetMemory("scratch", 1024); err == nil || !strings.Contains(err.Error(), "running") {
+		t.Fatalf("expected running memory mutation rejection, got %v", err)
+	}
+	reloaded, err := st.LoadVM("scratch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Resources.CPUs != 2 || reloaded.Resources.MemoryMiB != 512 {
+		t.Fatalf("running VM resources changed: %#v", reloaded.Resources)
 	}
 }
 
@@ -40,6 +146,40 @@ func TestQEMUArgsIncludeSeedDiskAndVirtioFS(t *testing.T) {
 	if !hasArgPair(args, "-device", "vhost-user-fs-pci,chardev=chrfs0,tag="+state.ControlShareTag+",queue-size=1024") {
 		t.Fatalf("missing control share device: %#v", args)
 	}
+}
+
+func fakeNamedVMProcess(t *testing.T, name string, args ...string) *exec.Cmd {
+	t.Helper()
+	payload := "exec -a " + name + " bash -c 'trap \"exit 0\" TERM; while true; do sleep 1; done' " + stringsForShell(args)
+	cmd := exec.Command("bash", "-c", payload)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitFor(context.Background(), func() bool {
+		if runtime.GOOS == "linux" {
+			cmdline, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(cmd.Process.Pid), "cmdline"))
+			first := string(bytes.Split(cmdline, []byte{0})[0])
+			return filepath.Base(first) == name
+		}
+		out, _ := exec.Command("ps", "-p", strconv.Itoa(cmd.Process.Pid), "-o", "command=").Output()
+		return len(out) > 0 && filepath.Base(strings.Fields(string(out))[0]) == name
+	}, time.Second); err != nil {
+		_ = cmd.Process.Kill()
+		t.Fatalf("fake process did not assume name %s", name)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	})
+	return cmd
+}
+
+func stringsForShell(args []string) string {
+	out := ""
+	for _, arg := range args {
+		out += " '" + arg + "'"
+	}
+	return out
 }
 
 func TestWriteControlFilesIncludesMountsAndControlPaths(t *testing.T) {

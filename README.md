@@ -182,8 +182,8 @@ voom ssh deb -- ls /mnt/code
 
 Most non-streaming commands accept `--output json` for automation (`list`,
 `info`, `image inspect`, `version`, `doctor`, `debug paths`, forward, share,
-disk, lifecycle). Streaming commands (`ssh`, `console`, `nixos switch`) are
-text/subprocess oriented.
+disk, resources, lifecycle). Streaming commands (`ssh`, `console`, `nixos
+switch`) are text/subprocess oriented.
 
 For more information, see the generated command reference
 ([docs/commands](docs/commands/)).
@@ -287,7 +287,9 @@ image or a bootable disk image.
 but keeps persistent state; `voom rm <name> --force` removes a VM's state,
 disk, runtime files, and cache logs. New VMs default to 4 CPUs and `4096MiB`
 memory; adjust at creation with `--cpus`, `--memory`, `--ssh-port`, and
-`--start`.
+`--start`. For stopped VMs, update CPU and RAM allocations with `voom
+resources cpus <name> <n>` and `voom resources memory <name> <size>`; the new
+values apply the next time the VM starts.
 
 **SSH.** `voom ssh <name>` opens an interactive shell. Trailing arguments pass
 through to `ssh` as a one-shot remote command: for example, `voom ssh <name> --
@@ -572,6 +574,7 @@ Common command effects:
 | `voom start` | `state.json`, `vm.json`, `image.json`, VM disk | runtime directory, `seed.img`, control share files, sockets, pidfiles, helper logs, runtime auto-forward state |
 | `voom stop` | `state.json`, `vm.json`, runtime pidfiles | stops runtime helper processes; removes sockets, pidfiles, and the runtime auto-forward state file |
 | `voom rm` | `state.json`, `vm.json`, runtime pidfiles | removes VM state, VM disk, runtime directory, cache logs, and `state.json` entry |
+| `voom resources cpus` / `memory` | `state.json`, `vm.json`, runtime pidfile | updates stopped-VM CPU or memory allocation in `vm.json` |
 | `voom disk grow` | `state.json`, `vm.json`, VM disk | grows the stopped VM disk |
 | `voom disk reset` | `state.json`, `vm.json`, `image.json`, image disk | replaces the VM disk and updates the VM image/access metadata |
 | `voom forward add` / `rm` | `state.json`, `vm.json`, runtime socket when running | updates declared forwards in `vm.json`; exposes or unexposes gvproxy forwards for running VMs |

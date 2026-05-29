@@ -116,6 +116,9 @@ func TestCommandSurfaceHelpAndArgValidation(t *testing.T) {
 		{"rm", "--help"},
 		{"disk", "grow", "--help"},
 		{"disk", "reset", "--help"},
+		{"resources", "--help"},
+		{"resources", "cpus", "--help"},
+		{"resources", "memory", "--help"},
 		{"forward", "add", "--help"},
 		{"forward", "rm", "--help"},
 		{"forward", "ls", "--help"},
@@ -143,6 +146,12 @@ func TestCommandSurfaceHelpAndArgValidation(t *testing.T) {
 	}
 	if err := runCmdErr("forward", "add", "scratch", "8080", "--host-port", "70000"); err == nil || !strings.Contains(err.Error(), "invalid TCP port") {
 		t.Fatalf("expected host port validation error, got %v", err)
+	}
+	if err := runCmdErr("resources", "cpus", "scratch", "0"); err == nil || !strings.Contains(err.Error(), "cpus must be at least 1") {
+		t.Fatalf("expected CPU validation error, got %v", err)
+	}
+	if err := runCmdErr("resources", "memory", "scratch", "512"); err == nil || !strings.Contains(err.Error(), "bare size") {
+		t.Fatalf("expected memory validation error, got %v", err)
 	}
 	if err := runCmdErr("share", "add", "scratch", "voom-control", ".", "/mnt/src"); err == nil || !strings.Contains(err.Error(), "reserved") {
 		t.Fatalf("expected reserved share tag error, got %v", err)
@@ -189,6 +198,35 @@ func TestImageCreateInspectForwardAndGuestGate(t *testing.T) {
 	if created.CPUs != 4 || created.MemoryMiB != 512 {
 		t.Fatalf("bad create resource JSON: %#v", created)
 	}
+	out = runCmd(t, "--output", "json", "resources", "cpus", "scratch", "6")
+	var cpusChanged struct {
+		Changed bool `json:"changed"`
+		CPUs    int  `json:"cpus"`
+	}
+	if err := json.Unmarshal([]byte(out), &cpusChanged); err != nil {
+		t.Fatal(err)
+	}
+	if !cpusChanged.Changed || cpusChanged.CPUs != 6 {
+		t.Fatalf("bad CPU resource JSON: %#v", cpusChanged)
+	}
+	out = runCmd(t, "--output", "json", "resources", "memory", "scratch", "1GiB")
+	var memoryChanged struct {
+		Changed   bool `json:"changed"`
+		MemoryMiB int  `json:"memoryMiB"`
+	}
+	if err := json.Unmarshal([]byte(out), &memoryChanged); err != nil {
+		t.Fatal(err)
+	}
+	if !memoryChanged.Changed || memoryChanged.MemoryMiB != 1024 {
+		t.Fatalf("bad memory resource JSON: %#v", memoryChanged)
+	}
+	out = runCmd(t, "--output", "json", "resources", "memory", "scratch", "1GiB")
+	if err := json.Unmarshal([]byte(out), &memoryChanged); err != nil {
+		t.Fatal(err)
+	}
+	if memoryChanged.Changed || memoryChanged.MemoryMiB != 1024 {
+		t.Fatalf("bad idempotent memory resource JSON: %#v", memoryChanged)
+	}
 	st, err := state.Open()
 	if err != nil {
 		t.Fatal(err)
@@ -200,11 +238,14 @@ func TestImageCreateInspectForwardAndGuestGate(t *testing.T) {
 	if vmRec.Access.NixosTargetUser != "mjrusso" {
 		t.Fatalf("nixos target user = %q, want imported SSH user", vmRec.Access.NixosTargetUser)
 	}
+	if vmRec.Resources.CPUs != 6 || vmRec.Resources.MemoryMiB != 1024 {
+		t.Fatalf("resources = %#v, want 6 CPUs and 1024MiB", vmRec.Resources)
+	}
 	out = runCmd(t, "info", "scratch")
 	if !strings.Contains(out, "ssh: mjrusso@127.0.0.1:2222") {
 		t.Fatalf("unexpected info output:\n%s", out)
 	}
-	if !strings.Contains(out, "cpus: 4") || !strings.Contains(out, "memory: 512MiB") {
+	if !strings.Contains(out, "cpus: 6") || !strings.Contains(out, "memory: 1024MiB") {
 		t.Fatalf("missing resource output:\n%s", out)
 	}
 	runCmd(t, "forward", "add", "scratch", "8080", "--host-port", "18080")

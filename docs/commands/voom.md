@@ -30,6 +30,7 @@ voom [flags]
 * [voom logs](voom_logs.md)	 - Print VM logs
 * [voom nixos](voom_nixos.md)	 - NixOS integrations
 * [voom rename](voom_rename.md)	 - Rename a VM
+* [voom resources](voom_resources.md)	 - Manage VM resource allocations
 * [voom restart](voom_restart.md)	 - Restart a VM
 * [voom rm](voom_rm.md)	 - Remove a VM
 * [voom share](voom_share.md)	 - Manage shares
