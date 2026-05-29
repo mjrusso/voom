@@ -280,30 +280,6 @@ image or a bootable disk image.
 | Linux   | aarch64         | `aarch64-linux` | qemu   | qcow2       |
 | Darwin  | arm64 / aarch64 | `aarch64-linux` | vfkit  | raw         |
 
-## Reference
-
-Voom manages local development VMs through the host's VM stack. It does not
-build images, bundle QEMU/vfkit/gvproxy, or run a background control plane.
-Images are imported explicitly, VMs are created explicitly, and optional guest
-integrations are gated by image capabilities.
-
-## Directories
-
-| Purpose                     | Default (XDG)                                  | Override           |
-|-----------------------------|------------------------------------------------|--------------------|
-| Configuration               | `$XDG_CONFIG_HOME/voom` or `~/.config/voom`    | `VOOM_CONFIG_DIR`  |
-| State (source of truth)     | `$XDG_DATA_HOME/voom` or `~/.local/share/voom` | `VOOM_STATE_DIR`   |
-| Cache (logs)                | `$XDG_CACHE_HOME/voom` or `~/.cache/voom`      | `VOOM_CACHE_DIR`   |
-| Runtime (sockets, pidfiles) | `$XDG_RUNTIME_DIR/voom` or `/tmp/voom-$UID`    | `VOOM_RUNTIME_DIR` |
-
-Run `voom debug paths` to inspect resolved values. External helpers can be
-overridden with `VOOM_GVPROXY`, `VOOM_VIRTIOFSD`, and `VOOM_QEMU_AARCH64_UEFI`.
-
-Setting all four `VOOM_*` overrides to disposable directories is the supported
-way to experiment without touching your normal state. This is useful for
-testing, scratch work, or locally developing Voom (as per details in
-[CONTRIBUTING.md](CONTRIBUTING.md)).
-
 ## Common Workflows
 
 **Lifecycle.** `voom create` makes a VM; `voom start` boots it. (Note that
@@ -346,9 +322,9 @@ rebuild errors. Only supported on NixOS guests.
 
 ## Diagnostics And Recovery
 
-`voom doctor` checks system dependencies (QEMU/vfkit, gvproxy, SSH, and
-optional Nix/NixOS tools), writable directories, port availability, LAN
-exposure, stale pidfiles, and state consistency.
+Use `voom doctor` to check system dependencies (as per [Host
+Requirements](#host-requirements)), as well as writable directories, port
+availability, LAN exposure, stale pidfiles, and state consistency.
 
 `voom logs <name>` reads the serial log by default; pass `--kind` to inspect
 helper logs (`qemu`, `vfkit`, `gvproxy`, `auto-forward`, `share-mount`).
@@ -365,7 +341,31 @@ If a VM is already stopped and only runtime debris remains, it is safe to
 remove that VM's `<runtime>/vms/<vm-id>` directory. Removing files under
 `<state>` is destructive and should be handled with care.
 
-## Images
+## Reference
+
+Voom manages local development VMs through the host's VM stack. It does not
+build images, bundle QEMU/vfkit/gvproxy, or run a background control plane.
+Images are imported explicitly, VMs are created explicitly, and optional guest
+integrations are gated by image capabilities.
+
+### Directories
+
+| Purpose                     | Default (XDG)                                  | Override           |
+|-----------------------------|------------------------------------------------|--------------------|
+| Configuration               | `$XDG_CONFIG_HOME/voom` or `~/.config/voom`    | `VOOM_CONFIG_DIR`  |
+| State (source of truth)     | `$XDG_DATA_HOME/voom` or `~/.local/share/voom` | `VOOM_STATE_DIR`   |
+| Cache (logs)                | `$XDG_CACHE_HOME/voom` or `~/.cache/voom`      | `VOOM_CACHE_DIR`   |
+| Runtime (sockets, pidfiles) | `$XDG_RUNTIME_DIR/voom` or `/tmp/voom-$UID`    | `VOOM_RUNTIME_DIR` |
+
+Run `voom debug paths` to inspect resolved values. External helpers can be
+overridden with `VOOM_GVPROXY`, `VOOM_VIRTIOFSD`, and `VOOM_QEMU_AARCH64_UEFI`.
+
+Setting all four `VOOM_*` overrides to disposable directories is the supported
+way to experiment without touching your normal state. This is useful for
+testing, scratch work, or locally developing Voom (as per details in
+[CONTRIBUTING.md](CONTRIBUTING.md)).
+
+### Images
 
 Names and IDs are decoupled: VM and image names are mutable labels matching
 `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`; Voom records a stable generated ID per image and
@@ -427,7 +427,7 @@ installs `golden-<system>.qcow2` or `.raw` plus
 [scripts/bake-golden](https://github.com/mjrusso/nixos-config/blob/main/scripts/bake-golden)
 as a reference implementation.
 
-## Guest Image Contract
+### Guest Image Contract
 
 There are two tiers of compatible images:
 
@@ -453,7 +453,7 @@ host-side forwards, which are managed by Voom. Use a stricter guest firewall
 only when attaching to a real network (bridged, macvtap, VPN). Recommended
 NixOS setting:
 
-### `voom-portfwd` Contract
+#### `voom-portfwd` Contract
 
 The helper writes `/run/voom/ports.json` atomically (tmp-and-rename) every
 interval. The host treats reports older than ~2× the scan interval as stale;
@@ -494,7 +494,7 @@ For reference, see the author's NixOS config at
 (helper script, systemd unit, `voom-mount-shares` service, `/run/voom` virtiofs
 control-share mount).
 
-## Networking Details
+### Networking Details
 
 Bind addresses must be IP literals; hostnames including `localhost` are
 rejected. Voom treats overlapping binds as conflicts:
@@ -523,7 +523,7 @@ plans host forwards from fresh reports and records installed/skipped rows in
 `voom forward discover <name>` is an audit/preview command; `voom forward ls`
 shows effective rows including skipped auto-forwards with an explanation.
 
-## State And Runtime Layout
+### State And Runtime Layout
 
 State is the persistent source of truth. JSON files are written atomically via
 temp-file-and-rename; partial files are ignored on load.
