@@ -17,7 +17,7 @@ Manage images
 
 ### SEE ALSO
 
-* [voom](voom.md)	 - Manage local development VMs
+* [voom](voom.md)	 - Magic-free local VMs
 * [voom image import](voom_image_import.md)	 - Import an image
 * [voom image inspect](voom_image_inspect.md)	 - Inspect an image
 * [voom image list](voom_image_list.md)	 - List images

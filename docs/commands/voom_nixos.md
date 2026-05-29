@@ -17,5 +17,5 @@ NixOS integrations
 
 ### SEE ALSO
 
-* [voom](voom.md)	 - Manage local development VMs
+* [voom](voom.md)	 - Magic-free local VMs
 * [voom nixos switch](voom_nixos_switch.md)	 - Run nixos-rebuild switch

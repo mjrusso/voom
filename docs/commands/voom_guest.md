@@ -17,5 +17,5 @@ Inspect guest-reported state
 
 ### SEE ALSO
 
-* [voom](voom.md)	 - Manage local development VMs
+* [voom](voom.md)	 - Magic-free local VMs
 * [voom guest ports](voom_guest_ports.md)	 - Show guest listeners

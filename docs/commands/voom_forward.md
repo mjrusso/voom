@@ -17,7 +17,7 @@ Manage guest port forwards
 
 ### SEE ALSO
 
-* [voom](voom.md)	 - Manage local development VMs
+* [voom](voom.md)	 - Magic-free local VMs
 * [voom forward add](voom_forward_add.md)	 - Add a manual forward
 * [voom forward auto](voom_forward_auto.md)	 - Configure auto-forwarding
 * [voom forward discover](voom_forward_discover.md)	 - Preview forwarding state

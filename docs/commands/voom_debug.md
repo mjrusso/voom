@@ -17,5 +17,5 @@ Debug voom internals
 
 ### SEE ALSO
 
-* [voom](voom.md)	 - Manage local development VMs
+* [voom](voom.md)	 - Magic-free local VMs
 * [voom debug paths](voom_debug_paths.md)	 - Print resolved directories

@@ -21,4 +21,4 @@ voom rename <old-name> <new-name> [flags]
 
 ### SEE ALSO
 
-* [voom](voom.md)	 - Manage local development VMs
+* [voom](voom.md)	 - Magic-free local VMs

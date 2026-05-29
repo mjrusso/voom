@@ -17,6 +17,6 @@ Manage VM disks
 
 ### SEE ALSO
 
-* [voom](voom.md)	 - Manage local development VMs
+* [voom](voom.md)	 - Magic-free local VMs
 * [voom disk grow](voom_disk_grow.md)	 - Grow a stopped VM disk
 * [voom disk reset](voom_disk_reset.md)	 - Reset VM disk from image

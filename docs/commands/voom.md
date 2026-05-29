@@ -1,6 +1,6 @@
 ## voom
 
-Manage local development VMs
+Magic-free local VMs
 
 ### Options
 

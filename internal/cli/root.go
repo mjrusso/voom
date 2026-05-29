@@ -36,7 +36,7 @@ func NewRootCommand() *cobra.Command {
 	opts := &rootOptions{}
 	cmd := &cobra.Command{
 		Use:           "voom",
-		Short:         "Manage local development VMs",
+		Short:         "Magic-free local VMs",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
@@ -51,6 +51,16 @@ func NewRootCommand() *cobra.Command {
 	cmd.CompletionOptions.DisableDefaultCmd = true
 	cmd.PersistentFlags().StringVar(&opts.output, "output", "text", "output format: text or json")
 	cmd.PersistentFlags().BoolVarP(&opts.verbose, "verbose", "v", false, "enable verbose diagnostics")
+	// Print the wordmark above the root command's help. This is
+	// deliberately kept out of Long, so it doesn't leak into the generated
+	// Markdown docs.
+	defaultHelp := cmd.HelpFunc()
+	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
+		if c == cmd {
+			_, _ = fmt.Fprintf(c.OutOrStdout(), "%s\n\n", banner)
+		}
+		defaultHelp(c, args)
+	})
 	addCommands(cmd)
 	return cmd
 }

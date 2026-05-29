@@ -32,7 +32,7 @@ func WriteVersion(w io.Writer, v VersionInfo, format string) error {
 	if format == "json" {
 		return json.NewEncoder(w).Encode(v)
 	}
-	_, err := fmt.Fprintf(w, "voom %s\ncommit: %s\nbuilt: %s\n", v.Version, v.Commit, v.Date)
+	_, err := fmt.Fprintf(w, "%s\n\nvoom %s\ncommit: %s\nbuilt: %s\n", banner, v.Version, v.Commit, v.Date)
 	return err
 }
 
