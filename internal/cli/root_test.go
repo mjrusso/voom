@@ -51,6 +51,12 @@ func TestVersionText(t *testing.T) {
 	}
 }
 
+func TestVersionFlagMatchesSubcommand(t *testing.T) {
+	if flag, sub := runCmd(t, "--version"), runCmd(t, "version"); flag != sub {
+		t.Fatalf("--version output differs from version subcommand:\n--version:\n%s\nversion:\n%s", flag, sub)
+	}
+}
+
 func TestValidationAndSizeParsing(t *testing.T) {
 	if err := state.ValidateName("VM", "scratch_1"); err != nil {
 		t.Fatal(err)

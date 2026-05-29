@@ -19,6 +19,7 @@ import (
 type rootOptions struct {
 	output  string
 	verbose bool
+	version bool
 }
 
 // Execute parses os.Args, dispatches to the matching subcommand, and exits non-zero on failure.
@@ -47,10 +48,18 @@ func NewRootCommand() *cobra.Command {
 				return fmt.Errorf("unsupported output format %q; use text or json", opts.output)
 			}
 		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			// `voom --version` mirrors `voom version`; bare `voom` shows help.
+			if opts.version {
+				return WriteVersion(cmd.OutOrStdout(), CurrentVersion(), outputFormat(cmd))
+			}
+			return cmd.Help()
+		},
 	}
 	cmd.CompletionOptions.DisableDefaultCmd = true
 	cmd.PersistentFlags().StringVar(&opts.output, "output", "text", "output format: text or json")
 	cmd.PersistentFlags().BoolVarP(&opts.verbose, "verbose", "v", false, "enable verbose diagnostics")
+	cmd.Flags().BoolVar(&opts.version, "version", false, "print version information")
 	// Print the wordmark above the root command's help. This is
 	// deliberately kept out of Long, so it doesn't leak into the generated
 	// Markdown docs.

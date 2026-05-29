@@ -2,12 +2,17 @@
 
 Magic-free local VMs
 
+```
+voom [flags]
+```
+
 ### Options
 
 ```
   -h, --help            help for voom
       --output string   output format: text or json (default "text")
   -v, --verbose         enable verbose diagnostics
+      --version         print version information
 ```
 
 ### SEE ALSO
