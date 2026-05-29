@@ -344,24 +344,6 @@ func rmCommand() *cobra.Command {
 func diskCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "disk", Short: "Manage VM disks"}
 	var resetImage string
-	cmd.AddCommand(&cobra.Command{Use: "grow <name> [amount]", Short: "Grow a stopped VM disk", Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cobra.Command, args []string) error {
-		deps, err := loadRuntimeDeps()
-		if err != nil {
-			return err
-		}
-		amount := "10G"
-		if len(args) == 2 {
-			amount = args[1]
-		}
-		if err := deps.vm.GrowDisk(cmd.Context(), args[0], amount); err != nil {
-			return err
-		}
-		if outputFormat(cmd) == "json" {
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": args[0], "changed": true, "amount": amount})
-		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "grew VM %s disk by %s\n", args[0], amount)
-		return nil
-	}})
 	reset := &cobra.Command{Use: "reset <name> --image <image>", Short: "Reset VM disk from image", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if resetImage == "" {
 			return errors.New("--image is required")
@@ -386,6 +368,9 @@ func diskCommand() *cobra.Command {
 
 func resourcesCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "resources", Short: "Manage VM resource allocations"}
+	disk := &cobra.Command{Use: "disk", Short: "Manage VM disk allocation"}
+	disk.AddCommand(diskGrowCommand())
+	cmd.AddCommand(disk)
 	cmd.AddCommand(&cobra.Command{Use: "cpus <name> <n>", Short: "Set CPU allocation for a stopped VM", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		cpus, err := strconv.Atoi(args[1])
 		if err != nil || cpus < 1 {
@@ -433,4 +418,25 @@ func resourcesCommand() *cobra.Command {
 		return nil
 	}})
 	return cmd
+}
+
+func diskGrowCommand() *cobra.Command {
+	return &cobra.Command{Use: "grow <name> [amount]", Short: "Grow a stopped VM disk", Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cobra.Command, args []string) error {
+		deps, err := loadRuntimeDeps()
+		if err != nil {
+			return err
+		}
+		amount := "10G"
+		if len(args) == 2 {
+			amount = args[1]
+		}
+		if err := deps.vm.GrowDisk(cmd.Context(), args[0], amount); err != nil {
+			return err
+		}
+		if outputFormat(cmd) == "json" {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": args[0], "changed": true, "amount": amount})
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "grew VM %s disk by %s\n", args[0], amount)
+		return nil
+	}}
 }

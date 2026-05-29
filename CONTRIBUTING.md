@@ -85,8 +85,9 @@ handlers.
 - `internal/cli` — Cobra command construction, argument validation, help,
   output format selection, version command.
 - `internal/doctor` — `voom doctor` checks and state diagnostics.
-- `internal/vm` — orchestration for create, start, stop, list, forward, and
-  share. Coordinates other packages but avoids low-level process details.
+- `internal/vm` — orchestration for create, start, stop, list, resources,
+  forward, and share. Coordinates other packages but avoids low-level process
+  details.
 - `internal/state` — directory resolution, typed state loading/saving, schema
   version checks, VM/image path derivation, recoverable writes, locking, and
   runtime path layout. Normal command loading uses `state.json`; `voom doctor`
@@ -128,6 +129,7 @@ Areas that should stay covered by unit tests:
 - generated VM/image IDs and name-to-ID index maintenance;
 - state recovery diagnostics;
 - global and per-VM lock ordering;
+- stopped-VM resource mutation and running-VM rejection;
 - image import validation, inspection output, removal blocking, and capability
   gating;
 - forward declaration validation and SSH/forward port conflict behavior;

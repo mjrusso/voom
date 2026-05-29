@@ -314,9 +314,9 @@ exports each share with a `virtiofsd` helper; on vfkit, voom attaches native
 vfkit virtio-fs devices. Adding or removing shares requires the VM to be
 stopped.
 
-**Disk.** `voom disk grow <name>` defaults to `10G` and only acts on stopped
-VMs. `voom disk reset <name>` stops the VM and replaces its disk from the image
-while preserving VM configuration. Sizes accept
+**Disk.** `voom resources disk grow <name>` defaults to `10G` and only acts on
+stopped VMs. `voom disk reset <name>` stops the VM and replaces its disk from
+the image while preserving VM configuration. Sizes accept
 `M`/`MB`/`MiB`/`G`/`GB`/`GiB`/`T`/`TB`/`TiB`; bare numbers are rejected.
 
 **NixOS switch.** `voom nixos switch <name>` runs `nixos-rebuild --target-host`
@@ -575,7 +575,7 @@ Common command effects:
 | `voom stop` | `state.json`, `vm.json`, runtime pidfiles | stops runtime helper processes; removes sockets, pidfiles, and the runtime auto-forward state file |
 | `voom rm` | `state.json`, `vm.json`, runtime pidfiles | removes VM state, VM disk, runtime directory, cache logs, and `state.json` entry |
 | `voom resources cpus` / `memory` | `state.json`, `vm.json`, runtime pidfile | updates stopped-VM CPU or memory allocation in `vm.json` |
-| `voom disk grow` | `state.json`, `vm.json`, VM disk | grows the stopped VM disk |
+| `voom resources disk grow` | `state.json`, `vm.json`, VM disk | grows the stopped VM disk |
 | `voom disk reset` | `state.json`, `vm.json`, `image.json`, image disk | replaces the VM disk and updates the VM image/access metadata |
 | `voom forward add` / `rm` | `state.json`, `vm.json`, runtime socket when running | updates declared forwards in `vm.json`; exposes or unexposes gvproxy forwards for running VMs |
 | `voom forward auto enable` / `disable` / `offset` | `state.json`, `vm.json`, image capabilities, runtime report when running | updates auto-forward settings in `vm.json`; reconciles or removes runtime auto-forwards for running VMs |

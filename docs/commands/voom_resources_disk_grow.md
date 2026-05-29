@@ -1,9 +1,9 @@
-## voom disk grow
+## voom resources disk grow
 
 Grow a stopped VM disk
 
 ```
-voom disk grow <name> [amount] [flags]
+voom resources disk grow <name> [amount] [flags]
 ```
 
 ### Options
@@ -21,4 +21,4 @@ voom disk grow <name> [amount] [flags]
 
 ### SEE ALSO
 
-* [voom disk](voom_disk.md)	 - Manage VM disks
+* [voom resources disk](voom_resources_disk.md)	 - Manage VM disk allocation
