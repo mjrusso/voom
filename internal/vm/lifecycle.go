@@ -335,7 +335,7 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		}
 	}
 	started = true
-	_, _ = fmt.Fprintf(stderr, "VM %s started; SSH will become available at %s:%d after guest boot\n", vm.Name, vm.Network.SSHBind, vm.Network.SSHPort)
+	_, _ = fmt.Fprintf(stderr, "VM %s started; SSH will become available at %s:%d after guest boots\n", vm.Name, vm.Network.SSHBind, vm.Network.SSHPort)
 	return vm, nil
 }
 
