@@ -17,10 +17,10 @@ Voom is deliberately simple and not magical. In particular, Voom has:
 - all runtime state lives under `$XDG_*` paths
 - explicit VM lifecycle: `import → create → start`
 
-Voom also supports automatic port forwarding from host-to-guest, and host
-directory mounting. These advanced features require opt-in via an optional
-sidecar file; see [Guest Image Contract](#guest-image-contract) for full
-details.
+Voom also optionally supports automatic port forwarding from host-to-guest
+(with configurable per-VM offsets to avoid collisions), and host directory
+mounting. These advanced features require opt-in via a sidecar file; see [Guest
+Image Contract](#guest-image-contract) for full details.
 
 Note that there are many excellent tools in this space, with differing goals
 and trade-offs. [Kevin Lynagh](https://kevinlynagh.com/)'s
@@ -299,7 +299,10 @@ about LAN exposure). `--auto` picks a free host port. `voom forward auto enable
 <name>` opts into runtime auto-forwarding for images that declare
 `guestPortReport`. SSH ports are allocated from 2222–2299 and persisted. `voom
 ssh-config <name>` prints an OpenSSH host block; `voom forward ls` shows SSH,
-manual, and runtime auto-forward rows across VMs.
+manual, and runtime auto-forward rows across VMs. `voom forward auto enable
+<name> --offset 10000` shifts every auto-forwarded host port by a fixed amount,
+so multiple VMs can auto-forward the same guest ports without colliding on the
+host.
 
 **Shares.** `voom share add <name> <tag> <host-path> <guest-path>` declares a
 virtio-fs share. Appending `--ro`/`--readonly` makes the share read-only. The
@@ -367,24 +370,25 @@ testing, scratch work, or locally developing Voom (as per details in
 
 ### Images
 
-Names and IDs are decoupled: VM and image names are mutable labels matching
-`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`; Voom records a stable generated ID per image and
-VM and uses the ID for on-disk directories. Share tags match
-`^[A-Za-z0-9][A-Za-z0-9._-]*$`; the tag `voom-control` is reserved for use by Voom.
+**Names and IDs.** VM and image names are mutable labels (matching
+`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`), decoupled from the stable generated IDs that
+Voom uses for internal bookkeeping.
 
-VM disks are independent copies of the image disk. `voom image rm` blocks while
-VMs reference an image unless `--force` is used; forced removal leaves existing
-VM disks in place with historical image metadata.
+**Disks.** Each VM disk is an independent copy of the image disk. `voom image
+rm` blocks while any VM references the image, unless `--force` is used; a
+forced removal leaves existing VM disks in place with their historical
+metadata.
 
-**SSH login user.** Required at import: provide it through the sidecar `user`
-field or with `--ssh-user`; the flag wins when both are present. On start, Voom
-writes a NoCloud seed that authorizes the image's `sshIdentityPath` public key
-when set, otherwise the readable default keys in `~/.ssh/id_ed25519.pub`,
-`id_ecdsa.pub`, `id_rsa.pub`, and `id_dsa.pub`. The seed authorizes root and,
-when different, the configured login user with passwordless sudo.
+**SSH login user.** Required at import: set it through the sidecar `user` field
+or the `--ssh-user` flag (the flag wins if both are present). On start, Voom
+writes a `NoCloud` seed authorizing the image's `sshIdentityPath` public key,
+or, when unset, the readable defaults `~/.ssh/id_ed25519.pub`, `id_ecdsa.pub`,
+`id_rsa.pub`, and `id_dsa.pub`. The seed grants passwordless sudo to root, and
+to the login user when the two differ.
 
-**Capabilities.** Sidecar metadata declares which integrations the guest
-supports.
+**Sidecar metadata.** A sidecar records an image's properties (`system`,
+`format`, login `user`, and so on) and declares which guest integrations are
+available:
 
 - `controlShare` — guest can mount the reserved `voom-control` share at
   `/run/voom`
@@ -393,7 +397,7 @@ supports.
 - `guestShareMount` — guest can mount declared host shares
 - `nixosSwitch` — guest supports `voom nixos switch`
 
-A typical sidecar looks like this:
+A typical sidecar:
 
 ```json
 {
@@ -412,20 +416,21 @@ A typical sidecar looks like this:
 }
 ```
 
-`nixosTargetUser` (or `nixos_target_user`) overrides the user used by
-`voom nixos switch`; it defaults to `user` when omitted. Setting
-`"installGuestHelpers": true` in the sidecar is equivalent to passing
-`--install-guest-helpers` on import.
+Note:
 
-For NixOS images, the useful pattern is to have your own flake build image
-outputs for the target systems and formats voom can run, then write a sibling
-sidecar with at least `user`, `system`, `format`, `baked_at`, `flake_rev`, and
-the capabilities your image actually ships. My personal NixOS config does this
-with outputs named like `.#images.<system>.<format>` and a wrapper that
-installs `golden-<system>.qcow2` or `.raw` plus
-`golden-<system>.<ext>.meta.json`; see
+- `nixosTargetUser` (or `nixos_target_user`) overrides the user `voom nixos
+  switch` targets, defaulting to `user`.
+
+- Setting `"installGuestHelpers": true` is equivalent to passing
+  `--install-guest-helpers` on import.
+
+**NixOS images.** The useful pattern is to have your flake build image outputs
+for the systems and formats Voom can run, then write a sibling sidecar
+declaring at least `user`, `system`, `format`, `baked_at`, `flake_rev`, and the
+capabilities the image actually ships. The author's NixOS config does this with
+outputs named `.#images.<system>.<format>`; see
 [scripts/bake-golden](https://github.com/mjrusso/nixos-config/blob/main/scripts/bake-golden)
-as a reference implementation.
+for a reference implementation.
 
 ### Guest Image Contract
 
