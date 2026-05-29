@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -61,6 +62,13 @@ func outputFormat(cmd *cobra.Command) string {
 	return "text"
 }
 
+// tableWriter returns a tabwriter that pads columns to a uniform width with a
+// two-space gutter. Callers must Flush it before returning. Use it for any
+// multi-row text table so wide cells don't push later columns out of line.
+func tableWriter(cmd *cobra.Command) *tabwriter.Writer {
+	return tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+}
+
 func addCommands(root *cobra.Command) {
 	root.AddCommand(newVersionCommand(), doctorCommand(), debugCommand(), guestCommand())
 	root.AddCommand(imageCommand(), createCommand(), startCommand(), stopCommand(), restartCommand())
@@ -111,10 +119,11 @@ func guestCommand() *cobra.Command {
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(report)
 		}
+		tw := tableWriter(cmd)
 		for _, l := range report.Listeners {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s:%d\t%s\n", l.Proto, l.Addr, l.Port, l.Process)
+			_, _ = fmt.Fprintf(tw, "%s\t%s:%d\t%s\n", l.Proto, l.Addr, l.Port, l.Process)
 		}
-		return nil
+		return tw.Flush()
 	}})
 	return cmd
 }

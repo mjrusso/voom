@@ -269,10 +269,11 @@ func listCommand() *cobra.Command {
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(rows)
 		}
+		tw := tableWriter(cmd)
 		for _, r := range rows {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\t%d\n", r.Name, r.ID, r.Status, r.Image, r.SSHPort)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\n", r.Name, r.ID, r.Status, r.Image, r.SSHPort)
 		}
-		return nil
+		return tw.Flush()
 	}}
 }
 

@@ -60,10 +60,11 @@ func shareCommand() *cobra.Command {
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(vmRec.Shares)
 		}
+		tw := tableWriter(cmd)
 		for _, s := range vmRec.Shares {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%t\n", s.Tag, s.HostPath, s.GuestPath, s.Readonly)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%t\n", s.Tag, s.HostPath, s.GuestPath, s.Readonly)
 		}
-		return nil
+		return tw.Flush()
 	}})
 	return cmd
 }

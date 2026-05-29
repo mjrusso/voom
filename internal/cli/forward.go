@@ -214,10 +214,11 @@ func forwardAutoCommand() *cobra.Command {
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(rows)
 		}
+		tw := tableWriter(cmd)
 		for _, r := range rows {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s:%d\t%s:%d\t%s\n", r.Status, r.Bind, r.HostPort, r.GuestTargetIP, r.GuestPort, r.Reason)
+			_, _ = fmt.Fprintf(tw, "%s\t%s:%d\t%s:%d\t%s\n", r.Status, r.Bind, r.HostPort, r.GuestTargetIP, r.GuestPort, r.Reason)
 		}
-		return nil
+		return tw.Flush()
 	}}
 	cmd.AddCommand(reconcile)
 	watch := &cobra.Command{Use: "watch <name>", Short: "Watch guest port reports and reconcile runtime auto-forwards", Args: cobra.ExactArgs(1), Hidden: true, RunE: func(cmd *cobra.Command, args []string) error {

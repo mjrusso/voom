@@ -35,10 +35,11 @@ func imageListCommand() *cobra.Command {
 			if outputFormat(cmd) == "json" {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(images)
 			}
+			tw := tableWriter(cmd)
 			for _, im := range images {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\n", im.Name, im.ID, im.Arch, im.Format)
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", im.Name, im.ID, im.Arch, im.Format)
 			}
-			return nil
+			return tw.Flush()
 		},
 	}
 }

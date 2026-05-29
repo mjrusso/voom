@@ -16,10 +16,11 @@ func doctorCommand() *cobra.Command {
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(checks)
 		}
+		tw := tableWriter(cmd)
 		for _, c := range checks {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", c.Severity, c.Name, c.Message)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", c.Severity, c.Name, c.Message)
 		}
-		return nil
+		return tw.Flush()
 	}}
 	cmd.Flags().BoolVar(&all, "all", false, "include optional integration checks")
 	return cmd
