@@ -139,7 +139,7 @@ curl -fLO "$URL/$IMG"
 curl -fLO "$URL/SHA512SUMS"
 shasum -a 512 --ignore-missing -c SHA512SUMS
 
-voom image import debian13 ./"$IMG" --ssh-user debian --install-guest-helpers
+voom image import debian13 ./"$IMG" --ssh-user debian --arch aarch64-linux --install-guest-helpers
 ```
 
 If running on a Linux host (this example is x86_64), acquire a Debian cloud
@@ -154,7 +154,7 @@ curl -fLO "$URL/$IMG"
 curl -fLO "$URL/SHA512SUMS"
 sha512sum --ignore-missing -c SHA512SUMS
 
-voom image import debian13 ./"$IMG" --ssh-user debian --install-guest-helpers
+voom image import debian13 ./"$IMG" --ssh-user debian --arch x86_64-linux --install-guest-helpers
 ```
 
 Once an image is imported, the commands are generally the same regardless of
