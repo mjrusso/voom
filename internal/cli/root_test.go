@@ -178,7 +178,17 @@ func TestImageCreateInspectForwardAndGuestGate(t *testing.T) {
 	if !strings.Contains(out, "kernelPath: ") || !strings.Contains(out, "kernelCmdline: ") {
 		t.Fatalf("missing kernel metadata output:\n%s", out)
 	}
-	runCmd(t, "create", "scratch", "--image", "nixos", "--memory", "512MiB")
+	out = runCmd(t, "--output", "json", "create", "scratch", "--image", "nixos", "--memory", "512MiB")
+	var created struct {
+		CPUs      int `json:"cpus"`
+		MemoryMiB int `json:"memoryMiB"`
+	}
+	if err := json.Unmarshal([]byte(out), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.CPUs != 4 || created.MemoryMiB != 512 {
+		t.Fatalf("bad create resource JSON: %#v", created)
+	}
 	st, err := state.Open()
 	if err != nil {
 		t.Fatal(err)
@@ -193,6 +203,9 @@ func TestImageCreateInspectForwardAndGuestGate(t *testing.T) {
 	out = runCmd(t, "info", "scratch")
 	if !strings.Contains(out, "ssh: mjrusso@127.0.0.1:2222") {
 		t.Fatalf("unexpected info output:\n%s", out)
+	}
+	if !strings.Contains(out, "cpus: 4") || !strings.Contains(out, "memory: 512MiB") {
+		t.Fatalf("missing resource output:\n%s", out)
 	}
 	runCmd(t, "forward", "add", "scratch", "8080", "--host-port", "18080")
 	if err := runCmdErr("forward", "add", "scratch", "8081", "--host-port", "18080"); err == nil || !strings.Contains(err.Error(), "unavailable") {
@@ -349,10 +362,18 @@ func TestFixtureCommands(t *testing.T) {
 	t.Setenv("VOOM_CACHE_DIR", filepath.Join(dir, "cache"))
 	t.Setenv("VOOM_RUNTIME_DIR", filepath.Join(dir, "runtime"))
 
-	if out := runCmd(t, "list"); !strings.Contains(out, "scratch") {
+	if out := runCmd(t, "list"); !strings.Contains(out, "scratch") || !strings.Contains(out, "4096MiB") {
 		t.Fatalf("fixture list missing scratch:\n%s", out)
 	}
-	if out := runCmd(t, "info", "scratch"); !strings.Contains(out, "ssh: root@127.0.0.1:2222") {
+	var listRows []struct {
+		Name      string `json:"name"`
+		CPUs      int    `json:"cpus"`
+		MemoryMiB int    `json:"memoryMiB"`
+	}
+	if out := runCmd(t, "--output", "json", "list"); json.Unmarshal([]byte(out), &listRows) != nil || len(listRows) != 1 || listRows[0].Name != "scratch" || listRows[0].CPUs != 4 || listRows[0].MemoryMiB != 4096 {
+		t.Fatalf("fixture list JSON missing resources:\n%s", out)
+	}
+	if out := runCmd(t, "info", "scratch"); !strings.Contains(out, "ssh: root@127.0.0.1:2222") || !strings.Contains(out, "cpus: 4") || !strings.Contains(out, "memory: 4096MiB") {
 		t.Fatalf("fixture info mismatch:\n%s", out)
 	}
 	if out := runCmd(t, "image", "inspect", "nixos"); !strings.Contains(out, "name: nixos") {

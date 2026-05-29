@@ -60,7 +60,7 @@ func createCommand() *cobra.Command {
 				started = true
 			}
 			if outputFormat(cmd) == "json" {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": vmRec.Name, "id": vmRec.ID, "changed": true, "started": started, "sshPort": vmRec.Network.SSHPort})
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": vmRec.Name, "id": vmRec.ID, "changed": true, "started": started, "sshPort": vmRec.Network.SSHPort, "cpus": vmRec.Resources.CPUs, "memoryMiB": vmRec.Resources.MemoryMiB})
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "created VM %s (%s), ssh 127.0.0.1:%d\n", vmRec.Name, vmRec.ID, vmRec.Network.SSHPort)
 			return nil
@@ -234,7 +234,7 @@ func infoCommand() *cobra.Command {
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\nstatus: %s\nimage: %s\nssh: %s@%s:%d\nforwards: %d\nshares: %d\n", vmRec.Name, vmRec.ID, vm.Status(out.Running), vmRec.Image.Name, vmRec.Access.SSHUser, vmRec.Network.SSHBind, vmRec.Network.SSHPort, len(vmRec.Network.Forwards), len(vmRec.Shares))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\nstatus: %s\nimage: %s\ncpus: %d\nmemory: %dMiB\nssh: %s@%s:%d\nforwards: %d\nshares: %d\n", vmRec.Name, vmRec.ID, vm.Status(out.Running), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, vmRec.Access.SSHUser, vmRec.Network.SSHBind, vmRec.Network.SSHPort, len(vmRec.Network.Forwards), len(vmRec.Shares))
 		return nil
 	}}
 }
@@ -256,22 +256,24 @@ func listCommand() *cobra.Command {
 			return err
 		}
 		type row struct {
-			Name    string `json:"name"`
-			ID      string `json:"id"`
-			Status  string `json:"status"`
-			Image   string `json:"image"`
-			SSHPort int    `json:"sshPort"`
+			Name      string `json:"name"`
+			ID        string `json:"id"`
+			Status    string `json:"status"`
+			Image     string `json:"image"`
+			CPUs      int    `json:"cpus"`
+			MemoryMiB int    `json:"memoryMiB"`
+			SSHPort   int    `json:"sshPort"`
 		}
 		rows := []row{}
 		for _, vmRec := range vms {
-			rows = append(rows, row{vmRec.Name, vmRec.ID, vm.Status(deps.vm.IsRunning(vmRec)), vmRec.Image.Name, vmRec.Network.SSHPort})
+			rows = append(rows, row{vmRec.Name, vmRec.ID, vm.Status(deps.vm.IsRunning(vmRec)), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, vmRec.Network.SSHPort})
 		}
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(rows)
 		}
 		tw := tableWriter(cmd)
 		for _, r := range rows {
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\n", r.Name, r.ID, r.Status, r.Image, r.SSHPort)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%dMiB\t%d\n", r.Name, r.ID, r.Status, r.Image, r.CPUs, r.MemoryMiB, r.SSHPort)
 		}
 		return tw.Flush()
 	}}
