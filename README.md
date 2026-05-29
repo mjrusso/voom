@@ -1,12 +1,14 @@
-# voom
+# Voom
 
 ![voom — magic-free virtual machines](assets/voom.png)
 
 **`voom`**: *run magic-free local VMs.*
 
-Voom is CLI for orchestrating host VM tooling on Linux
-([QEMU](https://www.qemu.org/)/[KVM](https://linux-kvm.org/)) and MacOS
-([vfkit](https://github.com/crc-org/vfkit)).
+---
+
+Voom is CLI for running and managing Linux-based virtual machines. Voom
+supports MacOS hosts (via [vfkit](https://github.com/crc-org/vfkit)) and Linux
+hosts (via [QEMU](https://www.qemu.org/)/[KVM](https://linux-kvm.org/)).
 
 Voom is deliberately simple and not magical. In particular, Voom has:
 
@@ -15,20 +17,20 @@ Voom is deliberately simple and not magical. In particular, Voom has:
 - all runtime state lives under `$XDG_*` paths
 - explicit VM lifecycle: `import → create → start`
 
-_(To enable more advanced features, such as automatic port forwarding and host
-directory mounting, image metadata can be provided via an optional sidecar
-file; see [Guest Image Contract](#guest-image-contract) for full details.)_
+Voom also supports automatic port forwarding from host-to-guest, and host
+directory mounting. These advanced features require opt-in via an optional
+sidecar file; see [Guest Image Contract](#guest-image-contract) for full
+details.
 
 Note that there are many excellent tools in this space, with differing goals
 and trade-offs. [Kevin Lynagh](https://kevinlynagh.com/)'s
-[Vibe](https://github.com/lynaghk/vibe/) is one such example for Mac users.
-(Speaking of Vibe, see [this excellent list of
-alternatives](https://github.com/lynaghk/vibe/#alternatives) for a primer on
-the myriad of available options.)
+[Vibe](https://github.com/lynaghk/vibe/) is one such example for Mac users —
+see its [list of alternatives](https://github.com/lynaghk/vibe/#alternatives)
+for a primer on available options.
 
 Voom might be a nice choice for you if you have the need for disposable-ish,
-pseudo-ephemeral VMs (great for letting your agents `--yolo`, among other
-uses).
+pseudo-ephemeral VMs (great for letting your agents `--yolo`, among plenty of
+other uses).
 
 > [!TIP]
 >
@@ -53,9 +55,11 @@ uses).
 
 > [!NOTE]
 >
-> The demo below assumes you already have a compatible image at `./image.raw`
-> with a sibling `image.meta.json` sidecar. The [Quick Start](#quick-start)
-> shows an example of how to acquire an image.
+> The demo below assumes you already have a compatible image (`./image.raw`, in
+> this example) with a sibling `image.meta.json` sidecar. The [Quick
+> Start](#quick-start) shows an example of how to acquire a pre-built image,
+> although Voom particularly shines when you [bring your
+> own](https://github.com/mjrusso/voom#guest-image-contract).
 
 **Create and run a VM** on your host machine:
 
@@ -232,7 +236,7 @@ In NixOS or Home Manager configs, add `voom.packages.${pkgs.system}.default` to
 `environment.systemPackages` or `home.packages` after passing the flake input
 to the module.
 
-### Build from source
+### Build from Source
 
 For instructions on building from source, see
 [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -302,16 +306,16 @@ testing, scratch work, or locally developing Voom (as per details in
 
 ## Common Workflows
 
-**Lifecycle.** Use `voom create` to create a new VM, and `voom start` to start
-it. (Note that `voom start` will never implicitly create a VM.) Stop with `voom
-stop` (persistent state will be kept intact; use `voom rm <name> --force` to
-remove a VM's state, disk, runtime files, and cache logs). Note that `voom
-create` defaults to 4 CPUs and `4096MiB` memory; use `--cpus`, `--memory`,
-`--ssh-port`, and `--start` for common creation-time adjustments.
+**Lifecycle.** `voom create` makes a VM; `voom start` boots it. (Note that
+`voom start` will never implicitly create a VM.) `voom stop` shuts the VM down
+but keeps persistent state; `voom rm <name> --force` removes a VM's state,
+disk, runtime files, and cache logs. New VMs default to 4 CPUs and `4096MiB`
+memory; adjust at creation with `--cpus`, `--memory`, `--ssh-port`, and
+`--start`.
 
-**SSH.** `voom ssh <name>` opens an interactive shell. Any trailing arguments
-are passed through to `ssh` as a one-shot remote command, so, for example,
-`voom ssh <name> -- uname -a` runs `uname -a` in the VM and exits.
+**SSH.** `voom ssh <name>` opens an interactive shell. Trailing arguments pass
+through to `ssh` as a one-shot remote command: for example, `voom ssh <name> --
+uname -a` runs `uname -a` in the VM and exits.
 
 **Forwards.** Manual forwards bind `127.0.0.1` by default. `--lan` or `--bind
 0.0.0.0` exposes to other machines (recorded in `vm.json`; `voom doctor` warns
@@ -342,10 +346,9 @@ rebuild errors. Only supported on NixOS guests.
 
 ## Diagnostics And Recovery
 
-`voom doctor` checks host support, including system dependencies like
-QEMU/vfkit, gvproxy, SSH, optional Nix/NixOS tools, as well as writable
-directories, port availability, LAN exposure, stale pidfiles, and for state
-consistency.
+`voom doctor` checks system dependencies (QEMU/vfkit, gvproxy, SSH, and
+optional Nix/NixOS tools), writable directories, port availability, LAN
+exposure, stale pidfiles, and state consistency.
 
 `voom logs <name>` reads the serial log by default; pass `--kind` to inspect
 helper logs (`qemu`, `vfkit`, `gvproxy`, `auto-forward`, `share-mount`).
