@@ -70,10 +70,6 @@ voom start dev
 voom ssh dev
 ```
 
-_Note that this example assumes that a VM image named `image.raw` is available,
-with a sibling `image.meta.json` sidecar. (More below on how to create an
-image, or use an existing one.)_
-
 **Mount a host directory** into the guest as a `virtio-fs` share:
 
 ```sh
@@ -93,9 +89,9 @@ voom forward ls dev
 curl http://127.0.0.1:8080
 ```
 
-**Stop the VM** when you're done using it. Runtime state (sockets, pidfiles,
-helper logs) is cleared, but persistent state (disk, declared shares and
-forwards, switch metadata) remains:
+**Stop the VM** when you're done using it. This clears runtime state (sockets,
+pidfiles, helper logs), but not persistent state (disk, declared shares and
+forwards, switch metadata):
 
 ```sh
 voom stop dev
@@ -103,10 +99,9 @@ voom stop dev
 
 ## Quick Start
 
-Install `voom` (see [Installation](#installation), below). Make sure that the
-host runtime tools from [Host Requirements](#host-requirements) are installed
-on your platform: vfkit + gvproxy are required on MacOS hosts, and QEMU + KVM +
-gvproxy are required on Linux hosts.
+Install Voom (see [Installation](#installation)). Make sure that the host
+runtime dependencies (see [Host Requirements](#host-requirements)) are
+installed on your platform.
 
 Voom works with off-the-shelf images. The following examples use [a Debian
 cloud image](https://cloud.debian.org/images/cloud/trixie).
@@ -131,8 +126,7 @@ cloud image](https://cloud.debian.org/images/cloud/trixie).
 > `--install-guest-helpers`. _(Sidenote: the terminology is confusing; Voom's
 > `NoCloud` `cloud-init` seed is unrelated to Debian's `nocloud` variant.)_
 
-If running on a MacOS (Apple Silicon) host, acquire a Debian cloud image and
-import into Voom:
+On an ARM MacOS host, acquire a Debian cloud image and import into Voom:
 
 ```bash
 BUILD=20260518-2482
@@ -146,8 +140,8 @@ shasum -a 512 --ignore-missing -c SHA512SUMS
 voom image import debian13 ./"$IMG" --ssh-user debian --arch aarch64-linux --install-guest-helpers
 ```
 
-If running on a Linux host (this example is x86_64), acquire a Debian cloud
-image and import into Voom:
+On a Linux host (this example is x86_64), acquire a Debian cloud image and
+import into Voom:
 
 ```bash
 BUILD=20260518-2482
@@ -161,8 +155,8 @@ sha512sum --ignore-missing -c SHA512SUMS
 voom image import debian13 ./"$IMG" --ssh-user debian --arch x86_64-linux --install-guest-helpers
 ```
 
-Once an image is imported, the commands are generally the same regardless of
-host OS and CPU architecture:
+Once an image has been imported, usage is consistent regardless of host
+platform:
 
 ```bash
 # Create VM
@@ -173,17 +167,24 @@ voom start deb
 until voom ssh deb -- 'systemctl is-active voom-portfwd.service' 2>/dev/null \
   | grep -q '^active$'; do sleep 5; done
 
-voom ssh deb
+# Run a command on the VM
+voom ssh deb -- uname
+
+# Enable automatic port forwarding
 voom forward auto enable deb
+
+# Mount a folder
 voom share add deb code /path/to/project /mnt/code
 voom restart deb  # pick up the new share
 voom ssh deb -- ls /mnt/code
+
+# Open an interactive SSH session
+voom ssh deb
 ```
 
-Most non-streaming commands accept `--output json` for automation (`list`,
-`info`, `image inspect`, `version`, `doctor`, `debug paths`, forward, share,
-disk, resources, lifecycle). Streaming commands (`ssh`, `console`, `nixos
-switch`) are text/subprocess oriented.
+Most non-streaming commands accept `--output json`, to simplify automation.
+Streaming commands (`ssh`, `console`, `nixos switch`) are instead
+text/subprocess oriented.
 
 For more information, see the generated command reference
 ([docs/commands](docs/commands/)).
@@ -314,16 +315,15 @@ exports each share with a `virtiofsd` helper; on vfkit, voom attaches native
 vfkit virtio-fs devices. Adding or removing shares requires the VM to be
 stopped.
 
-**Disk.** `voom resources disk grow <name>` defaults to `10G` and only acts on
-stopped VMs. `voom disk reset <name>` stops the VM and replaces its disk from
-the image while preserving VM configuration. Sizes accept
-`M`/`MB`/`MiB`/`G`/`GB`/`GiB`/`T`/`TB`/`TiB`; bare numbers are rejected.
+**Disk.** `voom resources disk grow <name>` defaults to `10G` (note that the VM
+must be stopped to grow the disk). `voom disk reset <name>` stops the VM and
+replaces its disk from the image while preserving VM configuration. Sizes
+accept `M`/`MB`/`MiB`/`G`/`GB`/`GiB`/`T`/`TB`/`TiB`.
 
 **NixOS switch.** `voom nixos switch <name>` runs `nixos-rebuild --target-host`
 over the VM's persisted SSH port, sets `NIX_SSHOPTS` with the VM's SSH options,
 and records `switchedAt`, `flakeRef`, and the current git revision in `vm.json`
-on success. Failures distinguish SSH, privilege, missing Nix/NixOS tooling, and
-rebuild errors. Only supported on NixOS guests.
+on success. Only supported on NixOS guests.
 
 ## Diagnostics And Recovery
 
@@ -346,12 +346,17 @@ If a VM is already stopped and only runtime debris remains, it is safe to
 remove that VM's `<runtime>/vms/<vm-id>` directory. Removing files under
 `<state>` is destructive and should be handled with care.
 
+---
+
 ## Reference
 
-Voom manages local development VMs through the host's VM stack. It does not
-build images, bundle QEMU/vfkit/gvproxy, or run a background control plane.
-Images are imported explicitly, VMs are created explicitly, and optional guest
-integrations are gated by image capabilities.
+Voom manages local development VMs through the host's VM stack. Voom does not
+build images, bundle dependencies (QEMU/vfkit/gvproxy/etc.), or run a
+background control plane.
+
+Images must be explicitly imported, VMs must be created explicitly (referencing
+an existing, already-imported image), and optional guest integrations are
+always opt-in.
 
 ### Directories
 
@@ -426,8 +431,8 @@ Note:
 - Setting `"installGuestHelpers": true` is equivalent to passing
   `--install-guest-helpers` on import.
 
-**NixOS images.** The useful pattern is to have your flake build image outputs
-for the systems and formats Voom can run, then write a sibling sidecar
+**NixOS images.** The recommended pattern is to have your flake build image
+outputs for the systems and formats Voom can run, then write a sibling sidecar
 declaring at least `user`, `system`, `format`, `baked_at`, `flake_rev`, and the
 capabilities the image actually ships. The author's NixOS config does this with
 outputs named `.#images.<system>.<format>`; see
