@@ -11,7 +11,7 @@ import (
 )
 
 func configCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "config", Short: "Inspect VM configuration"}
+	cmd := &cobra.Command{Use: "config", Short: "Inspect and modify VM configuration"}
 	show := &cobra.Command{
 		Use:   "show <name>",
 		Short: "Print the commands to reproduce a VM's configuration",
@@ -36,15 +36,53 @@ func configCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.AddCommand(show)
+	sshPort := &cobra.Command{
+		Use:   "ssh-port <name> <port|auto>",
+		Short: "Set or reallocate the host SSH port for a stopped VM",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			port := 0
+			if args[1] != "auto" {
+				var err error
+				port, err = state.ParsePort(args[1])
+				if err != nil {
+					return err
+				}
+			}
+			deps, err := loadRuntimeDeps()
+			if err != nil {
+				return err
+			}
+			unlock, err := deps.store.LockGlobal()
+			if err != nil {
+				return err
+			}
+			defer unlock()
+			vmRec, changed, err := deps.vm.SetSSHPort(args[0], port)
+			if err != nil {
+				return err
+			}
+			if outputFormat(cmd) == "json" {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": vmRec.Name, "changed": changed, "sshPort": vmRec.Network.SSHPort})
+			}
+			if changed {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "set VM %s SSH port to %d\n", vmRec.Name, vmRec.Network.SSHPort)
+			} else {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "VM %s SSH port already set to %d\n", vmRec.Name, vmRec.Network.SSHPort)
+			}
+			return nil
+		},
+	}
+	cmd.AddCommand(show, sshPort)
 	return cmd
 }
 
 // replayCommands returns the voom commands that recreate the post-create
 // configuration of vm — its shares, manual forwards, and auto-forwarding —
 // targeting a VM named target. Commands are emitted in apply order. Resources,
-// driver, and image are intentionally omitted: they are fixed at create time
-// and are already carried by 'voom clone'.
+// driver, image, and SSH management port are intentionally omitted: fixed
+// create-time settings are already carried by 'voom clone', while clones
+// deliberately retain their freshly allocated SSH ports.
 func replayCommands(vm *state.VMRecord, target string) []string {
 	cmds := []string{}
 	for _, s := range vm.Shares {

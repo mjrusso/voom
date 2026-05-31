@@ -85,6 +85,92 @@ func TestSetResourcesUpdatesStoppedVM(t *testing.T) {
 	}
 }
 
+func TestSetSSHPortUpdatesStoppedVM(t *testing.T) {
+	st, _ := newTestStore(t, state.WithHostPortAvailable(func(_ string, port int) (bool, string) {
+		return port != 2400, "host port is already in use"
+	}))
+	mgr := New(st)
+	vmRec := &state.VMRecord{
+		SchemaVersion: state.SchemaVersion,
+		ID:            "vm1",
+		Name:          "scratch",
+		Driver:        "qemu",
+		Network:       state.VMNetwork{SSHPort: 2222, SSHBind: "127.0.0.1"},
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if err := os.MkdirAll(st.VMDir(vmRec.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveVM(vmRec); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RegisterVM(vmRec.Name, vmRec.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, changed, err := mgr.SetSSHPort("scratch", 2250)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || updated.Network.SSHPort != 2250 {
+		t.Fatalf("SetSSHPort changed=%t network=%#v", changed, updated.Network)
+	}
+	updated, changed, err = mgr.SetSSHPort("scratch", 2250)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed || updated.Network.SSHPort != 2250 {
+		t.Fatalf("idempotent SetSSHPort changed=%t network=%#v", changed, updated.Network)
+	}
+
+	other := &state.VMRecord{
+		SchemaVersion: state.SchemaVersion,
+		ID:            "vm2",
+		Name:          "other",
+		Driver:        "qemu",
+		Network:       state.VMNetwork{SSHPort: 2260, SSHBind: "127.0.0.1"},
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if err := os.MkdirAll(st.VMDir(other.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveVM(other); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RegisterVM(other.Name, other.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := mgr.SetSSHPort("scratch", 2260); err == nil || !strings.Contains(err.Error(), "already used by another voom VM") {
+		t.Fatalf("expected reserved-port error, got %v", err)
+	}
+	if _, _, err := mgr.SetSSHPort("scratch", 2400); err == nil || !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("expected host-busy error, got %v", err)
+	}
+	reloaded, err := st.LoadVM("scratch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Network.SSHPort != 2250 {
+		t.Fatalf("failed SSH-port updates persisted port %d, want 2250", reloaded.Network.SSHPort)
+	}
+	updated, changed, err = mgr.SetSSHPort("scratch", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || updated.Network.SSHPort != state.SSHLow {
+		t.Fatalf("auto SetSSHPort changed=%t network=%#v", changed, updated.Network)
+	}
+	reloaded, err = st.LoadVM("scratch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Network.SSHPort != state.SSHLow {
+		t.Fatalf("persisted SSH port = %d, want %d", reloaded.Network.SSHPort, state.SSHLow)
+	}
+}
+
 func TestSetResourcesRejectsRunningVM(t *testing.T) {
 	st, _ := newTestStore(t)
 	mgr := New(st)
@@ -94,6 +180,7 @@ func TestSetResourcesRejectsRunningVM(t *testing.T) {
 		Name:          "scratch",
 		Driver:        "qemu",
 		Resources:     state.VMResources{CPUs: 2, MemoryMiB: 512},
+		Network:       state.VMNetwork{SSHPort: 2222, SSHBind: "127.0.0.1"},
 		CreatedAt:     time.Now().UTC(),
 		UpdatedAt:     time.Now().UTC(),
 	}
@@ -121,12 +208,18 @@ func TestSetResourcesRejectsRunningVM(t *testing.T) {
 	if _, _, err := mgr.SetMemory("scratch", 1024); err == nil || !strings.Contains(err.Error(), "running") {
 		t.Fatalf("expected running memory mutation rejection, got %v", err)
 	}
+	if _, _, err := mgr.SetSSHPort("scratch", 2250); err == nil || !strings.Contains(err.Error(), "running") {
+		t.Fatalf("expected running SSH-port mutation rejection, got %v", err)
+	}
 	reloaded, err := st.LoadVM("scratch")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if reloaded.Resources.CPUs != 2 || reloaded.Resources.MemoryMiB != 512 {
 		t.Fatalf("running VM resources changed: %#v", reloaded.Resources)
+	}
+	if reloaded.Network.SSHPort != 2222 {
+		t.Fatalf("running VM SSH port changed: %d", reloaded.Network.SSHPort)
 	}
 }
 

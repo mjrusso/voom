@@ -290,8 +290,11 @@ disk, runtime files, and cache logs. New VMs default to 4 CPUs and `4096MiB`
 memory; adjust at creation with `--cpus`, `--memory`, and `--ssh-port`. For
 stopped VMs, update CPU and RAM allocations with `voom
 resources cpus <name> <n>` and `voom resources memory <name> <size>`; the new
-values apply the next time the VM starts. `voom clone <source> <new>` copies a
-stopped VM's current disk into a new VM with a fresh ID and SSH port.
+values apply the next time the VM starts. Change a stopped VM's host SSH port
+with `voom config ssh-port <name> <port>`, or pick a fresh automatically
+allocated port with `voom config ssh-port <name> auto`. `voom clone <source>
+<new>` copies a stopped VM's current disk into a new VM with a fresh ID and SSH
+port.
 
 **SSH.** `voom ssh <name>` opens an interactive shell. Trailing arguments pass
 through to `ssh` as a one-shot remote command: for example, `voom ssh <name> --
@@ -589,6 +592,7 @@ Common command effects:
 | `voom share add` / `rm` | `state.json`, `vm.json`, host path | updates share declarations in `vm.json`; running VMs must be stopped first |
 | `voom nixos switch` | `state.json`, `vm.json`, image capabilities, flake metadata | runs `nixos-rebuild` over SSH and records switch metadata in `vm.json` |
 | `voom config show` | `state.json`, `vm.json` | no state changes |
+| `voom config ssh-port` | `state.json`, `vm.json`, runtime pidfile, host port availability | updates the stopped VM's SSH management port in `vm.json` |
 | `voom logs` | `state.json`, `vm.json`, cache log | no state changes |
 | `voom doctor` | state, runtime, cache, host tools, pidfiles | no state changes |
 

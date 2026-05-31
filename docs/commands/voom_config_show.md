@@ -25,4 +25,4 @@ voom config show <name> [flags]
 
 ### SEE ALSO
 
-* [voom config](voom_config.md)	 - Inspect VM configuration
+* [voom config](voom_config.md)	 - Inspect and modify VM configuration

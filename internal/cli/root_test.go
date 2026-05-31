@@ -120,6 +120,9 @@ func TestCommandSurfaceHelpAndArgValidation(t *testing.T) {
 		{"resources", "disk", "--help"},
 		{"resources", "disk", "grow", "--help"},
 		{"resources", "memory", "--help"},
+		{"config", "--help"},
+		{"config", "show", "--help"},
+		{"config", "ssh-port", "--help"},
 		{"forward", "add", "--help"},
 		{"forward", "rm", "--help"},
 		{"forward", "ls", "--help"},
@@ -153,6 +156,9 @@ func TestCommandSurfaceHelpAndArgValidation(t *testing.T) {
 	}
 	if err := runCmdErr("resources", "memory", "scratch", "512"); err == nil || !strings.Contains(err.Error(), "bare size") {
 		t.Fatalf("expected memory validation error, got %v", err)
+	}
+	if err := runCmdErr("config", "ssh-port", "scratch", "70000"); err == nil || !strings.Contains(err.Error(), "invalid TCP port") {
+		t.Fatalf("expected SSH port validation error, got %v", err)
 	}
 	if err := runCmdErr("share", "add", "scratch", "voom-control", ".", "/mnt/src"); err == nil || !strings.Contains(err.Error(), "reserved") {
 		t.Fatalf("expected reserved share tag error, got %v", err)
@@ -227,6 +233,31 @@ func TestImageCreateInspectForwardAndGuestGate(t *testing.T) {
 	}
 	if memoryChanged.Changed || memoryChanged.MemoryMiB != 1024 {
 		t.Fatalf("bad idempotent memory resource JSON: %#v", memoryChanged)
+	}
+	out = runCmd(t, "--output", "json", "config", "ssh-port", "scratch", "2250")
+	var sshPortChanged struct {
+		Changed bool `json:"changed"`
+		SSHPort int  `json:"sshPort"`
+	}
+	if err := json.Unmarshal([]byte(out), &sshPortChanged); err != nil {
+		t.Fatal(err)
+	}
+	if !sshPortChanged.Changed || sshPortChanged.SSHPort != 2250 {
+		t.Fatalf("bad SSH-port JSON: %#v", sshPortChanged)
+	}
+	out = runCmd(t, "--output", "json", "config", "ssh-port", "scratch", "2250")
+	if err := json.Unmarshal([]byte(out), &sshPortChanged); err != nil {
+		t.Fatal(err)
+	}
+	if sshPortChanged.Changed || sshPortChanged.SSHPort != 2250 {
+		t.Fatalf("bad idempotent SSH-port JSON: %#v", sshPortChanged)
+	}
+	out = runCmd(t, "--output", "json", "config", "ssh-port", "scratch", "auto")
+	if err := json.Unmarshal([]byte(out), &sshPortChanged); err != nil {
+		t.Fatal(err)
+	}
+	if !sshPortChanged.Changed || sshPortChanged.SSHPort != state.SSHLow {
+		t.Fatalf("bad auto SSH-port JSON: %#v", sshPortChanged)
 	}
 	st, err := state.Open()
 	if err != nil {

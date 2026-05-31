@@ -70,3 +70,41 @@ func (m *Manager) SetMemory(name string, memoryMiB int) (*state.VMRecord, bool, 
 	}
 	return vm, true, nil
 }
+
+// SetSSHPort updates the host SSH port for a stopped VM. A port of zero
+// allocates a fresh port from the automatic SSH port range.
+func (m *Manager) SetSSHPort(name string, port int) (*state.VMRecord, bool, error) {
+	vm, err := m.store.LoadVM(name)
+	if err != nil {
+		return nil, false, err
+	}
+	unlock, err := m.store.LockVM(vm.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	defer unlock()
+	vm, err = m.store.LoadVM(name)
+	if err != nil {
+		return nil, false, err
+	}
+	if m.IsRunning(vm) {
+		return nil, false, fmt.Errorf("VM %q is running; stop it before changing the SSH port", name)
+	}
+	if vm.Network.SSHPort == port {
+		return vm, false, nil
+	}
+	if port == 0 {
+		port, err = m.store.AllocateSSHPort()
+	} else {
+		err = m.store.EnsureSSHPortAvailable(port)
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	vm.Network.SSHPort = port
+	vm.UpdatedAt = time.Now().UTC()
+	if err := m.store.SaveVM(vm); err != nil {
+		return nil, false, err
+	}
+	return vm, true, nil
+}
