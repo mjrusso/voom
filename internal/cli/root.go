@@ -93,6 +93,7 @@ func addCommands(root *cobra.Command) {
 	root.AddCommand(imageCommand(), createCommand(), startCommand(), stopCommand(), restartCommand())
 	root.AddCommand(sshCommand(), sshConfigCommand(), consoleCommand(), logsCommand(), infoCommand())
 	root.AddCommand(listCommand(), renameCommand(), rmCommand(), diskCommand(), resourcesCommand(), forwardCommand(), shareCommand(), nixosCommand())
+	root.AddCommand(configCommand())
 }
 
 func debugCommand() *cobra.Command {

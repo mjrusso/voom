@@ -290,7 +290,9 @@ disk, runtime files, and cache logs. New VMs default to 4 CPUs and `4096MiB`
 memory; adjust at creation with `--cpus`, `--memory`, and `--ssh-port`. For
 stopped VMs, update CPU and RAM allocations with `voom resources cpus <name>
 <n>` and `voom resources memory <name> <size>`; the new values apply the next
-time the VM starts.
+time the VM starts. `voom config show <name>` prints the shell commands that
+recreate a VM's shares, manual forwards, and auto-forward settings, so you can
+review or replay a VM's configuration.
 
 **SSH.** `voom ssh <name>` opens an interactive shell. Trailing arguments pass
 through to `ssh` as a one-shot remote command: for example, `voom ssh <name> --
@@ -586,6 +588,7 @@ Common command effects:
 | `voom forward auto enable` / `disable` / `offset` | `state.json`, `vm.json`, image capabilities, runtime report when running | updates auto-forward settings in `vm.json`; reconciles or removes runtime auto-forwards for running VMs |
 | `voom share add` / `rm` | `state.json`, `vm.json`, host path | updates share declarations in `vm.json`; running VMs must be stopped first |
 | `voom nixos switch` | `state.json`, `vm.json`, image capabilities, flake metadata | runs `nixos-rebuild` over SSH and records switch metadata in `vm.json` |
+| `voom config show` | `state.json`, `vm.json` | no state changes |
 | `voom logs` | `state.json`, `vm.json`, cache log | no state changes |
 | `voom doctor` | state, runtime, cache, host tools, pidfiles | no state changes |
 

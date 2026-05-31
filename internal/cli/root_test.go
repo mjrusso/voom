@@ -309,6 +309,7 @@ func TestJSONCommandContractsOnFixture(t *testing.T) {
 		{"--output", "json", "image", "inspect", "nixos"},
 		{"--output", "json", "forward", "ls"},
 		{"--output", "json", "share", "ls", "scratch"},
+		{"--output", "json", "config", "show", "scratch"},
 	}
 	for _, args := range jsonCommands {
 		out := runCmd(t, args...)

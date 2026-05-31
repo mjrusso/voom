@@ -17,6 +17,7 @@ voom [flags]
 
 ### SEE ALSO
 
+* [voom config](voom_config.md)	 - Inspect VM configuration
 * [voom console](voom_console.md)	 - Follow serial console log
 * [voom create](voom_create.md)	 - Create a stopped VM from an image
 * [voom debug](voom_debug.md)	 - Debug voom internals
