@@ -15,7 +15,6 @@ voom create <name> --image <image> [flags]
       --image string    image name
       --memory string   memory size (default "4096MiB")
       --ssh-port int    explicit host SSH port (0 = auto-allocate)
-      --start           start after creation
 ```
 
 ### Options inherited from parent commands

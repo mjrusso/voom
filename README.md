@@ -287,10 +287,10 @@ image or a bootable disk image.
 `voom start` will never implicitly create a VM.) `voom stop` shuts the VM down
 but keeps persistent state; `voom rm <name> --force` removes a VM's state,
 disk, runtime files, and cache logs. New VMs default to 4 CPUs and `4096MiB`
-memory; adjust at creation with `--cpus`, `--memory`, `--ssh-port`, and
-`--start`. For stopped VMs, update CPU and RAM allocations with `voom
-resources cpus <name> <n>` and `voom resources memory <name> <size>`; the new
-values apply the next time the VM starts.
+memory; adjust at creation with `--cpus`, `--memory`, and `--ssh-port`. For
+stopped VMs, update CPU and RAM allocations with `voom resources cpus <name>
+<n>` and `voom resources memory <name> <size>`; the new values apply the next
+time the VM starts.
 
 **SSH.** `voom ssh <name>` opens an interactive shell. Trailing arguments pass
 through to `ssh` as a one-shot remote command: for example, `voom ssh <name> --

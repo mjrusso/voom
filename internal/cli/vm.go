@@ -19,7 +19,6 @@ import (
 func createCommand() *cobra.Command {
 	var imageName, driver, memory string
 	var cpus, sshPort int
-	var start bool
 	cmd := &cobra.Command{
 		Use:   "create <name> --image <image>",
 		Short: "Create a stopped VM from an image",
@@ -51,17 +50,8 @@ func createCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			started := false
-			if start {
-				startedVM, err := deps.vm.Start(cmd.Context(), cmd.ErrOrStderr(), vmRec.Name)
-				if err != nil {
-					return err
-				}
-				vmRec = startedVM
-				started = true
-			}
 			if outputFormat(cmd) == "json" {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": vmRec.Name, "id": vmRec.ID, "changed": true, "started": started, "sshPort": vmRec.Network.SSHPort, "cpus": vmRec.Resources.CPUs, "memoryMiB": vmRec.Resources.MemoryMiB})
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": vmRec.Name, "id": vmRec.ID, "changed": true, "sshPort": vmRec.Network.SSHPort, "cpus": vmRec.Resources.CPUs, "memoryMiB": vmRec.Resources.MemoryMiB})
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "created VM %s (%s), ssh 127.0.0.1:%d\n", vmRec.Name, vmRec.ID, vmRec.Network.SSHPort)
 			return nil
@@ -72,7 +62,6 @@ func createCommand() *cobra.Command {
 	cmd.Flags().IntVar(&cpus, "cpus", 4, "CPU count")
 	cmd.Flags().StringVar(&memory, "memory", "4096MiB", "memory size")
 	cmd.Flags().IntVar(&sshPort, "ssh-port", 0, "explicit host SSH port (0 = auto-allocate)")
-	cmd.Flags().BoolVar(&start, "start", false, "start after creation")
 	return cmd
 }
 
