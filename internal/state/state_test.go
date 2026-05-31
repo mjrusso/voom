@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mjrusso/voom/internal/host"
 )
@@ -286,6 +289,118 @@ func TestAllocateSSHPortErrorsWhenAllPortsUnavailable(t *testing.T) {
 	}))
 	if _, err := store.AllocateSSHPort(); err == nil || !strings.Contains(err.Error(), "no free SSH port") {
 		t.Fatalf("expected no-free-port error, got %v", err)
+	}
+}
+
+func TestLockGlobalAndReloadRefreshesIndexAfterWaiting(t *testing.T) {
+	if readyPath := os.Getenv("VOOM_LOCK_RELOAD_HELPER"); readyPath != "" {
+		store, err := Open(WithHostPortAvailable(func(string, int) (bool, string) {
+			return true, ""
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(readyPath, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		unlock, err := store.LockGlobalAndReload()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer unlock()
+		got, err := store.AllocateSSHPort()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(readyPath+".result", []byte(strconv.Itoa(got)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+
+	storeA, dir := newTestStore(t, WithHostPortAvailable(func(string, int) (bool, string) {
+		return true, ""
+	}))
+	unlockA, err := storeA.LockGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockHeld := true
+	t.Cleanup(func() {
+		if lockHeld {
+			unlockA()
+		}
+	})
+	readyPath := filepath.Join(dir, "lock-reload-helper-ready")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestLockGlobalAndReloadRefreshesIndexAfterWaiting$")
+	cmd.Env = append(os.Environ(), "VOOM_LOCK_RELOAD_HELPER="+readyPath)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+		}
+	})
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(readyPath); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("helper did not open stale state: %s", stderr.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	vm := &VMRecord{
+		SchemaVersion: SchemaVersion,
+		ID:            "VM_RESERVED",
+		Name:          "reserved",
+		Driver:        "qemu",
+		Network:       VMNetwork{SSHPort: SSHLow, SSHBind: "127.0.0.1"},
+	}
+	if err := os.MkdirAll(storeA.VMDir(vm.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := storeA.SaveVM(vm); err != nil {
+		t.Fatal(err)
+	}
+	idx := storeA.IndexSnapshot()
+	idx.VMs[vm.Name] = vm.ID
+	if err := storeA.SetIndexSnapshot(idx); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("helper returned while global lock was held: %v: %s", err, stderr.String())
+	case <-time.After(100 * time.Millisecond):
+	}
+	unlockA()
+	lockHeld = false
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("helper failed: %v: %s", err, stderr.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("helper did not complete after global lock was released")
+	}
+	result, err := os.ReadFile(readyPath + ".result")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(result)), strconv.Itoa(SSHLow+1); got != want {
+		t.Fatalf("helper AllocateSSHPort after reload = %q, want %q (state dir %s)", got, want, dir)
 	}
 }
 

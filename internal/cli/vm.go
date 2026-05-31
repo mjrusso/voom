@@ -41,7 +41,7 @@ func createCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			unlock, err := deps.store.LockGlobal()
+			unlock, err := deps.store.LockGlobalAndReload()
 			if err != nil {
 				return err
 			}
@@ -79,7 +79,7 @@ func cloneCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			unlock, err := deps.store.LockGlobal()
+			unlock, err := deps.store.LockGlobalAndReload()
 			if err != nil {
 				return err
 			}
@@ -323,7 +323,7 @@ func renameCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		unlock, err := deps.store.LockGlobal()
+		unlock, err := deps.store.LockGlobalAndReload()
 		if err != nil {
 			return err
 		}
@@ -357,7 +357,7 @@ func rmCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		unlock, err := deps.store.LockGlobal()
+		unlock, err := deps.store.LockGlobalAndReload()
 		if err != nil {
 			return err
 		}

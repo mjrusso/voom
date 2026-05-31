@@ -44,26 +44,38 @@ func Open(opts ...Option) (*Store, error) {
 	for _, opt := range opts {
 		opt(st)
 	}
-	b, err := os.ReadFile(filepath.Join(p.State, "state.json"))
+	err := st.reloadIndex()
 	if os.IsNotExist(err) {
 		return st, st.SaveIndex()
 	}
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(b, &st.index); err != nil {
-		return nil, err
-	}
-	if st.index.SchemaVersion != SchemaVersion {
-		return nil, fmt.Errorf("unsupported state schema version %d", st.index.SchemaVersion)
-	}
-	if st.index.VMs == nil {
-		st.index.VMs = map[string]string{}
-	}
-	if st.index.Images == nil {
-		st.index.Images = map[string]string{}
-	}
 	return st, nil
+}
+
+func (s *Store) reloadIndex() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := os.ReadFile(filepath.Join(s.paths.State, "state.json"))
+	if err != nil {
+		return err
+	}
+	var index Index
+	if err := json.Unmarshal(b, &index); err != nil {
+		return err
+	}
+	if index.SchemaVersion != SchemaVersion {
+		return fmt.Errorf("unsupported state schema version %d", index.SchemaVersion)
+	}
+	if index.VMs == nil {
+		index.VMs = map[string]string{}
+	}
+	if index.Images == nil {
+		index.Images = map[string]string{}
+	}
+	s.index = index
+	return nil
 }
 
 // Paths returns the resolved host paths backing this store.
