@@ -55,7 +55,12 @@ func Run(all bool) []Check {
 	add("nix", false, host.RequireExe("nix"), "found")
 	add("nixos-rebuild", false, host.RequireExe("nixos-rebuild"), "found")
 	for _, d := range []string{p.State, p.Cache, p.Runtime} {
-		err := os.MkdirAll(d, 0o755)
+		var err error
+		if d == p.Runtime {
+			err = host.EnsureRuntimeDir(d)
+		} else {
+			err = os.MkdirAll(d, 0o755)
+		}
 		if err == nil {
 			f, e := os.CreateTemp(d, ".write-test-*")
 			err = e

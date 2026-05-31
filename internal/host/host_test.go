@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -20,6 +22,79 @@ func TestResolvePathsUsesOverrides(t *testing.T) {
 		got.Cache != filepath.Join(dir, "cache") ||
 		got.Runtime != filepath.Join(dir, "runtime") {
 		t.Fatalf("unexpected paths: %#v", got)
+	}
+}
+
+func TestResolvePathsUsesShortDarwinRuntimeDir(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Darwin-specific runtime path")
+	}
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "deliberately", "long", "temporary", "directory"))
+	t.Setenv("VOOM_RUNTIME_DIR", "")
+	if got, want := ResolvePaths().Runtime, filepath.Join("/tmp", "voom-"+strconv.Itoa(os.Getuid())); got != want {
+		t.Fatalf("ResolvePaths().Runtime = %s, want %s", got, want)
+	}
+}
+
+func TestEnsurePrivateRuntimeDirCreatesPrivateDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime")
+	if err := ensurePrivateRuntimeDir(path, os.Getuid()); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("runtime directory mode = %o, want 700", got)
+	}
+}
+
+func TestEnsurePrivateRuntimeDirTightensOwnedDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime")
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensurePrivateRuntimeDir(path, os.Getuid()); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("runtime directory mode = %o, want 700", got)
+	}
+}
+
+func TestEnsurePrivateRuntimeDirRejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "runtime")
+	if err := os.Symlink(filepath.Join(dir, "target"), path); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensurePrivateRuntimeDir(path, os.Getuid()); err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("ensurePrivateRuntimeDir symlink err = %v", err)
+	}
+}
+
+func TestEnsurePrivateRuntimeDirRejectsNonDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensurePrivateRuntimeDir(path, os.Getuid()); err == nil || !strings.Contains(err.Error(), "is not a directory") {
+		t.Fatalf("ensurePrivateRuntimeDir file err = %v", err)
+	}
+}
+
+func TestEnsurePrivateRuntimeDirRejectsWrongOwner(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensurePrivateRuntimeDir(path, os.Getuid()+1); err == nil || !strings.Contains(err.Error(), "is owned by uid") {
+		t.Fatalf("ensurePrivateRuntimeDir owner err = %v", err)
 	}
 }
 

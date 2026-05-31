@@ -32,7 +32,10 @@ func WithHostPortAvailable(fn HostPortAvailableFunc) Option {
 // (creating an empty one if missing).
 func Open(opts ...Option) (*Store, error) {
 	p := host.ResolvePaths()
-	for _, d := range []string{p.Config, p.State, p.Cache, p.Runtime, filepath.Join(p.State, "locks"), filepath.Join(p.State, "locks", "vms")} {
+	if err := host.EnsureRuntimeDir(p.Runtime); err != nil {
+		return nil, err
+	}
+	for _, d := range []string{p.Config, p.State, p.Cache, filepath.Join(p.State, "locks"), filepath.Join(p.State, "locks", "vms")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, err
 		}
