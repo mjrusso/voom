@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -573,6 +574,49 @@ func TestCloneWaitsForSourceLock(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Clone did not complete after source lock was released")
+	}
+}
+
+func TestCloneCleansUpObjectDirectoryAfterCopyFailure(t *testing.T) {
+	st, _ := newTestStore(t)
+	mgr := New(st)
+	src := &state.VMRecord{
+		SchemaVersion: state.SchemaVersion,
+		ID:            "vm1",
+		Name:          "src",
+		Driver:        "qemu",
+		Arch:          host.System(),
+		Resources:     state.VMResources{CPUs: 2, MemoryMiB: 512},
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if err := os.MkdirAll(st.VMDir(src.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(st.VMDiskPath(src), []byte("disk-state"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveVM(src); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RegisterVM(src.Name, src.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := mgr.Clone(ctx, "src", "dst"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Clone err = %v, want context.Canceled", err)
+	}
+	if _, err := st.LoadVM("dst"); err == nil {
+		t.Fatal("failed clone should not have been registered")
+	}
+	entries, err := os.ReadDir(filepath.Join(st.Paths().State, "vms"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != src.ID {
+		t.Fatalf("failed clone leaked VM object directory: %#v", entries)
 	}
 }
 

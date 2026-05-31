@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -92,7 +93,7 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 // collide or surprise if duplicated silently. The 'voom clone' and
 // 'voom config show' commands print the commands to reproduce them
 // deliberately. The disk copy honors ctx cancellation.
-func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (*state.VMRecord, error) {
+func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.VMRecord, retErr error) {
 	idx := m.store.IndexSnapshot()
 	if _, ok := idx.VMs[dstName]; ok {
 		return nil, fmt.Errorf("VM %q already exists", dstName)
@@ -136,13 +137,30 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (*state.VM
 	if err := os.MkdirAll(m.store.VMDir(id), 0o755); err != nil {
 		return nil, err
 	}
+	cleanupObject := true
+	defer func() {
+		if !cleanupObject {
+			return
+		}
+		if err := os.RemoveAll(m.store.VMDir(id)); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("cleaning up failed clone: %w", err))
+		}
+	}()
 	if err := state.CopyFile(ctx, m.store.VMDiskPath(src), m.store.VMDiskPath(&clone)); err != nil {
 		return nil, err
 	}
 	if err := m.store.SaveVM(&clone); err != nil {
 		return nil, err
 	}
-	return &clone, m.store.RegisterVM(dstName, id)
+	if err := m.store.RegisterVM(dstName, id); err != nil {
+		if rollbackErr := m.store.UnregisterVM(dstName); rollbackErr != nil {
+			cleanupObject = false
+			return nil, errors.Join(err, fmt.Errorf("rolling back failed clone registration: %w", rollbackErr))
+		}
+		return nil, err
+	}
+	cleanupObject = false
+	return &clone, nil
 }
 
 // Remove stops the named VM if it is running and deletes its state.
