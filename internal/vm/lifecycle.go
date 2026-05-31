@@ -82,6 +82,60 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 	return vm, m.store.RegisterVM(name, id)
 }
 
+// Clone provisions a new VM from an existing one by copying the source VM's
+// current disk. The source VM must be stopped so the disk is captured in a
+// consistent state. The clone receives a fresh ID and a newly-allocated SSH
+// port and keeps the source's resources, access, and recorded NixOS switch
+// metadata (all of which describe the copied disk). It deliberately does NOT
+// inherit the source's shares, manual forwards, or auto-forward settings:
+// those carry host-side state (host ports, offsets, host paths) that would
+// collide or surprise if duplicated silently. The 'voom clone' and
+// 'voom config show' commands print the commands to reproduce them
+// deliberately. The disk copy honors ctx cancellation.
+func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (*state.VMRecord, error) {
+	idx := m.store.IndexSnapshot()
+	if _, ok := idx.VMs[dstName]; ok {
+		return nil, fmt.Errorf("VM %q already exists", dstName)
+	}
+	src, err := m.store.LoadVM(srcName)
+	if err != nil {
+		return nil, err
+	}
+	if m.IsRunning(src) {
+		return nil, fmt.Errorf("VM %q is running; stop it before cloning", srcName)
+	}
+	id, err := state.NewID()
+	if err != nil {
+		return nil, err
+	}
+	sshPort, err := m.store.AllocateSSHPort()
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	clone := *src
+	clone.ID = id
+	clone.Name = dstName
+	clone.CreatedAt = now
+	clone.UpdatedAt = now
+	clone.Shares = nil
+	clone.Network = state.VMNetwork{SSHPort: sshPort, SSHBind: src.Network.SSHBind}
+	if src.Nixos != nil {
+		nixos := *src.Nixos
+		clone.Nixos = &nixos
+	}
+	if err := os.MkdirAll(m.store.VMDir(id), 0o755); err != nil {
+		return nil, err
+	}
+	if err := state.CopyFile(ctx, m.store.VMDiskPath(src), m.store.VMDiskPath(&clone)); err != nil {
+		return nil, err
+	}
+	if err := m.store.SaveVM(&clone); err != nil {
+		return nil, err
+	}
+	return &clone, m.store.RegisterVM(dstName, id)
+}
+
 // Remove stops the named VM if it is running and deletes its state.
 func (m *Manager) Remove(ctx context.Context, name string) error {
 	_, _ = m.Stop(ctx, name)

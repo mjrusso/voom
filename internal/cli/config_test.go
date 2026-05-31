@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mjrusso/voom/internal/forward"
@@ -56,6 +60,60 @@ func TestReplayCommandsEmptyForUnconfiguredVM(t *testing.T) {
 	vm := &state.VMRecord{Name: "bare"}
 	if got := replayCommands(vm, "bare"); len(got) != 0 {
 		t.Fatalf("expected no commands, got %#v", got)
+	}
+}
+
+func TestCloneEmitsRetargetedReproductionCommands(t *testing.T) {
+	withHostPortAvailable(t, func(string, int) (bool, string) { return true, "" })
+	dir := t.TempDir()
+	t.Setenv("VOOM_CONFIG_DIR", filepath.Join(dir, "config"))
+	t.Setenv("VOOM_STATE_DIR", filepath.Join(dir, "state"))
+	t.Setenv("VOOM_CACHE_DIR", filepath.Join(dir, "cache"))
+	t.Setenv("VOOM_RUNTIME_DIR", filepath.Join(dir, "runtime"))
+	importTestImage(t, dir, "nixos")
+
+	runCmd(t, "create", "src", "--image", "nixos", "--memory", "512MiB")
+	hostShare := filepath.Join(dir, "share")
+	if err := os.Mkdir(hostShare, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, "share", "add", "src", "code", hostShare, "/mnt/code")
+	runCmd(t, "forward", "add", "src", "8080", "--host-port", "18080")
+
+	out := runCmd(t, "clone", "src", "dst")
+	if !strings.Contains(out, "cloned VM src to dst") {
+		t.Fatalf("missing clone result line:\n%s", out)
+	}
+	if !strings.Contains(out, "voom share add dst code "+hostShare+" /mnt/code") {
+		t.Fatalf("missing retargeted share command:\n%s", out)
+	}
+	if !strings.Contains(out, "voom forward add dst 8080 --host-port 18080") {
+		t.Fatalf("missing retargeted forward command:\n%s", out)
+	}
+
+	// The clone itself inherits none of that configuration.
+	st, err := state.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst, err := st.LoadVM("dst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dst.Shares) != 0 || len(dst.Network.Forwards) != 0 {
+		t.Fatalf("clone inherited config: %#v", dst)
+	}
+
+	// JSON surfaces the same commands under configCommands.
+	out = runCmd(t, "--output", "json", "clone", "src", "dst2")
+	var res struct {
+		ConfigCommands []string `json:"configCommands"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.ConfigCommands) != 2 {
+		t.Fatalf("expected 2 reproduction commands in JSON, got %#v", res.ConfigCommands)
 	}
 }
 

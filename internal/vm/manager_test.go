@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/share"
 	"github.com/mjrusso/voom/internal/state"
@@ -387,6 +388,139 @@ func TestCreateUsesVFKitDiskExtension(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(st.VMDir(vmRec.ID), "disk.raw")); !os.IsNotExist(err) {
 		t.Fatalf("unexpected raw disk path for vfkit VM: %v", err)
+	}
+}
+
+func TestCloneCopiesDiskAndResourcesButNotNetworkConfig(t *testing.T) {
+	st, _ := newTestStore(t)
+	mgr := New(st)
+	src := &state.VMRecord{
+		SchemaVersion: state.SchemaVersion,
+		ID:            "vm1",
+		Name:          "src",
+		Driver:        "qemu",
+		Arch:          host.System(),
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+		Image:         state.VMImageRef{ID: "img1", Name: "nixos"},
+		Resources:     state.VMResources{CPUs: 3, MemoryMiB: 2048},
+		Access:        state.VMAccess{SSHUser: "debian", NixosTargetUser: "debian"},
+		Network: state.VMNetwork{
+			SSHPort:               2222,
+			SSHBind:               "127.0.0.1",
+			Forwards:              []forward.Decl{{Protocol: "tcp", GuestPort: 8080, HostPort: 18080, Bind: "127.0.0.1"}},
+			AutoForward:           true,
+			AutoForwardHostOffset: 10000,
+		},
+		Shares: []share.Decl{{Tag: "code", HostPath: "/host/code", GuestPath: "/mnt/code", Readonly: true}},
+	}
+	if err := os.MkdirAll(st.VMDir(src.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(st.VMDiskPath(src), []byte("disk-state"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveVM(src); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RegisterVM(src.Name, src.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	clone, err := mgr.Clone(context.Background(), "src", "dst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clone.ID == src.ID {
+		t.Fatalf("clone reused source ID %s", clone.ID)
+	}
+	if clone.Name != "dst" {
+		t.Fatalf("clone name = %q", clone.Name)
+	}
+	if clone.Network.SSHPort == src.Network.SSHPort {
+		t.Fatalf("clone reused source SSH port %d", clone.Network.SSHPort)
+	}
+	// Disk, resources, and access are carried; network config is not.
+	if clone.Resources != src.Resources || clone.Access != src.Access {
+		t.Fatalf("clone did not carry resources/access: %#v %#v", clone.Resources, clone.Access)
+	}
+	if clone.Network.AutoForward || clone.Network.AutoForwardHostOffset != 0 {
+		t.Fatalf("clone should not carry auto-forward settings: %#v", clone.Network)
+	}
+	if len(clone.Network.Forwards) != 0 {
+		t.Fatalf("clone should not carry forwards: %#v", clone.Network.Forwards)
+	}
+	if len(clone.Shares) != 0 {
+		t.Fatalf("clone should not carry shares: %#v", clone.Shares)
+	}
+	disk, err := os.ReadFile(st.VMDiskPath(clone))
+	if err != nil {
+		t.Fatalf("reading clone disk: %v", err)
+	}
+	if string(disk) != "disk-state" {
+		t.Fatalf("clone disk = %q, want copy of source disk", disk)
+	}
+
+	reloaded, err := st.LoadVM("dst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.ID != clone.ID {
+		t.Fatalf("persisted clone ID = %s, want %s", reloaded.ID, clone.ID)
+	}
+	// The source's own config is untouched by the clone.
+	srcReloaded, err := st.LoadVM("src")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srcReloaded.Shares) != 1 || len(srcReloaded.Network.Forwards) != 1 || !srcReloaded.Network.AutoForward {
+		t.Fatalf("source config mutated by clone: %#v", srcReloaded)
+	}
+
+	if _, err := mgr.Clone(context.Background(), "src", "dst"); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("expected duplicate-name rejection, got %v", err)
+	}
+}
+
+func TestCloneRejectsRunningSource(t *testing.T) {
+	st, _ := newTestStore(t)
+	mgr := New(st)
+	src := &state.VMRecord{
+		SchemaVersion: state.SchemaVersion,
+		ID:            "vm1",
+		Name:          "src",
+		Driver:        "qemu",
+		Arch:          host.System(),
+		Resources:     state.VMResources{CPUs: 2, MemoryMiB: 512},
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if err := os.MkdirAll(st.VMDir(src.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(st.VMDiskPath(src), []byte("disk-state"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveVM(src); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RegisterVM(src.Name, src.ID); err != nil {
+		t.Fatal(err)
+	}
+	cmd := fakeNamedVMProcess(t, "qemu-system-test")
+	pidfile := st.Runtime(src).VMPid()
+	if err := os.MkdirAll(filepath.Dir(pidfile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pidfile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := mgr.Clone(context.Background(), "src", "dst"); err == nil || !strings.Contains(err.Error(), "running") {
+		t.Fatalf("expected running-source rejection, got %v", err)
+	}
+	if _, err := st.LoadVM("dst"); err == nil {
+		t.Fatal("clone of running source should not have created a VM")
 	}
 }
 

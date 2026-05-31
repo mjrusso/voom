@@ -65,6 +65,51 @@ func createCommand() *cobra.Command {
 	return cmd
 }
 
+func cloneCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "clone <source-name> <new-name>",
+		Short: "Clone a stopped VM into a new VM",
+		Long:  "Create a new VM by copying a stopped VM's current disk. The clone gets a fresh ID and a newly-allocated SSH port and keeps the source's resources and access. It does not inherit the source's shares, manual forwards, or auto-forward settings, but prints the commands to reproduce them on the clone.",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := state.ValidateName("VM", args[1]); err != nil {
+				return err
+			}
+			deps, err := loadRuntimeDeps()
+			if err != nil {
+				return err
+			}
+			unlock, err := deps.store.LockGlobal()
+			if err != nil {
+				return err
+			}
+			vmRec, err := deps.vm.Clone(cmd.Context(), args[0], args[1])
+			unlock()
+			if err != nil {
+				return err
+			}
+			// The clone does not inherit the source's shares/forwards; surface
+			// the commands that reproduce them on the clone, retargeted at its
+			// name. Best-effort: a load failure just omits the hint.
+			reproduce := []string{}
+			if src, loadErr := deps.store.LoadVM(args[0]); loadErr == nil {
+				reproduce = replayCommands(src, vmRec.Name)
+			}
+			if outputFormat(cmd) == "json" {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": vmRec.Name, "id": vmRec.ID, "source": args[0], "changed": true, "sshPort": vmRec.Network.SSHPort, "cpus": vmRec.Resources.CPUs, "memoryMiB": vmRec.Resources.MemoryMiB, "configCommands": reproduce})
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "cloned VM %s to %s (%s), ssh 127.0.0.1:%d\n", args[0], vmRec.Name, vmRec.ID, vmRec.Network.SSHPort)
+			if len(reproduce) > 0 {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "to reproduce %s's configuration on %s, run:\n", args[0], vmRec.Name)
+				for _, c := range reproduce {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", c)
+				}
+			}
+			return nil
+		},
+	}
+}
+
 func startCommand() *cobra.Command {
 	return &cobra.Command{Use: "start <name>", Short: "Start a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()

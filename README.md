@@ -288,11 +288,10 @@ image or a bootable disk image.
 but keeps persistent state; `voom rm <name> --force` removes a VM's state,
 disk, runtime files, and cache logs. New VMs default to 4 CPUs and `4096MiB`
 memory; adjust at creation with `--cpus`, `--memory`, and `--ssh-port`. For
-stopped VMs, update CPU and RAM allocations with `voom resources cpus <name>
-<n>` and `voom resources memory <name> <size>`; the new values apply the next
-time the VM starts. `voom config show <name>` prints the shell commands that
-recreate a VM's shares, manual forwards, and auto-forward settings, so you can
-review or replay a VM's configuration.
+stopped VMs, update CPU and RAM allocations with `voom
+resources cpus <name> <n>` and `voom resources memory <name> <size>`; the new
+values apply the next time the VM starts. `voom clone <source> <new>` copies a
+stopped VM's current disk into a new VM with a fresh ID and SSH port.
 
 **SSH.** `voom ssh <name>` opens an interactive shell. Trailing arguments pass
 through to `ssh` as a one-shot remote command: for example, `voom ssh <name> --
@@ -578,6 +577,7 @@ Common command effects:
 | `voom image import` | source disk, optional sidecar metadata | `<state>/state.json`, `<state>/images/<image-id>/image.json`, imported image disk |
 | `voom image rm` | `state.json`, `image.json`, VM references | image record and disk; `state.json` entry |
 | `voom create` | `state.json`, `image.json`, image disk | `state.json`, `vm.json`, VM disk copy |
+| `voom clone` | `state.json`, source `vm.json`, source VM disk | `state.json`, new `vm.json`, VM disk copy (no shares/forwards) |
 | `voom start` | `state.json`, `vm.json`, `image.json`, VM disk | runtime directory, `seed.img`, control share files, sockets, pidfiles, helper logs, runtime auto-forward state |
 | `voom stop` | `state.json`, `vm.json`, runtime pidfiles | stops runtime helper processes; removes sockets, pidfiles, and the runtime auto-forward state file |
 | `voom rm` | `state.json`, `vm.json`, runtime pidfiles | removes VM state, VM disk, runtime directory, cache logs, and `state.json` entry |
