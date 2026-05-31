@@ -101,6 +101,15 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (*state.VM
 	if err != nil {
 		return nil, err
 	}
+	unlock, err := m.store.LockVM(src.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	src, err = m.store.LoadVM(srcName)
+	if err != nil {
+		return nil, err
+	}
 	if m.IsRunning(src) {
 		return nil, fmt.Errorf("VM %q is running; stop it before cloning", srcName)
 	}

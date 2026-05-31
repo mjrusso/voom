@@ -524,6 +524,58 @@ func TestCloneRejectsRunningSource(t *testing.T) {
 	}
 }
 
+func TestCloneWaitsForSourceLock(t *testing.T) {
+	st, _ := newTestStore(t)
+	mgr := New(st)
+	src := &state.VMRecord{
+		SchemaVersion: state.SchemaVersion,
+		ID:            "vm1",
+		Name:          "src",
+		Driver:        "qemu",
+		Arch:          host.System(),
+		Resources:     state.VMResources{CPUs: 2, MemoryMiB: 512},
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if err := os.MkdirAll(st.VMDir(src.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(st.VMDiskPath(src), []byte("disk-state"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveVM(src); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RegisterVM(src.Name, src.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	unlock, err := st.LockVM(src.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloneDone := make(chan error, 1)
+	go func() {
+		_, err := mgr.Clone(context.Background(), "src", "dst")
+		cloneDone <- err
+	}()
+	select {
+	case err := <-cloneDone:
+		unlock()
+		t.Fatalf("Clone returned while source lock was held: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case err := <-cloneDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Clone did not complete after source lock was released")
+	}
+}
+
 func contains(s, want string) bool {
 	return strings.Contains(s, want)
 }
