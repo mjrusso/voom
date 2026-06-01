@@ -200,6 +200,24 @@ allocations will not take effect until the next time the VM is started.
 > Installation does **not** include host runtime dependencies, such as QEMU,
 > vfkit, gvproxy, SSH, etc. See [Host Requirements](#host-requirements).
 
+### Install a Release Build
+
+Download a prebuilt archive for your platform from the [GitHub releases
+page](https://github.com/mjrusso/voom/releases), verify it against
+`checksums.txt`, extract the `voom` binary, and place it somewhere on your
+`PATH`.
+
+> [!IMPORTANT]
+>
+> The release binaries are not notarized by Apple, so MacOS Gatekeeper will
+> quarantine the downloaded `voom` binary. You'll see a message like _"Apple
+> could not verify ... is free of malware"_. Clear the quarantine attribute
+> before running it:
+>
+> ```sh
+> xattr -d com.apple.quarantine ./voom
+> ```
+
 ### Install with Go
 
 ```sh
