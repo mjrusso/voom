@@ -30,7 +30,7 @@ export VOOM_RUNTIME_DIR="$PWD/.voom-test/runtime"
 ```
 
 To exercise the binary against a real VM, import an image and then create and
-start a VM. See the [Quick Start](README.md#quick-start) for a full example;
+start a VM. See [Getting Started](README.md#getting-started) for a full example;
 the following works on an ARM64 Mac with a Debian image:
 
 ```sh
@@ -188,10 +188,10 @@ Two dev shells are exposed:
 GitHub Actions installs Nix in every job. Three jobs run on pull requests and
 pushes to `main`:
 
-1. `check` — `nix develop .#ci -c just check` on Ubuntu and macOS.
+1. `check` — `nix develop .#ci -c just check` on Ubuntu and MacOS.
 2. `release-snapshot` — `nix develop .#ci -c just release-snapshot-check`.
    This stays on Ubuntu because the release workflow publishes from Ubuntu.
-3. `nix` — `nix develop .#ci -c just nix-check` on Ubuntu and macOS. The
+3. `nix` — `nix develop .#ci -c just nix-check` on Ubuntu and MacOS. The
    recipe runs `nix flake check --show-trace`, `nix build .#voom`, asserts
    `result/bin/voom` is executable, and runs `nix run .#voom -- version`.
 

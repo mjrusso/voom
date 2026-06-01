@@ -6,7 +6,7 @@
 
 ---
 
-Voom is CLI for running and managing Linux-based virtual machines. Voom
+Voom is a CLI for running and managing Linux-based virtual machines. Voom
 supports MacOS hosts (via [vfkit](https://github.com/crc-org/vfkit)) and Linux
 hosts (via [QEMU](https://www.qemu.org/)/[KVM](https://linux-kvm.org/)).
 
@@ -15,118 +15,55 @@ Voom is deliberately simple and not magical. In particular, Voom has:
 - no daemon
 - no user-edited config files
 - all runtime state lives under `$XDG_*` paths
-- explicit VM lifecycle: `import → create → start`
+- explicit VM lifecycle: `import → create → start → stop`
 
-Voom also optionally supports automatic port forwarding from host-to-guest
-(with configurable per-VM offsets to avoid collisions), and host directory
-mounting. These advanced features require opt-in via a sidecar file; see [Guest
-Image Contract](#guest-image-contract) for full details.
+Voom optionally supports automatic host-to-guest port forwarding (with
+configurable per-VM offsets to avoid collisions) and host directory mounting.
 
 Note that there are many excellent tools in this space, with differing goals
 and trade-offs. [Kevin Lynagh](https://kevinlynagh.com/)'s
-[Vibe](https://github.com/lynaghk/vibe/) is one such example for Mac users —
-see its [list of alternatives](https://github.com/lynaghk/vibe/#alternatives)
-for a primer on available options.
+[Vibe](https://github.com/lynaghk/vibe/) is one such example for Mac users; see
+its [list of alternatives](https://github.com/lynaghk/vibe/#alternatives) for a
+primer on available options.
 
 Voom might be a nice choice for you if you have the need for disposable-ish,
 pseudo-ephemeral VMs (great for letting your agents `--yolo`, among plenty of
 other uses).
 
-> [!TIP]
->
-> The author uses Voom with a custom image built from his [NixOS system
-> configuration](https://github.com/mjrusso/nixos-config): the same Nix Flake
-> that defines the host machine also produces VM images with tools
-> pre-installed and configured, so it's possible to SSH in, launch tmux, Emacs,
-> and coding agents, and get to work immediately. Because the image ships with
-> [nix-direnv](https://github.com/nix-community/nix-direnv), and his projects
-> generally use Nix Flakes to define per-project toolchains, per-project
-> environments load automatically with no additional setup.
->
-> If you would like to replicate a similar setup, see this reference
-> implementation:
-> [module](https://github.com/mjrusso/nixos-config/blob/main/hosts/container/default.nix)
-> (wires up the control-share mount, the `voom-portfwd` and `voom-mount-shares`
-> helpers, and their systemd units), and [build
-> script](https://github.com/mjrusso/nixos-config/blob/main/scripts/bake-golden)
-> (bakes the disk image with matching Voom sidecar).
+## Getting Started
 
-## Tour
+Voom works with off-the-shelf cloud images, as well as custom images that you
+build yourself (see [Custom Images](#custom-images)).
 
-> [!NOTE]
->
-> The demo below assumes you already have a compatible image (`./image.raw`, in
-> this example) with a sibling `image.meta.json` sidecar. The [Quick
-> Start](#quick-start) shows an example of how to acquire a pre-built image,
-> although Voom particularly shines when you [bring your
-> own](https://github.com/mjrusso/voom#guest-image-contract).
+The following examples use official [Debian cloud
+images](https://cloud.debian.org/images/cloud/trixie), in conjunction with the
+`--install-guest-helpers` flag (provided as an argument to `voom image
+import`). The `--install-guest-helpers` flag installs Voom's guest helpers when
+the VM boots for the first time, which enable host directory shares and
+automatic port forwarding. (If you don't want host directory shares or
+automatic port forwarding, you can omit the flag when importing an image.)
 
-**Create and run a VM** on your host machine:
+<details>
+<summary>Choosing a Debian image variant</summary>
 
-```sh
-voom image import base ./image.raw  --meta ./image.meta.json
-voom create dev --image base
-voom start dev
-voom ssh dev
-```
+Use the **`generic`** variant. The similarly-named **`nocloud`** variant ships
+without `cloud-init` and boots straight to a root prompt, ignoring Voom's seed
+(so `--install-guest-helpers` and SSH-key injection will silently have no
+effect). The `genericcloud` variant should work but ships a reduced kernel
+driver set; prefer `generic` unless image size matters.
 
-**Mount a host directory** into the guest as a `virtio-fs` share:
+_Terminology note:_ Voom's `cloud-init` seed uses a **`NoCloud`** datasource,
+which is unrelated to Debian's **`nocloud`** image variant.
+</details>
 
-```sh
-voom share add dev code ~/src/myproject /mnt/code
-voom restart dev
-voom ssh dev -- ls /mnt/code
-```
+### 0. Install prerequisites
 
-**Auto-forward** so that anything the guest binds on `0.0.0.0` shows up on
-`127.0.0.1` on the host, with no per-port declaration needed:
+[Install Voom](#installation), and all required [host runtime
+dependencies](#host-requirements).
 
-```sh
-voom forward auto enable dev
-voom ssh dev -- 'nohup python3 -m http.server 8080 >/dev/null 2>&1 &'
-sleep 3
-voom forward ls dev
-curl http://127.0.0.1:8080
-```
+### 1. Import an image
 
-**Stop the VM** when you're done using it. This clears runtime state (sockets,
-pidfiles, helper logs), but not persistent state (disk, declared shares and
-forwards, switch metadata):
-
-```sh
-voom stop dev
-```
-
-## Quick Start
-
-Install Voom (see [Installation](#installation)). Make sure that the host
-runtime dependencies (see [Host Requirements](#host-requirements)) are
-installed on your platform.
-
-Voom works with off-the-shelf images. The following examples use [a Debian
-cloud image](https://cloud.debian.org/images/cloud/trixie).
-
-> [!NOTE]
->
-> For off-the-shelf images with `cloud-init`, specify `--install-guest-helpers`
-> at import time to enable the full set of Voom features.
->
-> For Debian, always use the **`generic`** variant. The similarly-named
-> **`nocloud`** variant ships without `cloud-init` and boots straight to a root
-> prompt, ignoring Voom's seed install. The `genericcloud` variant should work,
-> but has a reduced kernel driver set; prefer `generic` unless image size
-> matters.
->
-> Note that the `--install-guest-helpers` flag, used below, makes Voom's
-> `NoCloud` seed install `voom-portfwd` and the share-mount service on first
-> boot (and thus sets `controlShare`, `guestPortReport`, and `guestShareMount`
-> capabilities to true). Drop the flag for the minimum contract (boot + SSH +
-> manual forwards only). For images that already ship the helpers (e.g. a baked
-> NixOS image), pass `--meta sidecar.json` instead of
-> `--install-guest-helpers`. _(Sidenote: the terminology is confusing; Voom's
-> `NoCloud` `cloud-init` seed is unrelated to Debian's `nocloud` variant.)_
-
-On an ARM MacOS host, acquire a Debian cloud image and import into Voom:
+On an Apple Silicon Mac (`aarch64`), use a `raw` disk image:
 
 ```bash
 BUILD=20260518-2482
@@ -140,8 +77,7 @@ shasum -a 512 --ignore-missing -c SHA512SUMS
 voom image import debian13 ./"$IMG" --ssh-user debian --arch aarch64-linux --install-guest-helpers
 ```
 
-On a Linux host (this example is x86_64), acquire a Debian cloud image and
-import into Voom:
+On a Linux host (this example is `x86_64`), use a `qcow2` disk image:
 
 ```bash
 BUILD=20260518-2482
@@ -155,39 +91,107 @@ sha512sum --ignore-missing -c SHA512SUMS
 voom image import debian13 ./"$IMG" --ssh-user debian --arch x86_64-linux --install-guest-helpers
 ```
 
-Once an image has been imported, usage is consistent regardless of host
-platform:
+`aarch64` Linux hosts are also supported.
+
+> [!TIP]
+>
+> Always use `raw` disk images on Mac hosts, and `qcow2` disk images on Linux
+> hosts.
+
+### 2. Create a VM
+
+Create a new VM (called `deb`, in this example), based on the `debian13` image
+that was imported in the previous step:
 
 ```bash
-# Create VM
 voom create deb --image debian13
+```
+
+New VMs are allocated 4 vCPUs and 4 GiB (4096 MiB) of RAM by default. You can
+override these values at VM creation time by passing the `--cpus` / `--memory`
+flags.
+
+### 3. Mount a host directory
+
+Declare a host directory as a `virtio-fs` share:
+
+```bash
+voom share add deb code ~/src/myproject /mnt/code
+```
+
+Shares can only be added or removed while the VM is stopped; this host
+directory (`~/src/myproject`) will mount automatically on boot (at `/mnt/code`
+on the guest).
+
+### 4. Start and connect
+
+```bash
 voom start deb
 
-# Wait for cloud-init (first boot only)
+# Wait for first-boot cloud-init to install the guest helpers
 until voom ssh deb -- 'systemctl is-active voom-portfwd.service' 2>/dev/null \
   | grep -q '^active$'; do sleep 5; done
 
-# Run a command on the VM
-voom ssh deb -- uname
+voom ssh deb -- ls /mnt/code   # one-shot command
 
-# Enable automatic port forwarding
-voom forward auto enable deb
-
-# Mount a folder
-voom share add deb code /path/to/project /mnt/code
-voom restart deb  # pick up the new share
-voom ssh deb -- ls /mnt/code
-
-# Open an interactive SSH session
-voom ssh deb
+voom ssh deb                   # interactive shell
 ```
 
-Most non-streaming commands accept `--output json`, to simplify automation.
-Streaming commands (`ssh`, `console`, `nixos switch`) are instead
-text/subprocess oriented.
+### 5. Forward guest ports
 
-For more information, see the generated command reference
-([docs/commands](docs/commands/)).
+When auto-forwarding is enabled, anything the guest binds on `0.0.0.0` is
+available at `127.0.0.1` on the host:
+
+```bash
+voom forward auto enable deb
+voom ssh deb -- 'nohup python3 -m http.server 8080 >/dev/null 2>&1 &'
+sleep 3
+voom forward ls deb
+curl http://127.0.0.1:8080
+```
+
+If you're running multiple VMs that each bind the same guest ports, you can
+assign each VM an offset to prevent host collisions. For example, `voom forward
+auto enable deb --offset 10000` maps host `18080` to guest `8080` (`host port =
+guest port + offset`). To adjust an existing offset, run `voom forward auto
+offset deb <n>`.
+
+If you would prefer to explicitly expose ports:
+
+```bash
+voom ssh deb -- 'nohup python3 -m http.server 9090 >/dev/null 2>&1 &'
+voom forward add deb 9090      # host 127.0.0.1:9090 -> guest 9090
+sleep 3
+curl http://127.0.0.1:9090
+```
+
+The host port defaults to the guest port and binds to `127.0.0.1`; pass
+`--host-port` to map to a different host port, or `--lan` to expose on
+`0.0.0.0`.
+
+### 6. Shut down the VM
+
+Run `voom stop` to shut down a running VM:
+
+```bash
+voom stop deb
+```
+
+This command clears runtime state (sockets, pidfiles, helper logs), but keeps
+persistent state (disk, declared shares and forwards).
+
+### 7. Make adjustments to a stopped VM
+
+Certain changes can only be made while the VM is stopped:
+
+```bash
+voom resources cpus deb 8           # set the vCPU count
+voom resources memory deb 8192MiB   # set the RAM allocation
+voom resources disk grow deb 20G    # grow the disk by 20G
+```
+
+Note that the disk will be resized immediately, but updated CPU and memory
+allocations will not take effect until the next time the VM is started.
 
 ## Installation
 
@@ -203,7 +207,6 @@ go install github.com/mjrusso/voom/cmd/voom@latest
 ```
 
 ### Install with Nix
-
 
 ```sh
 nix profile install github:mjrusso/voom
@@ -272,7 +275,7 @@ On `aarch64` QEMU hosts, Voom looks for UEFI firmware in this order:
 ```
 
 Set `VOOM_QEMU_AARCH64_UEFI=/path/to/firmware.fd` when your distribution stores
-firmware elsewhere. On macOS, vfkit uses direct boot metadata from the imported
+firmware elsewhere. On MacOS, vfkit uses direct boot metadata from the imported
 image or a bootable disk image.
 
 | Host OS | Host arch       | Image system    | Driver | Disk format |
@@ -281,55 +284,37 @@ image or a bootable disk image.
 | Linux   | aarch64         | `aarch64-linux` | qemu   | qcow2       |
 | Darwin  | arm64 / aarch64 | `aarch64-linux` | vfkit  | raw         |
 
-## Common Workflows
+## Commands Overview
 
-**Lifecycle.** `voom create` makes a VM; `voom start` boots it. (Note that
-`voom start` will never implicitly create a VM.) `voom stop` shuts the VM down
-but keeps persistent state; `voom rm <name> --force` removes a VM's state,
-disk, runtime files, and cache logs. New VMs default to 4 CPUs and `4096MiB`
-memory; adjust at creation with `--cpus`, `--memory`, and `--ssh-port`. For
-stopped VMs, update CPU and RAM allocations with `voom
-resources cpus <name> <n>` and `voom resources memory <name> <size>`; the new
-values apply the next time the VM starts. Change a stopped VM's host SSH port
-with `voom config ssh-port <name> <port>`, or pick a fresh automatically
-allocated port with `voom config ssh-port <name> auto`. `voom clone <source>
-<new>` copies a stopped VM's current disk into a new VM with a fresh ID and SSH
-port.
+| Area      | Commands                                                                                                |
+|-----------|---------------------------------------------------------------------------------------------------------|
+| Lifecycle | `create`, `start`, `stop`, `restart`, `rm`, `clone`, `rename`                                           |
+| Images    | `image import`, `image inspect`, `image list`, `image rm`                                               |
+| Compute   | `resources cpus`, `resources memory`                                                                    |
+| Disk      | `resources disk grow`, `disk reset`                                                                     |
+| Access    | `ssh`, `console`, `ssh-config`, `config show`, `config ssh-port`                                        |
+| Forwards  | `forward add`, `forward rm`, `forward ls`, `forward discover`, `forward auto enable`/`disable`/`offset` |
+| Shares    | `share add`, `share rm`, `share ls`                                                                     |
+| NixOS     | `nixos switch`                                                                                          |
+| Inspect   | `list`, `info`, `logs`, `doctor`, `guest ports`, `debug paths`, `version`                               |
 
-**SSH.** `voom ssh <name>` opens an interactive shell. Trailing arguments pass
-through to `ssh` as a one-shot remote command: for example, `voom ssh <name> --
-uname -a` runs `uname -a` in the VM and exits.
+Notes and considerations:
 
-**Forwards.** Manual forwards bind `127.0.0.1` by default. `--lan` or `--bind
-0.0.0.0` exposes to other machines (recorded in `vm.json`; `voom doctor` warns
-about LAN exposure). `--auto` picks a free host port. `voom forward auto enable
-<name>` opts into runtime auto-forwarding for images that declare
-`guestPortReport`. SSH ports are allocated from 2222–2299 and persisted. `voom
-ssh-config <name>` prints an OpenSSH host block; `voom forward ls` shows SSH,
-manual, and runtime auto-forward rows across VMs. `voom forward auto enable
-<name> --offset 10000` shifts every auto-forwarded host port by a fixed amount,
-so multiple VMs can auto-forward the same guest ports without colliding on the
-host.
+- Host SSH ports are auto-allocated (in the range 2222–2299); the selection is
+  persisted as part of the VM metadata. You can set an arbitrary port at VM
+  creation time with the `--ssh-port` flag, and existing port allocations can
+  be changed later by running the `voom config ssh-port` command.
 
-**Shares.** `voom share add <name> <tag> <host-path> <guest-path>` declares a
-virtio-fs share. Appending `--ro`/`--readonly` makes the share read-only. The
-tag `voom-control` is reserved. Shares are mounted by the guest from
-`/run/voom/mounts.json` through the reserved control share. On QEMU, Voom
-exports each share with a `virtiofsd` helper; on vfkit, voom attaches native
-vfkit virtio-fs devices. Adding or removing shares requires the VM to be
-stopped.
+- A VM must be stopped before resizing, changing shares, growing its disk
+  (`voom resources disk grow`), or changing its SSH port.
 
-**Disk.** `voom resources disk grow <name>` defaults to `10G` (note that the VM
-must be stopped to grow the disk). `voom disk reset <name>` stops the VM and
-replaces its disk from the image while preserving VM configuration. Sizes
-accept `M`/`MB`/`MiB`/`G`/`GB`/`GiB`/`T`/`TB`/`TiB`.
+- Most non-streaming commands accept `--output json` to simplify automation;
+  streaming commands (`ssh`, `console`, `nixos switch`) are instead
+  text/subprocess oriented.
 
-**NixOS switch.** `voom nixos switch <name>` runs `nixos-rebuild --target-host`
-over the VM's persisted SSH port, sets `NIX_SSHOPTS` with the VM's SSH options,
-and records `switchedAt`, `flakeRef`, and the current git revision in `vm.json`
-on success. Only supported on NixOS guests.
+_For the full command reference, see [docs/commands](docs/commands/)._
 
-## Diagnostics And Recovery
+## Diagnostics and Recovery
 
 Use `voom doctor` to check system dependencies (as per [Host
 Requirements](#host-requirements)), as well as writable directories, port
@@ -349,6 +334,54 @@ voom rm <name> --force
 If a VM is already stopped and only runtime debris remains, it is safe to
 remove that VM's `<runtime>/vms/<vm-id>` directory. Removing files under
 `<state>` is destructive and should be handled with care.
+
+## Custom Images
+
+Voom's guest integrations can be configured to be installed on first boot by
+passing the `--install-guest-helpers` flag on image import. Alternatively, they
+can be baked into a custom-built image and paired with a *sidecar* (a small
+JSON file that declares the image's capabilities).
+
+`--install-guest-helpers` is simpler than baking a custom image, but there are
+some trade-offs and differences worth acknowledging:
+
+|                           | `--install-guest-helpers`                                    | Bake into the image (+ sidecar)                  |
+|---------------------------|--------------------------------------------------------------|--------------------------------------------------|
+| **Works with**            | any `cloud-init`-capable image (e.g. stock Debian `generic`) | images you build yourself                        |
+| **First-boot cost**       | one-time install on first boot                               | none: helpers are already present in the image   |
+| **Network at first boot** | required (installs `jq`/`gawk`/`iproute2` from distro repo)  | not required                                     |
+| **Enables**               | shares + auto port-forward                                   | shares + auto port-forward + `voom nixos switch` |
+| **Setup**                 | one flag at image import                                     | a build pipeline                                 |
+
+When passing `--install-guest-helpers`, Voom generates a `cloud-init` `NoCloud`
+seed that writes Voom's helpers (`voom-portfwd`, the share-mount service, the
+`/run/voom` control mount) and enables them on first boot. Note that the
+install runs once, with subsequent starts reusing the helpers already on disk.
+Alternatively, baking the helpers into the image avoids first-boot
+latency and the package-install network dependency.
+
+> [!TIP]
+>
+> The author uses Voom with a custom image built from his [NixOS system
+> configuration](https://github.com/mjrusso/nixos-config): the same Nix Flake
+> that defines the host machine also produces VM images with tools
+> pre-installed and configured, so it's possible to SSH in, launch tmux, Emacs,
+> and coding agents, and get to work immediately. Because the image ships with
+> [nix-direnv](https://github.com/nix-community/nix-direnv), and his projects
+> generally use Nix Flakes to define per-project toolchains, per-project
+> environments load automatically with no additional setup.
+>
+> If you would like to replicate a similar setup, see this reference
+> implementation:
+> [module](https://github.com/mjrusso/nixos-config/blob/main/hosts/container/default.nix)
+> (wires up the control-share mount, the `voom-portfwd` and `voom-mount-shares`
+> helpers, and their systemd units), and [build
+> script](https://github.com/mjrusso/nixos-config/blob/main/scripts/bake-golden)
+> (bakes the disk image with matching Voom sidecar).
+
+See [Guest Image Contract](#guest-image-contract) for details on what a
+full-featured image must provide, and [Images](#images) for the sidecar format
+specification.
 
 ---
 
@@ -466,8 +499,7 @@ ACPI/vfkit shutdown path.
 For NAT-backed Voom images, leave the guest firewall disabled. The guest sits
 behind gvproxy NAT, so no traffic can reach the guest except through explicit
 host-side forwards, which are managed by Voom. Use a stricter guest firewall
-only when attaching to a real network (bridged, macvtap, VPN). Recommended
-NixOS setting:
+only when attaching to a real network (bridged, macvtap, VPN).
 
 #### `voom-portfwd` Contract
 
@@ -539,7 +571,17 @@ plans host forwards from fresh reports and records installed/skipped rows in
 `voom forward discover <name>` is an audit/preview command; `voom forward ls`
 shows effective rows including skipped auto-forwards with an explanation.
 
-### State And Runtime Layout
+### Shares
+
+`voom share add <name> <tag> <host-path> <guest-path>` declares a `virtio-fs`
+share in `vm.json`; append `--ro`/`--readonly` for a read-only mount. The tag
+`voom-control` is reserved. On QEMU, Voom exports each share through a
+`virtiofsd` helper; on vfkit, it attaches native virtio-fs devices. The guest
+mounts declared shares from `/run/voom/mounts.json` (delivered over the reserved
+control share), so the image must ship the full-feature `guestShareMount`
+capability. Adding or removing a share requires the VM to be stopped.
+
+### State and Runtime Layout
 
 State is the persistent source of truth. JSON files are written atomically via
 temp-file-and-rename; partial files are ignored on load.
