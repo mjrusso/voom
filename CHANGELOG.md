@@ -2,5 +2,6 @@
 
 ## Unreleased
 
-- Harden the release workflow so release tags must point at commits on `main`.
-- Add a curated changelog workflow for release notes.
+## v1.0.0 - 2026-06-01
+
+- Initial release.
