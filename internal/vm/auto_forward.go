@@ -15,10 +15,18 @@ import (
 )
 
 // SetAutoForward toggles auto-forwarding on the VM and optionally updates the
-// host port offset, reconciling and starting/stopping the watcher as needed.
-func (m *Manager) SetAutoForward(ctx context.Context, name string, enabled bool, offset int, setOffset bool) (*state.VMRecord, error) {
+// host port offset and bind address, reconciling and starting/stopping the
+// watcher as needed.
+func (m *Manager) SetAutoForward(ctx context.Context, name string, enabled bool, offset int, setOffset bool, bind string, setBind bool) (*state.VMRecord, error) {
 	if setOffset && offset < 0 {
 		return nil, errors.New("offset must be a non-negative integer")
+	}
+	if setBind {
+		var err error
+		bind, err = forward.NormalizeBind(bind)
+		if err != nil {
+			return nil, err
+		}
 	}
 	vm, err := m.store.LoadVM(name)
 	if err != nil {
@@ -36,6 +44,9 @@ func (m *Manager) SetAutoForward(ctx context.Context, name string, enabled bool,
 	vm.Network.AutoForward = enabled
 	if setOffset {
 		vm.Network.AutoForwardHostOffset = offset
+	}
+	if setBind {
+		vm.Network.AutoForwardBind = bind
 	}
 	im, err := m.store.LoadImageByID(vm.Image.ID)
 	if err != nil {
@@ -259,6 +270,7 @@ func (m *Manager) PlanAutoForwards(vm *state.VMRecord, report *GuestPortsReport,
 		VMID:          vm.ID,
 		AutoForward:   vm.Network.AutoForward,
 		HostOffset:    vm.Network.AutoForwardHostOffset,
+		HostBind:      autoForwardBind(vm),
 		GuestTargetIP: m.GuestTargetIP(vm),
 	}, report, existing, forward.PlanOptions{
 		PortReserved: func(bind string, port int) bool {
@@ -280,7 +292,17 @@ func ValidateAutoForwardConfig(vm *state.VMRecord) error {
 	if vm.Network.AutoForwardHostOffset < 0 {
 		return errors.New("auto-forward offset must be a non-negative integer")
 	}
+	if _, err := forward.NormalizeBind(autoForwardBind(vm)); err != nil {
+		return fmt.Errorf("auto-forward bind: %w", err)
+	}
 	return nil
+}
+
+func autoForwardBind(vm *state.VMRecord) string {
+	if vm.Network.AutoForwardBind == "" {
+		return "127.0.0.1"
+	}
+	return vm.Network.AutoForwardBind
 }
 
 func (m *Manager) runtimeGVProxyPID(vm *state.VMRecord) int {

@@ -140,7 +140,7 @@ voom ssh deb                   # interactive shell
 ### 5. Forward guest ports
 
 When auto-forwarding is enabled, anything the guest binds on `0.0.0.0` is
-available at `127.0.0.1` on the host:
+available at `127.0.0.1` on the host by default:
 
 ```bash
 voom forward auto enable deb
@@ -155,6 +155,10 @@ assign each VM an offset to prevent host collisions. For example, `voom forward
 auto enable deb --offset 10000` maps host `18080` to guest `8080` (`host port =
 guest port + offset`). To adjust an existing offset, run `voom forward auto
 offset deb <n>`.
+
+To expose auto-forwards beyond loopback, pass `--bind <ip>` or `--lan` when
+enabling auto-forwarding. For example, `--bind 100.x.y.z` listens on that local
+host address, while `--lan` listens on `0.0.0.0`.
 
 If you would prefer to explicitly expose ports:
 
@@ -583,7 +587,8 @@ plans host forwards from fresh reports and records installed/skipped rows in
 - only TCP listeners are considered;
 - guest port `22` is reserved for SSH;
 - guest listeners must bind all guest interfaces (`0.0.0.0`, `::`, or `*`);
-- runtime auto-forwards bind `127.0.0.1` on the host;
+- runtime auto-forwards bind `127.0.0.1` on the host by default; pass
+  `--bind <ip>` or `--lan` to expose them elsewhere;
 - host port = guest port + configured auto-forward offset.
 
 `voom forward discover <name>` is an audit/preview command; `voom forward ls`

@@ -310,9 +310,24 @@ func TestImageCreateInspectForwardAndGuestGate(t *testing.T) {
 	if err := runCmdErr("image", "rm", "nixos"); err == nil || !strings.Contains(err.Error(), "referenced by scratch") {
 		t.Fatalf("expected image removal reference block, got %v", err)
 	}
-	runCmd(t, "--output", "json", "forward", "auto", "enable", "scratch", "--offset", "10000")
+	out = runCmd(t, "--output", "json", "forward", "auto", "enable", "scratch", "--offset", "10000", "--lan")
+	var autoForwardChanged struct {
+		AutoForward bool   `json:"autoForward"`
+		Offset      int    `json:"offset"`
+		Bind        string `json:"bind"`
+	}
+	if err := json.Unmarshal([]byte(out), &autoForwardChanged); err != nil || !autoForwardChanged.AutoForward || autoForwardChanged.Offset != 10000 || autoForwardChanged.Bind != "0.0.0.0" {
+		t.Fatalf("bad auto-forward JSON %v: %#v", err, autoForwardChanged)
+	}
+	out = runCmd(t, "--output", "json", "forward", "auto", "enable", "scratch")
+	if err := json.Unmarshal([]byte(out), &autoForwardChanged); err != nil || !autoForwardChanged.AutoForward || autoForwardChanged.Offset != 0 || autoForwardChanged.Bind != "127.0.0.1" {
+		t.Fatalf("bad default auto-forward JSON %v: %#v", err, autoForwardChanged)
+	}
 	if err := runCmdErr("forward", "auto", "enable", "scratch", "--offset", "-1"); err == nil || !strings.Contains(err.Error(), "non-negative") {
 		t.Fatalf("expected negative enable offset rejection, got %v", err)
+	}
+	if err := runCmdErr("forward", "auto", "enable", "scratch", "--lan", "--bind", "127.0.0.1"); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("expected mutually exclusive auto-forward bind rejection, got %v", err)
 	}
 	runCmd(t, "--output", "json", "forward", "auto", "offset", "scratch", "9000")
 	runCmd(t, "--output", "json", "forward", "auto", "disable", "scratch")

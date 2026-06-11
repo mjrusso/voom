@@ -27,6 +27,7 @@ func TestReplayCommands(t *testing.T) {
 			},
 			AutoForward:           true,
 			AutoForwardHostOffset: 10000,
+			AutoForwardBind:       "0.0.0.0",
 		},
 	}
 	want := []string{
@@ -34,7 +35,7 @@ func TestReplayCommands(t *testing.T) {
 		"voom share add dev data '/home/u/my data' /mnt/data --ro",
 		"voom forward add dev 8080 --host-port 18080",
 		"voom forward add dev 5432 --host-port 5432 --bind 0.0.0.0",
-		"voom forward auto enable dev --offset 10000",
+		"voom forward auto enable dev --offset 10000 --bind 0.0.0.0",
 	}
 	if got := replayCommands(vm, "dev"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("replayCommands =\n%#v\nwant\n%#v", got, want)

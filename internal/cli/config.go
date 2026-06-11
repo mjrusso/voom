@@ -106,6 +106,9 @@ func replayCommands(vm *state.VMRecord, target string) []string {
 		if vm.Network.AutoForwardHostOffset != 0 {
 			line += fmt.Sprintf(" --offset %d", vm.Network.AutoForwardHostOffset)
 		}
+		if vm.Network.AutoForwardBind != "" && vm.Network.AutoForwardBind != "127.0.0.1" {
+			line += " --bind " + shellQuote(vm.Network.AutoForwardBind)
+		}
 		cmds = append(cmds, line)
 	}
 	return cmds

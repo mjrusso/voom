@@ -96,6 +96,7 @@ type VMNetwork struct {
 	Forwards              []forward.Decl `json:"forwards"`
 	AutoForward           bool           `json:"autoForward"`
 	AutoForwardHostOffset int            `json:"autoForwardHostOffset"`
+	AutoForwardBind       string         `json:"autoForwardBind,omitempty"`
 }
 
 // NixOSSwitch records the last successful nixos-rebuild switch performed against this VM.

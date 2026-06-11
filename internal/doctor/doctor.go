@@ -123,6 +123,9 @@ func StateDiagnostics(st *state.Store) []Check {
 				out = append(out, Check{"lan-forward-" + name + "-" + strconv.Itoa(f.HostPort), "warn", false, "VM forward is exposed beyond loopback"})
 			}
 		}
+		if vmRec.Network.AutoForward && (vmRec.Network.AutoForwardBind == "0.0.0.0" || vmRec.Network.AutoForwardBind == "::") {
+			out = append(out, Check{"lan-auto-forward-" + name, "warn", false, "VM auto-forwarding is exposed beyond loopback"})
+		}
 		rt := st.Runtime(vmRec)
 		staticPidfiles := []struct {
 			name string

@@ -70,6 +70,22 @@ func TestPlanAutoKeepsExistingInstalledPortWithoutAvailabilityCheck(t *testing.T
 	assertRow(t, rows[0], "active", 8080, "")
 }
 
+func TestPlanAutoUsesConfiguredBind(t *testing.T) {
+	report := &PortsReport{SchemaVersion: 1, GeneratedAt: time.Now().UTC(), Listeners: []Listener{{Proto: "tcp", Addr: "0.0.0.0", Port: 8080}}}
+	rows := PlanAuto(VMPlanConfig{VMID: "vm1", AutoForward: true, HostBind: "0.0.0.0", GuestTargetIP: "192.168.127.3"}, report, nil, PlanOptions{
+		HostPortAvailable: func(bind string, port int) (bool, string) {
+			if bind != "0.0.0.0" || port != 8080 {
+				t.Fatalf("availability checked %s:%d", bind, port)
+			}
+			return true, ""
+		},
+	})
+	if len(rows) != 1 || rows[0].Bind != "0.0.0.0" {
+		t.Fatalf("rows = %#v", rows)
+	}
+	assertRow(t, rows[0], "active", 8080, "")
+}
+
 func TestPlanAutoPrefersForwardableDuplicateGuestPort(t *testing.T) {
 	report := &PortsReport{SchemaVersion: 1, GeneratedAt: time.Now().UTC(), Listeners: []Listener{
 		{Proto: "tcp", Addr: "127.0.0.1", Port: 8080},

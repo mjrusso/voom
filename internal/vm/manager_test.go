@@ -505,6 +505,7 @@ func TestCloneCopiesDiskAndResourcesButNotNetworkConfig(t *testing.T) {
 			Forwards:              []forward.Decl{{Protocol: "tcp", GuestPort: 8080, HostPort: 18080, Bind: "127.0.0.1"}},
 			AutoForward:           true,
 			AutoForwardHostOffset: 10000,
+			AutoForwardBind:       "0.0.0.0",
 		},
 		Shares: []share.Decl{{Tag: "code", HostPath: "/host/code", GuestPath: "/mnt/code", Readonly: true}},
 	}
@@ -538,7 +539,7 @@ func TestCloneCopiesDiskAndResourcesButNotNetworkConfig(t *testing.T) {
 	if clone.Resources != src.Resources || clone.Access != src.Access {
 		t.Fatalf("clone did not carry resources/access: %#v %#v", clone.Resources, clone.Access)
 	}
-	if clone.Network.AutoForward || clone.Network.AutoForwardHostOffset != 0 {
+	if clone.Network.AutoForward || clone.Network.AutoForwardHostOffset != 0 || clone.Network.AutoForwardBind != "" {
 		t.Fatalf("clone should not carry auto-forward settings: %#v", clone.Network)
 	}
 	if len(clone.Network.Forwards) != 0 {

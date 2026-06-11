@@ -70,6 +70,7 @@ type VMPlanConfig struct {
 	VMID          string
 	AutoForward   bool
 	HostOffset    int
+	HostBind      string
 	GuestTargetIP string
 }
 
@@ -169,6 +170,10 @@ func PlanAuto(cfg VMPlanConfig, report *PortsReport, existing []RuntimeAuto, opt
 	if !cfg.AutoForward || report == nil {
 		return nil
 	}
+	hostBind := cfg.HostBind
+	if hostBind == "" {
+		hostBind = "127.0.0.1"
+	}
 	if opts.PortReserved == nil {
 		opts.PortReserved = func(string, int) bool { return false }
 	}
@@ -188,7 +193,7 @@ func PlanAuto(cfg VMPlanConfig, report *PortsReport, existing []RuntimeAuto, opt
 	rows := make([]RuntimeAuto, 0, len(listeners))
 	for _, l := range listeners {
 		hostPort := l.Port + cfg.HostOffset
-		f := RuntimeAuto{Protocol: "tcp", Bind: "127.0.0.1", HostPort: hostPort, GuestPort: l.Port, GuestTargetIP: cfg.GuestTargetIP, Offset: cfg.HostOffset, Status: "active", Installed: true}
+		f := RuntimeAuto{Protocol: "tcp", Bind: hostBind, HostPort: hostPort, GuestPort: l.Port, GuestTargetIP: cfg.GuestTargetIP, Offset: cfg.HostOffset, Status: "active", Installed: true}
 		_, alreadyActive := existingActive[Key(f)]
 		switch {
 		case l.Proto != "tcp":

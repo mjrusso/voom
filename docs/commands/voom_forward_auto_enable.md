@@ -9,8 +9,10 @@ voom forward auto enable <name> [flags]
 ### Options
 
 ```
-  -h, --help         help for enable
-      --offset int   host port offset
+      --bind string   host bind address
+  -h, --help          help for enable
+      --lan           bind to 0.0.0.0
+      --offset int    host port offset
 ```
 
 ### Options inherited from parent commands

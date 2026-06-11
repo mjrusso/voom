@@ -155,7 +155,11 @@ func forwardDiscoverCommand() *cobra.Command {
 			return err
 		}
 		preview := deps.vm.PlanAutoForwards(vmRec, report, runtimeForwards)
-		out := map[string]any{"listeners": report.Listeners, "manualForwards": vmRec.Network.Forwards, "runtimeAutoForwards": runtimeForwards, "autoForwardPreview": preview, "autoForward": vmRec.Network.AutoForward, "autoForwardOffset": vmRec.Network.AutoForwardHostOffset}
+		autoBind := vmRec.Network.AutoForwardBind
+		if autoBind == "" {
+			autoBind = "127.0.0.1"
+		}
+		out := map[string]any{"listeners": report.Listeners, "manualForwards": vmRec.Network.Forwards, "runtimeAutoForwards": runtimeForwards, "autoForwardPreview": preview, "autoForward": vmRec.Network.AutoForward, "autoForwardOffset": vmRec.Network.AutoForwardHostOffset, "autoForwardBind": autoBind}
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
 		}
@@ -176,13 +180,27 @@ func forwardDiscoverCommand() *cobra.Command {
 func forwardAutoCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "auto", Short: "Configure auto-forwarding"}
 	enableOffset := 0
+	enableBind := ""
+	enableLan := false
 	enable := &cobra.Command{Use: "enable <name>", Short: "Enable auto-forwarding", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		return setAutoForward(cmd, args[0], true, enableOffset, true)
+		if enableLan && enableBind != "" {
+			return errors.New("--lan and --bind are mutually exclusive")
+		}
+		bind := enableBind
+		if enableLan {
+			bind = "0.0.0.0"
+		}
+		if bind == "" {
+			bind = "127.0.0.1"
+		}
+		return setAutoForward(cmd, args[0], true, enableOffset, true, bind, true)
 	}}
 	enable.Flags().IntVar(&enableOffset, "offset", 0, "host port offset")
+	enable.Flags().StringVar(&enableBind, "bind", "", "host bind address")
+	enable.Flags().BoolVar(&enableLan, "lan", false, "bind to 0.0.0.0")
 	cmd.AddCommand(enable)
 	cmd.AddCommand(&cobra.Command{Use: "disable <name>", Short: "Disable auto-forwarding", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		return setAutoForward(cmd, args[0], false, 0, false)
+		return setAutoForward(cmd, args[0], false, 0, false, "", false)
 	}})
 	cmd.AddCommand(&cobra.Command{Use: "offset <name> <n>", Short: "Set auto-forward offset", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		n, err := strconv.Atoi(args[1])
