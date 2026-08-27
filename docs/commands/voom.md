@@ -24,6 +24,7 @@ voom [flags]
 * [voom debug](voom_debug.md)	 - Debug voom internals
 * [voom disk](voom_disk.md)	 - Manage VM disks
 * [voom doctor](voom_doctor.md)	 - Run diagnostics
+* [voom events](voom_events.md)	 - Stream VM and forward change events
 * [voom forward](voom_forward.md)	 - Manage guest port forwards
 * [voom guest](voom_guest.md)	 - Inspect guest-reported state
 * [voom image](voom_image.md)	 - Manage images

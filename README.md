@@ -318,7 +318,7 @@ image or a bootable disk image.
 | Forwards  | `forward add`, `forward rm`, `forward ls`, `forward discover`, `forward auto enable`/`disable`/`offset` |
 | Shares    | `share add`, `share rm`, `share ls`                                                                     |
 | NixOS     | `nixos switch`                                                                                          |
-| Inspect   | `list`, `info`, `logs`, `doctor`, `guest ports`, `debug paths`, `version`                               |
+| Inspect   | `list`, `info`, `logs`, `events`, `doctor`, `guest ports`, `debug paths`, `version`                     |
 
 Notes and considerations:
 
@@ -631,8 +631,43 @@ stops. Notable paths under `<runtime>/vms/<vm-id>/`:
   helper sockets
 
 Cache holds disposable logs: `serial.log`, `qemu.log` or `vfkit.log`,
-`gvproxy.log`, `auto-forward.log`, `share-mount.log`. Use `voom logs <name>` to
-read.
+`gvproxy.log`, `auto-forward.log`, `share-mount.log`, and the global
+`events.jsonl` event stream. The stream retains one rotated generation at
+`events.jsonl.1` and coordinates writers through `events.lock`. Use `voom logs
+<name>` to read per-VM logs.
+
+### Events
+
+`voom events` streams best-effort change notifications from the cache-backed
+event log. With no `--since` value it follows new events. `--since` accepts an
+RFC3339 timestamp, Unix timestamp, duration such as `10m`, or an event ID.
+`--until` accepts a timestamp or a duration into the future. JSON output is
+JSON Lines and is flushed after every event:
+
+```sh
+voom events --output json --filter type=forward
+```
+
+Events are wake-up hints, not a state replica. A consumer must reconcile with
+`voom list` or `voom forward ls` when it starts and whenever it receives an
+event. Delivery is not guaranteed, duplicates are possible, and concurrent
+writers do not provide causal ordering. An event-ID cursor that has aged out
+of the retained log produces a non-zero exit instead of silently replaying an
+incomplete history.
+
+Each JSON event has `recordType`, `schemaVersion`, opaque `id`, `time`,
+`timeNano`, `type`, `action`, `actor`, and diagnostic `source` fields. Actor
+attribute values are strings. Consumers must ignore unknown fields, event
+types, and actions. Unsupported schema versions cause the stream to exit.
+
+The initial event taxonomy is:
+
+| Type | Actions | Meaning |
+| --- | --- | --- |
+| `vm` | `create`, `start`, `stop`, `rm` | An observed VM lifecycle operation completed; cloned VMs use `create` with a `clonedFrom` attribute. |
+| `forward` | `install`, `uninstall`, `skip` | Persisted automatic-forward state changed. |
+
+Events for an unexpected VM process exit are not emitted in this version.
 
 `voom doctor` scans object directories in addition to `state.json` and reports
 dangling index entries, orphaned records, duplicate names or IDs, LAN exposure,
@@ -644,22 +679,23 @@ Common command effects:
 | --- | --- | --- |
 | `voom image import` | source disk, optional sidecar metadata | `<state>/state.json`, `<state>/images/<image-id>/image.json`, imported image disk |
 | `voom image rm` | `state.json`, `image.json`, VM references | image record and disk; `state.json` entry |
-| `voom create` | `state.json`, `image.json`, image disk | `state.json`, `vm.json`, VM disk copy |
-| `voom clone` | `state.json`, source `vm.json`, source VM disk | `state.json`, new `vm.json`, VM disk copy (no shares/forwards) |
-| `voom start` | `state.json`, `vm.json`, `image.json`, VM disk | runtime directory, `seed.img`, control share files, sockets, pidfiles, helper logs, runtime auto-forward state |
-| `voom stop` | `state.json`, `vm.json`, runtime pidfiles | stops runtime helper processes; removes sockets, pidfiles, and the runtime auto-forward state file |
-| `voom rm` | `state.json`, `vm.json`, runtime pidfiles | removes VM state, VM disk, runtime directory, cache logs, and `state.json` entry |
+| `voom create` | `state.json`, `image.json`, image disk | `state.json`, `vm.json`, VM disk copy, event log |
+| `voom clone` | `state.json`, source `vm.json`, source VM disk | `state.json`, new `vm.json`, VM disk copy (no shares/forwards), event log |
+| `voom start` | `state.json`, `vm.json`, `image.json`, VM disk | runtime directory, `seed.img`, control share files, sockets, pidfiles, helper logs, runtime auto-forward state, event log |
+| `voom stop` | `state.json`, `vm.json`, runtime pidfiles | stops runtime helper processes; removes sockets, pidfiles, and the runtime auto-forward state file; writes event log |
+| `voom rm` | `state.json`, `vm.json`, runtime pidfiles | removes VM state, VM disk, runtime directory, cache logs, and `state.json` entry; writes event log |
 | `voom resources cpus` / `memory` | `state.json`, `vm.json`, runtime pidfile | updates stopped-VM CPU or memory allocation in `vm.json` |
 | `voom resources disk grow` | `state.json`, `vm.json`, VM disk | grows the stopped VM disk |
 | `voom disk reset` | `state.json`, `vm.json`, `image.json`, image disk | replaces the VM disk and updates the VM image/access metadata |
 | `voom forward add` / `rm` | `state.json`, `vm.json`, runtime socket when running | updates declared forwards in `vm.json`; exposes or unexposes gvproxy forwards for running VMs |
-| `voom forward auto enable` / `disable` / `offset` | `state.json`, `vm.json`, image capabilities, runtime report when running | updates auto-forward settings in `vm.json`; reconciles or removes runtime auto-forwards for running VMs |
+| `voom forward auto enable` / `disable` / `offset` | `state.json`, `vm.json`, image capabilities, runtime report when running | updates auto-forward settings in `vm.json`; reconciles or removes runtime auto-forwards for running VMs; writes event log on transitions |
 | `voom share add` / `rm` | `state.json`, `vm.json`, host path | updates share declarations in `vm.json`; running VMs must be stopped first |
 | `voom nixos switch` | `state.json`, `vm.json`, image capabilities, flake metadata | runs `nixos-rebuild` over SSH and records switch metadata in `vm.json` |
 | `voom config show` | `state.json`, `vm.json` | no state changes |
 | `voom config ssh-port` | `state.json`, `vm.json`, runtime pidfile, host port availability | updates the stopped VM's SSH management port in `vm.json` |
 | `voom logs` | `state.json`, `vm.json`, cache log | no state changes |
 | `voom doctor` | state, runtime, cache, host tools, pidfiles | no state changes |
+| `voom events` | `<cache>/events.jsonl`, retained generation | no state changes beyond creating the event lock while waiting |
 
 ## Development
 

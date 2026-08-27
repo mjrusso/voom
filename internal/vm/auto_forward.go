@@ -183,7 +183,14 @@ func (m *Manager) CleanupAutoForwards(_ context.Context, vm *state.VMRecord) err
 			_ = gvproxyUnexpose(sock, fmt.Sprintf("%s:%d", old.Bind, old.HostPort))
 		}
 	}
-	return m.saveRuntimeAutoForwards(vm, nil)
+	if err := m.saveRuntimeAutoForwards(vm, nil); err != nil {
+		return err
+	}
+	if _, err := os.Stat(m.RuntimeAutoForwardsPath(vm)); !errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	m.emitAutoForwardTransitions(vm, oldRows, nil)
+	return nil
 }
 
 // ReconcileAutoForwards computes the desired auto-forward set from the guest
@@ -246,7 +253,33 @@ func (m *Manager) ReconcileAutoForwards(_ context.Context, vm *state.VMRecord) (
 	if err := m.saveRuntimeAutoForwards(vm, desired); err != nil {
 		return nil, err
 	}
+	m.emitAutoForwardTransitions(vm, oldRows, desired)
 	return desired, nil
+}
+
+func (m *Manager) emitAutoForwardTransitions(vm *state.VMRecord, oldRows, newRows []RuntimeAutoForward) {
+	oldByKey := make(map[string]RuntimeAutoForward, len(oldRows))
+	newByKey := make(map[string]RuntimeAutoForward, len(newRows))
+	for _, row := range oldRows {
+		oldByKey[forward.Key(row)] = row
+	}
+	for _, row := range newRows {
+		newByKey[forward.Key(row)] = row
+	}
+	for key, old := range oldByKey {
+		if next, ok := newByKey[key]; old.Installed && (!ok || !next.Installed) {
+			m.emitForward("uninstall", vm, old)
+		}
+	}
+	for key, next := range newByKey {
+		old, existed := oldByKey[key]
+		if next.Installed && (!existed || !old.Installed) {
+			m.emitForward("install", vm, next)
+		}
+		if next.Status == "skipped" && (!existed || old.Status != "skipped" || old.Reason != next.Reason) {
+			m.emitForward("skip", vm, next)
+		}
+	}
 }
 
 // LogAutoForwardWarning appends a timestamped warning to the VM's auto-forward log.

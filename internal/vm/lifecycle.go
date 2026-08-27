@@ -80,7 +80,11 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 	if err := m.store.SaveVM(vm); err != nil {
 		return nil, err
 	}
-	return vm, m.store.RegisterVM(name, id)
+	if err := m.store.RegisterVM(name, id); err != nil {
+		return vm, err
+	}
+	m.emitVM("create", vm, map[string]string{"image": im.Name, "driver": vm.Driver, "arch": vm.Arch})
+	return vm, nil
 }
 
 // Clone provisions a new VM from an existing one by copying the source VM's
@@ -160,14 +164,24 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.
 		return nil, err
 	}
 	cleanupObject = false
+	m.emitVM("create", &clone, map[string]string{
+		"image": clone.Image.Name, "driver": clone.Driver, "arch": clone.Arch, "clonedFrom": src.Name,
+	})
 	return &clone, nil
 }
 
 // Remove stops the named VM if it is running and deletes its state.
 func (m *Manager) Remove(ctx context.Context, name string) error {
+	vm, err := m.store.LoadVM(name)
+	if err != nil {
+		return err
+	}
 	_, _ = m.Stop(ctx, name)
-	_, err := m.store.DeleteVM(name)
-	return err
+	if _, err := m.store.DeleteVM(name); err != nil {
+		return err
+	}
+	m.emitVM("rm", vm, nil)
+	return nil
 }
 
 // GrowDisk expands the VM's disk image by the given size; the VM must be stopped.
@@ -416,6 +430,7 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		}
 	}
 	started = true
+	m.emitVM("start", vm, nil)
 	_, _ = fmt.Fprintf(stderr, "VM %s started; SSH will become available at %s:%d after guest boots\n", vm.Name, vm.Network.SSHBind, vm.Network.SSHPort)
 	return vm, nil
 }
@@ -440,6 +455,9 @@ func (m *Manager) Stop(ctx context.Context, name string) (bool, error) {
 		len(globFiles(rt.VirtiofsPidGlob())) > 0
 	if err := m.StopRuntime(ctx, vm); err != nil {
 		return changed, err
+	}
+	if changed {
+		m.emitVM("stop", vm, nil)
 	}
 	return changed, nil
 }

@@ -487,7 +487,8 @@ func TestCreateUsesVFKitDiskExtension(t *testing.T) {
 
 func TestCloneCopiesDiskAndResourcesButNotNetworkConfig(t *testing.T) {
 	st, _ := newTestStore(t)
-	mgr := New(st)
+	recorder := &recordingEmitter{}
+	mgr := New(st, WithEventEmitter(recorder))
 	src := &state.VMRecord{
 		SchemaVersion: state.SchemaVersion,
 		ID:            "vm1",
@@ -562,6 +563,9 @@ func TestCloneCopiesDiskAndResourcesButNotNetworkConfig(t *testing.T) {
 	}
 	if reloaded.ID != clone.ID {
 		t.Fatalf("persisted clone ID = %s, want %s", reloaded.ID, clone.ID)
+	}
+	if len(recorder.events) != 1 || recorder.events[0].Action != "create" || recorder.events[0].Actor.Attributes["clonedFrom"] != "src" {
+		t.Fatalf("clone events = %#v", recorder.events)
 	}
 	// The source's own config is untouched by the clone.
 	srcReloaded, err := st.LoadVM("src")
