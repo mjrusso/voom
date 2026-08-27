@@ -30,6 +30,9 @@ tidy-check:
 scripts-check:
     @if ls scripts/*.sh >/dev/null 2>&1; then bash -n scripts/*.sh; fi
 
+skill-check:
+    go run ./cmd/skill-check
+
 smoke: build
     ./{{bin_dir}}/{{binary}} version
     ./{{bin_dir}}/{{binary}} --help
@@ -59,7 +62,7 @@ release-prep version:
     @printf '  git tag -a {{version}} -m "{{version}}"\n'
     @printf '  git push origin {{version}}\n'
 
-check: docs vet test lint tidy-check scripts-check smoke
+check: docs skill-check vet test lint tidy-check scripts-check smoke
     goreleaser check
     git diff --exit-code docs/commands
 

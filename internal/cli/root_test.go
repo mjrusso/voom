@@ -135,6 +135,7 @@ func TestCommandSurfaceHelpAndArgValidation(t *testing.T) {
 		{"share", "ls", "--help"},
 		{"nixos", "switch", "--help"},
 		{"doctor", "--help"},
+		{"skill", "--help"},
 		{"version", "--help"},
 	}
 	for _, args := range helpCommands {

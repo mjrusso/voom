@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add `voom skill` to print version-matched agent instructions for using Voom.
 - Add `voom events` for replaying and following best-effort VM lifecycle and
   automatic-forward change events.
 - Add `--bind` and `--lan` options to `voom forward auto enable` so automatic

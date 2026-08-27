@@ -11,6 +11,7 @@ voom [flags]
 ```
   -h, --help            help for voom
       --output string   output format: text or json (default "text")
+      --skill           print the Voom agent skill
   -v, --verbose         enable verbose diagnostics
       --version         print version information
 ```
@@ -37,6 +38,7 @@ voom [flags]
 * [voom restart](voom_restart.md)	 - Restart a VM
 * [voom rm](voom_rm.md)	 - Remove a VM
 * [voom share](voom_share.md)	 - Manage shares
+* [voom skill](voom_skill.md)	 - Print the Voom agent skill
 * [voom ssh](voom_ssh.md)	 - SSH into a VM, or run a one-shot command
 * [voom ssh-config](voom_ssh-config.md)	 - Print OpenSSH config
 * [voom start](voom_start.md)	 - Start a VM

@@ -318,7 +318,7 @@ image or a bootable disk image.
 | Forwards  | `forward add`, `forward rm`, `forward ls`, `forward discover`, `forward auto enable`/`disable`/`offset` |
 | Shares    | `share add`, `share rm`, `share ls`                                                                     |
 | NixOS     | `nixos switch`                                                                                          |
-| Inspect   | `list`, `info`, `logs`, `events`, `doctor`, `guest ports`, `debug paths`, `version`                     |
+| Inspect   | `list`, `info`, `logs`, `events`, `doctor`, `guest ports`, `debug paths`, `version`, `skill`            |
 
 Notes and considerations:
 
@@ -335,6 +335,20 @@ Notes and considerations:
   text/subprocess oriented.
 
 _For the full command reference, see [docs/commands](docs/commands/)._
+
+## Agent Skill
+
+Voom ships agent instructions as part of the binary. To print the skill file,
+run `voom skill`.
+
+Installation is not required (just tell your agent to run `voom skill`). You
+can optionally install the skill; for example:
+
+```sh
+mkdir -p ~/.agents/skills/voom
+voom --skill > ~/.agents/skills/voom/SKILL.md
+chmod 0644 ~/.agents/skills/voom/SKILL.md
+```
 
 ## Diagnostics and Recovery
 
