@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.1.0 - 2026-08-28
+
 - Add `voom skill` to print version-matched agent instructions for using Voom.
 - Add `voom events` for replaying and following best-effort VM lifecycle and
   automatic-forward change events.
