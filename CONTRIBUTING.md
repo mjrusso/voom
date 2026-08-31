@@ -221,15 +221,16 @@ section. That section is passed to GoReleaser as the GitHub release notes.
 
 ## Release process
 
-Releases are tag-driven. To cut `vX.Y.Z`, start from an up-to-date `main`,
-promote the changelog entries from `Unreleased` to `## vX.Y.Z - YYYY-MM-DD`,
-commit that changelog change, and run the local release prep:
+Releases are tag-driven. To cut `vX.Y.Z`, start from an up-to-date `main`, set
+`VERSION` to `X.Y.Z`, promote the changelog entries from `Unreleased` to
+`## vX.Y.Z - YYYY-MM-DD`, commit those changes, and run the local release prep:
 
 ```sh
 git switch main
 git pull --ff-only
 $EDITOR CHANGELOG.md
-git add CHANGELOG.md
+printf '%s\n' X.Y.Z > VERSION
+git add CHANGELOG.md VERSION
 git commit -m "Prepare vX.Y.Z release"
 just release-prep vX.Y.Z
 git push origin main

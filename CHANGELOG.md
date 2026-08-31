@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix Nix builds to report the correct version, commit, and build date.
+
 ## v1.1.0 - 2026-08-28
 
 - Add `voom skill` to print version-matched agent instructions for using Voom.

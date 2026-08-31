@@ -9,6 +9,27 @@ if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 
+if [ ! -f VERSION ]; then
+  echo "VERSION is missing" >&2
+  exit 1
+fi
+
+version="$(< VERSION)"
+if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "VERSION must contain X.Y.Z: $version" >&2
+  exit 1
+fi
+
+if ! printf '%s\n' "$version" | cmp -s - VERSION; then
+  echo "VERSION must contain exactly one X.Y.Z line" >&2
+  exit 1
+fi
+
+if [ "$tag" != "v$version" ]; then
+  echo "release tag $tag does not match VERSION ($version)" >&2
+  exit 1
+fi
+
 if [ ! -f CHANGELOG.md ]; then
   echo "CHANGELOG.md is missing" >&2
   exit 1

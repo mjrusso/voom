@@ -10,16 +10,22 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
+        version = pkgs.lib.removeSuffix "\n" (builtins.readFile ./VERSION);
+        commit = self.rev or self.dirtyRev or "dirty";
+        modified = self.lastModifiedDate or null;
+        date =
+          if modified == null then "unknown"
+          else "${builtins.substring 0 4 modified}-${builtins.substring 4 2 modified}-${builtins.substring 6 2 modified}T${builtins.substring 8 2 modified}:${builtins.substring 10 2 modified}:${builtins.substring 12 2 modified}Z";
         voom = pkgs.buildGoModule {
           pname = "voom";
-          version = "0.0.0";
+          inherit version;
           src = self;
           subPackages = [ "cmd/voom" ];
           vendorHash = "sha256-fxOjkVStDgZInA0/HEzi1/ZaI0XO+bc7sI94ok0QenY=";
           ldflags = [
-            "-X github.com/mjrusso/voom/internal/cli.version=0.0.0"
-            "-X github.com/mjrusso/voom/internal/cli.commit=${self.rev or "dirty"}"
-            "-X github.com/mjrusso/voom/internal/cli.date=unknown"
+            "-X github.com/mjrusso/voom/internal/cli.version=${version}"
+            "-X github.com/mjrusso/voom/internal/cli.commit=${commit}"
+            "-X github.com/mjrusso/voom/internal/cli.date=${date}"
           ];
         };
         ciPackages = with pkgs; [
