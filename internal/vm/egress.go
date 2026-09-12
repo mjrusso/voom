@@ -61,13 +61,13 @@ func (m *Manager) validateEgress(ctx context.Context, vm *state.VMRecord, execut
 		if _, ok := process.ValidRecord(m.store.Runtime(vm).GVProxyProcessRecord(), "gvproxy"); !ok {
 			return nil, errors.New("VM gvproxy process identity is unavailable")
 		}
-		err = gvproxy.CheckGatewayProcess(ctx, m.store.Runtime(vm).NetworkSock())
+		err = gvproxy.CheckProcess(ctx, m.store.Runtime(vm).NetworkSock(), gvproxy.GuestIsolationCapability, gvproxy.GatewayCapability)
 	} else {
 		if executable == "" {
 			executable, err = host.ExePath("gvproxy")
 		}
 		if err == nil {
-			err = gvproxy.CheckGatewayExecutable(ctx, executable)
+			err = gvproxy.CheckExecutable(ctx, executable, gvproxy.GuestIsolationCapability, gvproxy.GatewayCapability)
 		}
 	}
 	if err != nil {

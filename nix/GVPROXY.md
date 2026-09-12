@@ -5,7 +5,7 @@ upstream provides the complete `gateway-forward-v1` capability. The packaging
 owner is the Voom repository maintainer. The patch is based on gvisor-tap-vsock
 v0.8.9, commit `9cfc86f66679ef0feed0f20ba1df558fe2bef5c6`.
 
-Install this prerequisite before using egress configuration:
+Install this prerequisite before starting VMs:
 
 ```sh
 nix build .#gvproxy
@@ -19,13 +19,20 @@ QEMU network sockets; it needs neither a VM image nor a hypervisor.
 
 For declarative deployment, install this flake's `packages.${system}.gvproxy`
 in the configuration that supplies Voom's runtime dependencies, or use the
-explicit `VOOM_GVPROXY` override above. A stock binary cannot enable an attachment.
+explicit `VOOM_GVPROXY` override above. Voom rejects binaries without its
+`guest-isolation-v1` capability.
 
 The patch exposes JSON capability reporting with `-capabilities` and
 `GET /services/gateway-forward/capabilities`. Startup accepts repeated
 `-gateway-forward` arguments containing a JSON object with `local` and `target`.
 The JSON representation preserves spaces, equals signs, and other supported
 filesystem-path characters without a shell or URL parser.
+
+The patched network removes gvproxy's guest-to-host-loopback mapping. Guests
+cannot reach host `127.0.0.0/8` or `::1` services through
+`192.168.127.254`, `host.containers.internal`, or `host.docker.internal`.
+Voom's host-to-guest SSH, declared-forward, and automatic-forward listeners do
+not use that mapping.
 
 The host Unix control mux exposes `expose`, `unexpose`, and `all` below
 `/services/gateway-forward/`. These handlers are absent from the guest mux,

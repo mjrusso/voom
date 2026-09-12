@@ -1,11 +1,11 @@
-// Package gvproxy is a minimal HTTP client for the gvproxy control socket
-// (port-forward registration and DHCP lease lookup).
+// Package gvproxy provides an HTTP client for gvproxy's Unix control socket.
 package gvproxy
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -39,18 +39,28 @@ func clientForSocket(sock string) *http.Client {
 
 // Expose registers a host-to-guest TCP forwarder with gvproxy.
 func Expose(sock, local, remote string) error {
-	return post(sock, "/services/forwarder/expose", map[string]string{"local": local, "remote": remote})
+	_, err := request(context.Background(), sock, http.MethodPost, "/services/forwarder/expose", map[string]string{"local": local, "remote": remote})
+	return err
 }
 
 // Unexpose removes a previously registered host-to-guest TCP forwarder.
 func Unexpose(sock, local string) error {
-	return post(sock, "/services/forwarder/unexpose", map[string]string{"local": local})
+	_, err := request(context.Background(), sock, http.MethodPost, "/services/forwarder/unexpose", map[string]string{"local": local})
+	var responseErr *HTTPError
+	if errors.As(err, &responseErr) && responseErr.Status == http.StatusInternalServerError && responseErr.Body == "proxy not found" {
+		return nil
+	}
+	return err
 }
 
 // LookupLease returns the IP address gvproxy has leased to the given MAC, or an error if no lease matches.
 func LookupLease(sock, mac string) (string, error) {
 	leases := map[string]string{}
-	if err := get(sock, "/services/dhcp/leases", &leases); err != nil {
+	data, err := request(context.Background(), sock, http.MethodGet, "/services/dhcp/leases", nil)
+	if err != nil {
+		return "", err
+	}
+	if err := json.Unmarshal(data, &leases); err != nil {
 		return "", err
 	}
 	mac = strings.ToLower(strings.TrimSpace(mac))
@@ -62,30 +72,47 @@ func LookupLease(sock, mac string) (string, error) {
 	return "", fmt.Errorf("no DHCP lease found for MAC %s", mac)
 }
 
-func post(sock, path string, body any) error {
-	// json.Marshal on map[string]string / similar concrete shapes here cannot fail.
-	b, _ := json.Marshal(body)
-	resp, err := clientForSocket(sock).Post("http://unix"+path, "application/json", bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= 300 {
-		rb, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("gvproxy %s failed: %s", path, strings.TrimSpace(string(rb)))
-	}
-	return nil
+// HTTPError records a non-successful gvproxy response.
+type HTTPError struct {
+	Path   string
+	Status int
+	Body   string
 }
 
-func get(sock, path string, out any) error {
-	resp, err := clientForSocket(sock).Get("http://unix" + path)
+func (e *HTTPError) Error() string {
+	if e.Body == "" {
+		return fmt.Sprintf("gvproxy %s failed: HTTP %d", e.Path, e.Status)
+	}
+	return fmt.Sprintf("gvproxy %s failed: HTTP %d: %s", e.Path, e.Status, e.Body)
+}
+
+func request(ctx context.Context, sock, method, path string, body any) ([]byte, error) {
+	var payload []byte
+	var err error
+	if body != nil {
+		payload, err = json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, method, "http://unix"+path, bytes.NewReader(payload))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= 300 {
-		rb, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("gvproxy %s failed: %s", path, strings.TrimSpace(string(rb)))
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	res, err := clientForSocket(sock).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = res.Body.Close() }()
+	data, readErr := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if res.StatusCode >= 300 {
+		return nil, &HTTPError{Path: path, Status: res.StatusCode, Body: string(bytes.TrimSpace(data))}
+	}
+	if readErr != nil {
+		return nil, fmt.Errorf("gvproxy %s failed while reading response: %w", path, readErr)
+	}
+	return data, nil
 }

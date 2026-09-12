@@ -13,12 +13,23 @@ import (
 )
 
 func TestGatewayCapabilityRequiresExactVersion(t *testing.T) {
-	for _, data := range []string{`{}`, `{"gateway-forward-v1":0}`, `{"gateway-forward-v1":2}`, `unknown`, `{"gateway-forward-v1":true}`} {
-		if err := checkGatewayCapabilities([]byte(data)); err == nil {
+	for _, data := range []string{`{}`, `{"guest-isolation-v1":1,"gateway-forward-v1":0}`, `{"guest-isolation-v1":1,"gateway-forward-v1":2}`, `unknown`, `{"guest-isolation-v1":1,"gateway-forward-v1":true}`} {
+		if err := checkCapabilities([]byte(data), GuestIsolationCapability, GatewayCapability); err == nil {
 			t.Errorf("accepted capability %s", data)
 		}
 	}
-	if err := checkGatewayCapabilities([]byte(`{"gateway-forward-v1":1}`)); err != nil {
+	if err := checkCapabilities([]byte(`{"guest-isolation-v1":1,"gateway-forward-v1":1}`), GuestIsolationCapability, GatewayCapability); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGuestIsolationCapabilityRequiresExactVersion(t *testing.T) {
+	for _, data := range []string{`{}`, `{"guest-isolation-v1":0}`, `{"guest-isolation-v1":2}`, `unknown`, `{"guest-isolation-v1":true}`} {
+		if err := checkCapabilities([]byte(data), GuestIsolationCapability); err == nil {
+			t.Errorf("accepted capability %s", data)
+		}
+	}
+	if err := checkCapabilities([]byte(`{"guest-isolation-v1":1}`), GuestIsolationCapability); err != nil {
 		t.Fatal(err)
 	}
 }

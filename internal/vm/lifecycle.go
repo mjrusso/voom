@@ -306,9 +306,12 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		} else {
 			err = egress.Syntax(*d)
 		}
-		if err != nil {
-			return nil, err
-		}
+	}
+	if err == nil && (vm.Network.Egress == nil || !vm.Network.Egress.Enabled) {
+		err = gvproxy.CheckExecutable(ctx, gvproxyExe, gvproxy.GuestIsolationCapability)
+	}
+	if err != nil {
+		return nil, err
 	}
 	switch vm.Driver {
 	case "qemu":

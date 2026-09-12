@@ -46,7 +46,7 @@ func egressDiagnostics(st *state.Store, record *state.VMRecord) []Check {
 	}
 	add("image", severity, err)
 	if manager.IsRunning(record) {
-		err = gvproxy.CheckGatewayProcess(ctx, st.Runtime(record).NetworkSock())
+		err = gvproxy.CheckProcess(ctx, st.Runtime(record).NetworkSock(), gvproxy.GuestIsolationCapability, gvproxy.GatewayCapability)
 		add("capability", severity, err)
 		runtimeSeverity := "fatal"
 		if err != nil && !d.Enabled {
@@ -64,7 +64,7 @@ func egressDiagnostics(st *state.Store, record *state.VMRecord) []Check {
 	} else {
 		executable, err := host.ExePath("gvproxy")
 		if err == nil {
-			err = gvproxy.CheckGatewayExecutable(ctx, executable)
+			err = gvproxy.CheckExecutable(ctx, executable, gvproxy.GuestIsolationCapability, gvproxy.GatewayCapability)
 		}
 		add("capability", severity, err)
 		rt := st.Runtime(record)

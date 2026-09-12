@@ -9,7 +9,8 @@
   networking remains available. Requires the packaged gvproxy patch based on
   `9cfc86f66679ef0feed0f20ba1df558fe2bef5c6`; see `nix/GVPROXY.md`.
 - Package gvproxy with private gateway TCP-to-Unix forwarding, host-only live
-  control, and confirmed tunnel shutdown. Pin gvisor-tap-vsock revision
+  control, guest API isolation, blocked guest access to host loopback, and
+  confirmed tunnel shutdown. Pin gvisor-tap-vsock revision
   `9cfc86f66679ef0feed0f20ba1df558fe2bef5c6` with the maintained patch; include
   the build in development shells and run its integration tests in Nix checks.
 

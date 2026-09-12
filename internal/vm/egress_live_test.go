@@ -66,7 +66,7 @@ func TestEgressLiveReconciliation(t *testing.T) {
 	rejectExpose := false
 	mux := http.NewServeMux()
 	mux.HandleFunc("/services/gateway-forward/capabilities", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]int{gvproxy.GatewayCapability: 1})
+		_ = json.NewEncoder(w).Encode(map[string]int{gvproxy.GatewayCapability: 1, gvproxy.GuestIsolationCapability: 1})
 	})
 	mux.HandleFunc("/services/gateway-forward/all", func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()

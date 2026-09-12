@@ -3,12 +3,14 @@
 package doctor
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 
+	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
@@ -50,7 +52,11 @@ func Run(all bool) []Check {
 	if runtime.GOOS == "darwin" {
 		add("vfkit", true, host.RequireExe("vfkit"), "found")
 	}
-	add("gvproxy", true, host.RequireExe("gvproxy"), "found")
+	gvproxyExe, gvproxyErr := host.ExePath("gvproxy")
+	if gvproxyErr == nil {
+		gvproxyErr = gvproxy.CheckExecutable(context.Background(), gvproxyExe, gvproxy.GuestIsolationCapability)
+	}
+	add("gvproxy", true, gvproxyErr, "compatible")
 	add("ssh", true, host.RequireExe("ssh"), "found")
 	add("nix", false, host.RequireExe("nix"), "found")
 	add("nixos-rebuild", false, host.RequireExe("nixos-rebuild"), "found")

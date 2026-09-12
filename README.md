@@ -272,11 +272,11 @@ For instructions on building from source, see
 Voom does not bundle runtime dependencies.
 
 - **Linux**: `/dev/kvm` access through [KVM](https://linux-kvm.org/),
-  [QEMU](https://www.qemu.org/) (`qemu-system-<arch>`, `qemu-img`),
-  [gvproxy](https://github.com/containers/gvisor-tap-vsock), and
+  [QEMU](https://www.qemu.org/) (`qemu-system-<arch>`, `qemu-img`), the
+  [Voom gvproxy build](nix/GVPROXY.md), and
   [OpenSSH](https://www.openssh.com/) (`ssh`).
 - **MacOS**: [vfkit](https://github.com/crc-org/vfkit),
-  [gvproxy](https://github.com/containers/gvisor-tap-vsock), and
+  the [Voom gvproxy build](nix/GVPROXY.md), and
   [OpenSSH](https://www.openssh.com/) (`ssh`). Note that only Apple Silicon is
   supported.
 

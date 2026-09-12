@@ -1,5 +1,5 @@
 diff --git a/cmd/gvproxy/config.go b/cmd/gvproxy/config.go
-index 710edc20..a2d40dbb 100644
+index 710edc20..d9660582 100644
 --- a/cmd/gvproxy/config.go
 +++ b/cmd/gvproxy/config.go
 @@ -1,6 +1,7 @@
@@ -48,22 +48,44 @@ index 710edc20..a2d40dbb 100644
  	}
  
 +	if args.capabilities {
-+		_ = json.NewEncoder(os.Stdout).Encode(map[string]int{gatewayforward.Capability: 1})
++		_ = json.NewEncoder(os.Stdout).Encode(map[string]int{gatewayforward.Capability: 1, gatewayforward.IsolationCapability: 1})
 +		os.Exit(0)
 +	}
  	if version.ShowVersion() {
  		fmt.Println(version.String())
  		os.Exit(0)
-@@ -113,6 +122,8 @@ func GvproxyInit() (*GvproxyConfig, error) {
+@@ -112,7 +121,30 @@ func GvproxyInit() (*GvproxyConfig, error) {
+ 	return GvproxyConfigure(&config, &args, version.String())
  }
  
++func isolateGuest(config *GvproxyConfig) {
++	blocked := make(map[string]struct{})
++	for source, target := range config.Stack.NAT {
++		if ip := net.ParseIP(target); ip != nil && ip.IsLoopback() {
++			delete(config.Stack.NAT, source)
++			blocked[source] = struct{}{}
++		}
++	}
++	config.Stack.GatewayVirtualIPs = slices.DeleteFunc(config.Stack.GatewayVirtualIPs, func(ip string) bool {
++		_, ok := blocked[ip]
++		return ok
++	})
++	for i := range config.Stack.DNS {
++		zone := &config.Stack.DNS[i]
++		zone.Records = slices.DeleteFunc(zone.Records, func(record types.Record) bool {
++			_, mappedToLoopback := blocked[record.IP.String()]
++			return mappedToLoopback || ((zone.Name == "containers.internal." || zone.Name == "docker.internal.") && record.Name == host)
++		})
++	}
++}
++
  func GvproxyArgParse(flagSet *flag.FlagSet, args *GvproxyArgs, argv []string) (*GvproxyArgs, error) {
 +	flagSet.BoolVar(&args.capabilities, "capabilities", false, "Print versioned host capabilities as JSON")
 +	flagSet.Var(&args.gatewayForward, "gateway-forward", "Private gateway forward as a JSON local/target object")
  	flagSet.StringVar(&args.config, "config", "", "Use configuration file with command line override")
  	flagSet.Var(&args.endpoints, "listen", "control endpoint")
  	flagSet.BoolVar(&args.debug, "debug", false, "Print debug info")
-@@ -141,6 +152,7 @@ func GvproxyArgParse(flagSet *flag.FlagSet, args *GvproxyArgs, argv []string) (*
+@@ -141,6 +173,7 @@ func GvproxyArgParse(flagSet *flag.FlagSet, args *GvproxyArgs, argv []string) (*
  }
  
  func GvproxyConfigure(config *GvproxyConfig, args *GvproxyArgs, version string) (*GvproxyConfig, error) {
@@ -72,7 +94,7 @@ index 710edc20..a2d40dbb 100644
  		config.LogLevel = "debug"
  	}
 diff --git a/cmd/gvproxy/main.go b/cmd/gvproxy/main.go
-index bfe41f4f..44edb0ee 100644
+index bfe41f4f..6c1a9a61 100644
 --- a/cmd/gvproxy/main.go
 +++ b/cmd/gvproxy/main.go
 @@ -3,6 +3,7 @@ package main
@@ -91,7 +113,12 @@ index bfe41f4f..44edb0ee 100644
  	"github.com/containers/gvisor-tap-vsock/pkg/sshclient"
  	"github.com/containers/gvisor-tap-vsock/pkg/transport"
  	"github.com/containers/gvisor-tap-vsock/pkg/types"
-@@ -126,6 +128,18 @@ func run(ctx context.Context, g *errgroup.Group, config *GvproxyConfig) error {
+@@ -122,10 +124,23 @@ func InDebugMode() bool {
+ }
+ 
+ func run(ctx context.Context, g *errgroup.Group, config *GvproxyConfig) error {
++	isolateGuest(config)
+ 	vn, err := virtualnetwork.New(&config.Stack)
  	if err != nil {
  		return err
  	}
@@ -110,7 +137,7 @@ index bfe41f4f..44edb0ee 100644
  	log.Info("waiting for clients...")
  
  	// Initializing notificationSender here because NewNotificationSender always returns a valid object (a no-op sender when socket is empty),
-@@ -144,7 +158,11 @@ func run(ctx context.Context, g *errgroup.Group, config *GvproxyConfig) error {
+@@ -144,7 +159,11 @@ func run(ctx context.Context, g *errgroup.Group, config *GvproxyConfig) error {
  		if err != nil {
  			return fmt.Errorf("cannot listen: %w", err)
  		}
@@ -123,7 +150,20 @@ index bfe41f4f..44edb0ee 100644
  	}
  	notificationSender.Send(types.NotificationMessage{NotificationType: types.Ready})
  
-@@ -376,7 +394,7 @@ func httpServe(ctx context.Context, g *errgroup.Group, ln net.Listener, mux http
+@@ -161,11 +180,7 @@ func run(ctx context.Context, g *errgroup.Group, config *GvproxyConfig) error {
+ 	if err != nil {
+ 		return err
+ 	}
+-	mux := http.NewServeMux()
+-	mux.Handle("/services/forwarder/all", vn.Mux())
+-	mux.Handle("/services/forwarder/expose", vn.Mux())
+-	mux.Handle("/services/forwarder/unexpose", vn.Mux())
+-	httpServe(ctx, g, ln, mux)
++	httpServe(ctx, g, ln, http.NotFoundHandler())
+ 
+ 	if InDebugMode() {
+ 		g.Go(func() error {
+@@ -376,7 +391,7 @@ func httpServe(ctx context.Context, g *errgroup.Group, ln net.Listener, mux http
  	})
  }
  
@@ -132,6 +172,35 @@ index bfe41f4f..44edb0ee 100644
  	mux := vn.Mux()
  	if InDebugMode() {
  		mux.HandleFunc("/debug/pprof/", pprof.Index)
+diff --git a/pkg/services/forwarder/tcp.go b/pkg/services/forwarder/tcp.go
+index ae18ada5..1948022b 100644
+--- a/pkg/services/forwarder/tcp.go
++++ b/pkg/services/forwarder/tcp.go
+@@ -31,6 +31,10 @@ func TCP(s *stack.Stack, nat map[tcpip.Address]tcpip.Address, natLock *sync.Mute
+ 			localAddress = replaced
+ 		}
+ 		natLock.Unlock()
++		if ip := net.ParseIP(localAddress.String()); ip != nil && ip.IsLoopback() {
++			r.Complete(true)
++			return
++		}
+ 		outbound, err := net.Dial("tcp", net.JoinHostPort(localAddress.String(), fmt.Sprint(r.ID().LocalPort)))
+ 		if err != nil {
+ 			log.Tracef("net.Dial() = %v", err)
+diff --git a/pkg/services/forwarder/udp.go b/pkg/services/forwarder/udp.go
+index 7b00312a..4e154c19 100644
+--- a/pkg/services/forwarder/udp.go
++++ b/pkg/services/forwarder/udp.go
+@@ -27,6 +27,9 @@ func UDP(s *stack.Stack, nat map[tcpip.Address]tcpip.Address, natLock *sync.Mute
+ 			localAddress = replaced
+ 		}
+ 		natLock.Unlock()
++		if ip := net.ParseIP(localAddress.String()); ip != nil && ip.IsLoopback() {
++			return
++		}
+ 
+ 		var wq waiter.Queue
+ 		ep, tcpErr := r.CreateEndpoint(&wq)
 diff --git a/pkg/virtualnetwork/services.go b/pkg/virtualnetwork/services.go
 index 57c5dafa..6ce08b36 100644
 --- a/pkg/virtualnetwork/services.go
@@ -231,10 +300,10 @@ index c7d32550..982049f9 100644
  func (n *VirtualNetwork) BytesSent() uint64 {
 diff --git a/pkg/services/gatewayforward/gatewayforward.go b/pkg/services/gatewayforward/gatewayforward.go
 new file mode 100644
-index 00000000..f1da1cd2
+index 00000000..648c1c24
 --- /dev/null
 +++ b/pkg/services/gatewayforward/gatewayforward.go
-@@ -0,0 +1,238 @@
+@@ -0,0 +1,241 @@
 +package gatewayforward
 +
 +import (
@@ -252,7 +321,10 @@ index 00000000..f1da1cd2
 +	"time"
 +)
 +
-+const Capability = "gateway-forward-v1"
++const (
++	Capability          = "gateway-forward-v1"
++	IsolationCapability = "guest-isolation-v1"
++)
 +
 +type Route struct {
 +	Local             string `json:"local"`
@@ -441,7 +513,7 @@ index 00000000..f1da1cd2
 +
 +func (f *Forwarder) Register(mux *http.ServeMux) {
 +	mux.HandleFunc("GET /services/gateway-forward/capabilities", func(w http.ResponseWriter, r *http.Request) {
-+		_ = json.NewEncoder(w).Encode(map[string]int{Capability: 1})
++		_ = json.NewEncoder(w).Encode(map[string]int{Capability: 1, IsolationCapability: 1})
 +	})
 +	mux.HandleFunc("GET /services/gateway-forward/all", func(w http.ResponseWriter, r *http.Request) { _ = json.NewEncoder(w).Encode(f.All()) })
 +	for _, action := range []string{"expose", "unexpose"} {
@@ -728,24 +800,68 @@ index 00000000..d9313c5b
 +	}
 +	return gonet.NewTCPListener(n.stack, &queue, ep), nil
 +}
+diff --git a/cmd/gvproxy/isolation_test.go b/cmd/gvproxy/isolation_test.go
+new file mode 100644
+index 00000000..5ecc2349
+--- /dev/null
++++ b/cmd/gvproxy/isolation_test.go
+@@ -0,0 +1,36 @@
++package main
++
++import (
++	"net"
++	"reflect"
++	"testing"
++
++	"github.com/containers/gvisor-tap-vsock/pkg/types"
++)
++
++func TestIsolateGuest(t *testing.T) {
++	config := &GvproxyConfig{Stack: types.Configuration{
++		NAT: map[string]string{
++			"192.168.127.253": "192.0.2.1",
++			"192.168.127.254": "127.0.0.1",
++		},
++		GatewayVirtualIPs: []string{"192.168.127.253", "192.168.127.254"},
++		DNS: []types.Zone{{
++			Name: "containers.internal.",
++			Records: []types.Record{
++				{Name: "gateway", IP: net.ParseIP("192.168.127.1")},
++				{Name: "host", IP: net.ParseIP("192.168.127.254")},
++			},
++		}},
++	}}
++	isolateGuest(config)
++	if !reflect.DeepEqual(config.Stack.NAT, map[string]string{"192.168.127.253": "192.0.2.1"}) {
++		t.Fatalf("NAT = %#v", config.Stack.NAT)
++	}
++	if !reflect.DeepEqual(config.Stack.GatewayVirtualIPs, []string{"192.168.127.253"}) {
++		t.Fatalf("gateway virtual IPs = %#v", config.Stack.GatewayVirtualIPs)
++	}
++	if records := config.Stack.DNS[0].Records; len(records) != 1 || records[0].Name != "gateway" {
++		t.Fatalf("DNS records = %#v", records)
++	}
++}
 diff --git a/cmd/gvproxy/gateway_integration_test.go b/cmd/gvproxy/gateway_integration_test.go
 new file mode 100644
-index 00000000..18b569ef
+index 00000000..8e7e6f17
 --- /dev/null
 +++ b/cmd/gvproxy/gateway_integration_test.go
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,220 @@
 +package main
 +
 +import (
 +	"bytes"
 +	"context"
 +	"encoding/json"
++	"fmt"
 +	"io"
 +	"net"
 +	"net/http"
 +	"os"
 +	"os/exec"
 +	"path/filepath"
++	"strings"
 +	"testing"
 +	"time"
 +
@@ -758,6 +874,17 @@ index 00000000..18b569ef
 +	binary := os.Getenv("GVPROXY_TEST_BINARY")
 +	if binary == "" {
 +		t.Skip("set GVPROXY_TEST_BINARY to test two real gvproxy processes")
++	}
++	output, err := exec.Command(binary, "-capabilities").Output()
++	if err != nil {
++		t.Fatal(err)
++	}
++	var capabilities map[string]int
++	if err := json.Unmarshal(output, &capabilities); err != nil {
++		t.Fatal(err)
++	}
++	if capabilities[gatewayforward.IsolationCapability] != 1 {
++		t.Fatalf("missing %s capability", gatewayforward.IsolationCapability)
 +	}
 +	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 +	defer cancel()
@@ -815,6 +942,48 @@ index 00000000..18b569ef
 +			t.Fatal(err)
 +		}
 +		go guest.AcceptQemu(ctx, wire)
++		hostLoopback, err := net.Listen("tcp", "127.0.0.1:0")
++		if err != nil {
++			t.Fatal(err)
++		}
++		defer hostLoopback.Close()
++		_, port, err := net.SplitHostPort(hostLoopback.Addr().String())
++		if err != nil {
++			t.Fatal(err)
++		}
++		dialCtx, cancelDial := context.WithTimeout(ctx, 500*time.Millisecond)
++		conn, err := guest.DialContextTCP(dialCtx, net.JoinHostPort("192.168.127.254", port))
++		cancelDial()
++		if err == nil {
++			conn.Close()
++			t.Fatal("guest reached host loopback")
++		}
++		guestHTTP := &http.Client{Timeout: 3 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) { return guest.DialContextTCP(ctx, addr) }}}
++		victim := filepath.Join(dir, "victim")
++		if err := os.WriteFile(victim, []byte("host data"), 0600); err != nil {
++			t.Fatal(err)
++		}
++		res, err := guestHTTP.Post("http://192.168.127.1/services/forwarder/expose", "application/json", strings.NewReader(fmt.Sprintf(`{"local":%q,"remote":"tcp://192.168.127.3:1","protocol":"unix"}`, victim)))
++		if err != nil {
++			t.Fatal(err)
++		}
++		res.Body.Close()
++		if info, err := os.Stat(victim); err != nil {
++			t.Fatalf("guest removed host file: %v", err)
++		} else if info.Mode().Type() != 0 {
++			t.Fatalf("guest replaced host file: mode=%v", info.Mode())
++		}
++		if res.StatusCode != http.StatusNotFound {
++			t.Fatalf("guest forwarder API returned %d", res.StatusCode)
++		}
++		res, err = guestHTTP.Post("http://192.168.127.1/services/dns/add", "application/json", strings.NewReader(`{}`))
++		if err != nil {
++			t.Fatal(err)
++		}
++		res.Body.Close()
++		if res.StatusCode != http.StatusNotFound {
++			t.Fatalf("guest DNS mutation API returned %d", res.StatusCode)
++		}
 +		client := &http.Client{Timeout: 3 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 +			return (&net.Dialer{}).DialContext(ctx, "unix", control)
 +		}}}

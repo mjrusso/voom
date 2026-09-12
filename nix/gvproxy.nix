@@ -1,7 +1,7 @@
 { lib, buildGoModule, fetchFromGitHub }:
 buildGoModule {
   pname = "gvproxy";
-  version = "0.8.9-voom.1";
+  version = "0.8.9-voom.2";
   src = fetchFromGitHub {
     owner = "containers";
     repo = "gvisor-tap-vsock";
@@ -17,7 +17,7 @@ buildGoModule {
     runHook postCheck
   '';
   meta = {
-    description = "gvproxy with private gateway TCP-to-Unix transport";
+    description = "gvproxy with guest isolation and private gateway TCP-to-Unix transport";
     homepage = "https://github.com/containers/gvisor-tap-vsock";
     license = lib.licenses.asl20;
     platforms = lib.platforms.unix;
