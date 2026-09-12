@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+// GatewayCapability and GuestIsolationCapability identify gvproxy APIs required by Voom.
 const (
 	GatewayCapability        = "gateway-forward-v1"
 	GuestIsolationCapability = "guest-isolation-v1"

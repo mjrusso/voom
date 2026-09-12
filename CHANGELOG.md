@@ -12,7 +12,9 @@
   control, guest API isolation, blocked guest access to host loopback, and
   confirmed tunnel shutdown. Pin gvisor-tap-vsock revision
   `9cfc86f66679ef0feed0f20ba1df558fe2bef5c6` with the maintained patch; include
-  the build in development shells and run its integration tests in Nix checks.
+  the build in release archives, the default Nix package, and development
+  shells; include its third-party license material; and run its integration
+  tests in Nix checks.
 
 - Record each helper's PID and system-specific start identity at launch. Before
   signaling a helper, lifecycle cleanup requires those values to match the

@@ -201,32 +201,27 @@ allocations will not take effect until the next time the VM is started.
 
 > [!NOTE]
 >
-> Installation does **not** include host runtime dependencies, such as QEMU,
-> vfkit, gvproxy, SSH, etc. See [Host Requirements](#host-requirements).
+> Release and Nix installations include Voom's gvproxy build. Other host
+> runtime dependencies, such as QEMU, vfkit, and SSH, are not included. See
+> [Host Requirements](#host-requirements).
 
 ### Install a Release Build
 
 Download a prebuilt archive for your platform from the [GitHub releases
 page](https://github.com/mjrusso/voom/releases), verify it against
 `checksums.txt`, extract the `voom` binary, and place it somewhere on your
-`PATH`.
+`PATH`. Keep the extracted `gvproxy` binary in the same directory as `voom`.
 
 > [!IMPORTANT]
 >
 > The release binaries are not notarized by Apple, so MacOS Gatekeeper will
-> quarantine the downloaded `voom` binary. You'll see a message like _"Apple
+> quarantine the downloaded binaries. You'll see a message like _"Apple
 > could not verify ... is free of malware"_. Clear the quarantine attribute
 > before running it:
 >
 > ```sh
-> xattr -d com.apple.quarantine ./voom
+> xattr -d com.apple.quarantine ./voom ./gvproxy
 > ```
-
-### Install with Go
-
-```sh
-go install github.com/mjrusso/voom/cmd/voom@latest
-```
 
 ### Install with Nix
 
@@ -269,14 +264,12 @@ For instructions on building from source, see
 
 ## Host Requirements
 
-Voom does not bundle runtime dependencies.
+Voom bundles its gvproxy build in release and Nix installations.
 
 - **Linux**: `/dev/kvm` access through [KVM](https://linux-kvm.org/),
-  [QEMU](https://www.qemu.org/) (`qemu-system-<arch>`, `qemu-img`), the
-  [Voom gvproxy build](nix/GVPROXY.md), and
+  [QEMU](https://www.qemu.org/) (`qemu-system-<arch>`, `qemu-img`), and
   [OpenSSH](https://www.openssh.com/) (`ssh`).
-- **MacOS**: [vfkit](https://github.com/crc-org/vfkit),
-  the [Voom gvproxy build](nix/GVPROXY.md), and
+- **MacOS**: [vfkit](https://github.com/crc-org/vfkit) and
   [OpenSSH](https://www.openssh.com/) (`ssh`). Note that only Apple Silicon is
   supported.
 
@@ -344,8 +337,7 @@ network access remains available, and guests can ignore proxy configuration.
 Bypassed requests receive no broker-injected credentials. Voom does not deploy
 the broker, inject credentials, install certificates, or configure guest tools.
 
-Install the [pinned gvproxy prerequisite](nix/GVPROXY.md) first. Enabled
-attachments require an image with `controlShare` capability.
+Enabled attachments require an image with `controlShare` capability.
 
 ```sh
 voom config egress set agent-a --backend-socket /run/credential-proxy/vm-01JXYZ.sock --ca-cert /etc/voom-proxy/ca.pem
@@ -502,8 +494,8 @@ specification.
 ## Reference
 
 Voom manages local development VMs through the host's VM stack. Voom does not
-build images, bundle dependencies (QEMU/vfkit/gvproxy/etc.), or run a
-background control plane.
+build images, bundle hypervisors, or run a background control plane. Release
+and Nix installations include Voom's gvproxy build.
 
 Images must be explicitly imported, VMs must be created explicitly (referencing
 an existing, already-imported image), and optional guest integrations are
@@ -518,8 +510,10 @@ always opt-in.
 | Cache (logs)                | `$XDG_CACHE_HOME/voom` or `~/.cache/voom`      | `VOOM_CACHE_DIR`   |
 | Runtime (sockets, pidfiles) | `$XDG_RUNTIME_DIR/voom` or `/tmp/voom-$UID`    | `VOOM_RUNTIME_DIR` |
 
-Run `voom debug paths` to inspect resolved values. External helpers can be
-overridden with `VOOM_GVPROXY`, `VOOM_VIRTIOFSD`, and `VOOM_QEMU_AARCH64_UEFI`.
+Run `voom debug paths` to inspect resolved values. Voom uses a `gvproxy` binary
+next to its own executable before searching `PATH`. External helpers can be
+overridden with `VOOM_GVPROXY`, `VOOM_VIRTIOFSD`, and
+`VOOM_QEMU_AARCH64_UEFI`.
 
 Setting all four `VOOM_*` overrides to disposable directories is the supported
 way to experiment without touching your normal state. This is useful for

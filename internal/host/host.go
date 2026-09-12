@@ -171,11 +171,22 @@ func RequireExe(name string) error {
 	return nil
 }
 
-// ExePath resolves the named executable, preferring the path in its VOOM_* override environment variable (see ExeOverrideName) before falling back to PATH lookup.
+var bundledExecutables = map[string]struct{}{
+	"gvproxy": {},
+}
+
+// ExePath resolves the named executable from its VOOM_* override, the Voom executable directory, or PATH, in that order.
 func ExePath(name string) (string, error) {
 	if override := os.Getenv(ExeOverrideName(name)); override != "" {
 		if info, err := os.Stat(override); err == nil && !info.IsDir() {
 			return override, nil
+		}
+	}
+	if _, bundled := bundledExecutables[name]; bundled {
+		if executable, err := os.Executable(); err == nil {
+			if path, err := exec.LookPath(filepath.Join(filepath.Dir(executable), name)); err == nil {
+				return path, nil
+			}
 		}
 	}
 	return exec.LookPath(name)

@@ -1,0 +1,88 @@
+diff --git a/cmd/gvproxy/config.go b/cmd/gvproxy/config.go
+--- a/cmd/gvproxy/config.go
++++ b/cmd/gvproxy/config.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package main
+ 
+ import (
+diff --git a/cmd/gvproxy/main.go b/cmd/gvproxy/main.go
+--- a/cmd/gvproxy/main.go
++++ b/cmd/gvproxy/main.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package main
+ 
+ import (
+diff --git a/pkg/services/forwarder/tcp.go b/pkg/services/forwarder/tcp.go
+--- a/pkg/services/forwarder/tcp.go
++++ b/pkg/services/forwarder/tcp.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package forwarder
+ 
+ import (
+diff --git a/pkg/services/forwarder/udp.go b/pkg/services/forwarder/udp.go
+--- a/pkg/services/forwarder/udp.go
++++ b/pkg/services/forwarder/udp.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package forwarder
+ 
+ import (
+diff --git a/pkg/virtualnetwork/services.go b/pkg/virtualnetwork/services.go
+--- a/pkg/virtualnetwork/services.go
++++ b/pkg/virtualnetwork/services.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package virtualnetwork
+ 
+ import (
+diff --git a/pkg/virtualnetwork/virtualnetwork.go b/pkg/virtualnetwork/virtualnetwork.go
+--- a/pkg/virtualnetwork/virtualnetwork.go
++++ b/pkg/virtualnetwork/virtualnetwork.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package virtualnetwork
+ 
+ import (
+diff --git a/pkg/services/gatewayforward/gatewayforward.go b/pkg/services/gatewayforward/gatewayforward.go
+--- a/pkg/services/gatewayforward/gatewayforward.go
++++ b/pkg/services/gatewayforward/gatewayforward.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package gatewayforward
+ 
+ import (
+diff --git a/pkg/services/gatewayforward/gatewayforward_test.go b/pkg/services/gatewayforward/gatewayforward_test.go
+--- a/pkg/services/gatewayforward/gatewayforward_test.go
++++ b/pkg/services/gatewayforward/gatewayforward_test.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package gatewayforward
+ 
+ import (
+diff --git a/pkg/virtualnetwork/gateway.go b/pkg/virtualnetwork/gateway.go
+--- a/pkg/virtualnetwork/gateway.go
++++ b/pkg/virtualnetwork/gateway.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package virtualnetwork
+ 
+ import (
+diff --git a/cmd/gvproxy/isolation_test.go b/cmd/gvproxy/isolation_test.go
+--- a/cmd/gvproxy/isolation_test.go
++++ b/cmd/gvproxy/isolation_test.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package main
+ 
+ import (
+diff --git a/cmd/gvproxy/gateway_integration_test.go b/cmd/gvproxy/gateway_integration_test.go
+--- a/cmd/gvproxy/gateway_integration_test.go
++++ b/cmd/gvproxy/gateway_integration_test.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package main
+ 
+ import (

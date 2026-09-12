@@ -22,7 +22,12 @@ for archive in "$dist"/voom_*.tar.gz; do
   rm -rf "$tmp"/*
   tar -xzf "$archive" -C "$tmp"
   test -f "$tmp/LICENSE"
+  test -f "$tmp/LICENSE.gvproxy"
+  test -f "$tmp/NOTICE.gvproxy"
+  test -f "$tmp/THIRD_PARTY_LICENSES/gopkg.in/yaml.v3/NOTICE"
+  test -f "$tmp/THIRD_PARTY_LICENSES/gvisor.dev/gvisor/pkg/LICENSE"
   test -f "$tmp/README.md"
   test -f "$tmp/CHANGELOG.md"
   test -x "$tmp/voom"
+  test -x "$tmp/gvproxy"
 done

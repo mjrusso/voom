@@ -30,6 +30,8 @@ trap 'rm -rf "$tmp"' EXIT
 
 tar -xzf "$archive" -C "$tmp"
 test -x "$tmp/voom"
+test -x "$tmp/gvproxy"
 
 "$tmp/voom" version
 "$tmp/voom" --help >/dev/null
+"$tmp/gvproxy" -capabilities | grep -q '"guest-isolation-v1":1'

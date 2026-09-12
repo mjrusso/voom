@@ -1,6 +1,7 @@
 # Local build and release outputs
 /bin/
 /dist/
+/.release/
 /result
 /result-*
 

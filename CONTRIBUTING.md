@@ -257,11 +257,13 @@ Tags matching `v*` trigger `.github/workflows/release.yml`, which:
   and `sha256` checksums;
 - runs `scripts/smoke-release.sh dist` to smoke-test a release archive.
 
-GoReleaser builds one Unix binary from `./cmd/voom` (`CGO_ENABLED=0`) for
-`darwin` and `linux` on `amd64` and `arm64`, archives as `tar.gz` named
-`<project>_<os>_<arch>` (with `amd64` rewritten to `x64`), and includes
-`LICENSE`, `README.md`, and `CHANGELOG.md`. `checksums.txt` uses `sha256`. The
-snapshot template is `{{ incpatch .Version }}-next`.
+GoReleaser builds `voom` and the patched `gvproxy` (`CGO_ENABLED=0`) for
+`darwin` and `linux` on `amd64` and `arm64`. The gvproxy source is prepared by
+Nix from the pinned upstream revision and local patch. GoReleaser creates
+`tar.gz` archives named `<project>_<os>_<arch>` (with `amd64` rewritten to
+`x64`) and includes `LICENSE`, `README.md`, and `CHANGELOG.md`.
+`checksums.txt` uses `sha256`. The snapshot template is
+`{{ incpatch .Version }}-next`.
 
 Before major releases, run the automated checks and a manual live-VM checklist
 with disposable `VOOM_*` directories: import an image, create/start multiple
@@ -279,7 +281,8 @@ dist/voom_linux_x64.tar.gz
 dist/checksums.txt
 ```
 
-Each archive contains `LICENSE`, `README.md`, `CHANGELOG.md`, and `voom`.
+Each archive contains `LICENSE`, `LICENSE.gvproxy`, `NOTICE.gvproxy`,
+`THIRD_PARTY_LICENSES`, `README.md`, `CHANGELOG.md`, `voom`, and `gvproxy`.
 Verify with `sha256sum -c checksums.txt`.
 
 ## Egress transport development

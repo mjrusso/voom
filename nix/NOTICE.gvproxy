@@ -1,0 +1,14 @@
+Voom includes a modified build of gvproxy from containers/gvisor-tap-vsock.
+
+Upstream source: https://github.com/containers/gvisor-tap-vsock
+Upstream revision: 9cfc86f66679ef0feed0f20ba1df558fe2bef5c6
+Upstream version: v0.8.9
+
+The Voom project modified this build to add private gateway forwarding and to
+isolate guests from host-only gvproxy services. The source changes are in
+nix/patches/gvproxy-gateway-forward.patch and
+nix/patches/gvproxy-modification-notices.patch in the Voom source repository.
+
+gvproxy is licensed under the Apache License, Version 2.0. See
+LICENSE.gvproxy. Licenses and notices for its linked dependencies are under
+THIRD_PARTY_LICENSES.

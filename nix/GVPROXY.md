@@ -5,22 +5,28 @@ upstream provides the complete `gateway-forward-v1` capability. The packaging
 owner is the Voom repository maintainer. The patch is based on gvisor-tap-vsock
 v0.8.9, commit `9cfc86f66679ef0feed0f20ba1df558fe2bef5c6`.
 
-Install this prerequisite before starting VMs:
+Release archives and the default Nix package include this build. To build it
+separately during development:
 
 ```sh
 nix build .#gvproxy
 export VOOM_GVPROXY="$PWD/result/bin/gvproxy"
 ```
 
+Binary distributions include the upstream Apache-2.0 license, a modification
+notice, and licenses and notices for linked dependencies. Release preparation
+uses `go-licenses` against each release target. The Nix package installs the
+same material under `share/licenses/gvproxy`.
+
 Both Voom development shells include this build. `nix flake check` builds it
 and runs race-enabled relay tests and a two-process integration test. The test
 connects independent guest network stacks to two real gvproxy processes through
 QEMU network sockets; it needs neither a VM image nor a hypervisor.
 
-For declarative deployment, install this flake's `packages.${system}.gvproxy`
-in the configuration that supplies Voom's runtime dependencies, or use the
-explicit `VOOM_GVPROXY` override above. Voom rejects binaries without its
-`guest-isolation-v1` capability.
+The default Nix package installs `voom` and `gvproxy` together. The separate
+`packages.${system}.gvproxy` output and `VOOM_GVPROXY` override remain available
+for development. Voom rejects binaries without its `guest-isolation-v1`
+capability.
 
 The patch exposes JSON capability reporting with `-capabilities` and
 `GET /services/gateway-forward/capabilities`. Startup accepts repeated
