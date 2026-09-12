@@ -4,7 +4,7 @@ Print the commands to reproduce a VM's configuration
 
 ### Synopsis
 
-Print the shell commands that recreate a VM's post-create configuration: its shares, manual forwards, and auto-forward settings. The output is empty for a VM with none of these. ('voom clone' prints the same commands, retargeted at the new VM, so you can match a clone to its source.)
+Print the shell commands that recreate a VM's post-create configuration: its shares, manual forwards, auto-forward settings, and explicit egress attachment. The output is empty for a VM with none of these. ('voom clone' retargets share and forward commands, but omits egress because the clone needs its own backend socket.)
 
 ```
 voom config show <name> [flags]

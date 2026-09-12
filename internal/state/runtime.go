@@ -111,3 +111,9 @@ func (r RuntimeLayout) DriverArtifacts(driver string) []string {
 func (r RuntimeLayout) NetworkArtifacts() []string {
 	return []string{r.NetworkSock(), r.QEMUNetSock(), r.VFKitNetSock()}
 }
+
+// EgressManifest returns the host-side guest publication marker.
+func (r RuntimeLayout) EgressManifest() string { return filepath.Join(r.dir, "control", "egress.json") }
+
+// EgressCA returns the public certificate copy in the control share.
+func (r RuntimeLayout) EgressCA() string { return filepath.Join(r.dir, "control", "egress-ca.pem") }

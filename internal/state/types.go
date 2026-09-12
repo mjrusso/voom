@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mjrusso/voom/internal/egress"
 	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/share"
@@ -89,8 +90,9 @@ type VMAccess struct {
 	NixosTargetUser string `json:"nixosTargetUser"`
 }
 
-// VMNetwork describes the VM's SSH binding, declared forwards, and auto-forward policy.
+// VMNetwork declares SSH binding, port forwarding, and explicit proxy attachments.
 type VMNetwork struct {
+	Egress                *egress.Decl   `json:"egress,omitempty"`
 	SSHPort               int            `json:"sshPort"`
 	SSHBind               string         `json:"sshBind"`
 	Forwards              []forward.Decl `json:"forwards"`

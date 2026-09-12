@@ -336,6 +336,76 @@ Notes and considerations:
 
 _For the full command reference, see [docs/commands](docs/commands/)._
 
+## Explicit egress proxy attachments
+
+An attachment connects one VM's `192.168.127.1:3128` endpoint to a unique host
+Unix socket serving an HTTP CONNECT proxy. It is advisory: ordinary direct
+network access remains available, and guests can ignore proxy configuration.
+Bypassed requests receive no broker-injected credentials. Voom does not deploy
+the broker, inject credentials, install certificates, or configure guest tools.
+
+Install the [pinned gvproxy prerequisite](nix/GVPROXY.md) first. Enabled
+attachments require an image with `controlShare` capability.
+
+```sh
+voom config egress set agent-a --backend-socket /run/credential-proxy/vm-01JXYZ.sock --ca-cert /etc/voom-proxy/ca.pem
+voom config show agent-a
+voom start agent-a
+voom config egress disable agent-a
+voom config egress enable agent-a
+voom stop agent-a
+voom config egress clear agent-a
+```
+
+Set and clear require a stopped VM with no surviving runtime. Enable and disable
+also work while running. Repeated enable repairs runtime drift; a synchronized
+repeat preserves listeners, tunnels, and runtime files. Disable closes the
+private listener, pending dials, and active tunnels. It cannot retract requests
+already accepted by a broker or guarantee cancellation of upstream work.
+
+Assign each backend socket and broker policy to the immutable VM ID shown by
+`voom info`, not the mutable VM name. Voom reserves a socket across stopped and
+disabled VMs in its state store. Operators must enforce uniqueness across other
+state stores, users, and clients. Keep socket directories and broker policy under
+trusted host control. Relaying all sockets to a shared unauthenticated listener
+does not preserve VM identity. Guest headers and manifest contents do not
+authenticate a VM. Rename preserves attachments; clones omit them and report the
+new VM ID for provisioning a separate backend.
+
+Enabled attachments publish these files through `voom-control`:
+
+- `/run/voom/egress.json`: schema version 1, mode `explicit`, and `httpProxy` and
+  `httpsProxy` set to `http://192.168.127.1:3128`.
+- `/run/voom/egress-ca.pem`: optional validated public certificate bundle. The
+  manifest includes `caCertificate` only when this file is configured.
+
+Host copies live under `<runtime VM directory>/control/`. Files have mode 0644;
+the manifest is published after the CA. Separate file replacements are not one
+atomic transaction. The metadata document advertises
+`controlShare.egressPath` even when no attachment is configured. Guests must
+choose how to consume the manifest and install the public CA.
+
+CA bundles must contain only X.509 certificate PEM blocks and at least one CA
+certificate. Private keys, other PEM blocks, and extraneous data are rejected.
+Bundles are limited to 4 MiB. Each operation publishes the exact bytes it
+validated. `info` and `doctor` compare the published CA to the current source;
+source rotation requires explicit enable or restart to update guest files.
+
+The `egress-config` column of `voom list` shows the saved attachment (`enabled`,
+`disabled`, or `none`) and does not check the running VM. `voom info` reports
+observed route state, connection count when available, and configuration drift.
+`voom doctor` uses local socket probes and host API queries; it sends no proxy
+requests or outbound internet traffic. Disabled declarations can start without
+their backend, certificate, or private-transport capability.
+
+Disable persists the disabled declaration after removing runtime access. A
+crash or persistence failure between those steps can leave enabled desired
+state on disk, so a later restart can restore access. A failed enable can leave
+an enabled declaration with runtime access removed; repeat enable after fixing
+the reported cause. When route removal is uncertain, Voom attempts to stop the
+VM runtime. Unconfirmed termination is an error, with process-record and log
+paths retained for recovery.
+
 ## Agent Skill
 
 Voom ships agent instructions as part of the binary. To print the skill file,
@@ -371,7 +441,7 @@ If a VM is already stopped and only runtime debris remains, it is safe to
 remove that VM's `<runtime>/vms/<vm-id>` directory. Removing files under
 `<state>` is destructive and should be handled with care.
 
-Lifecycle cleanup applies to all VMs.
+Lifecycle cleanup applies to all VMs, including those without egress attachments.
 Voom records each helper's PID and system-specific start identity at launch.
 Cleanup sends signals only when the current values match that launch record.
 Start cleans up surviving helpers before launching replacement runtime. Stop,

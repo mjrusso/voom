@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/mjrusso/voom/internal/driver/vfkit"
+	"github.com/mjrusso/voom/internal/egress"
+	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/image"
 	"github.com/mjrusso/voom/internal/process"
@@ -281,6 +283,11 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 			return nil, err
 		}
 	}
+	if d := vm.Network.Egress; d != nil {
+		if err := m.CheckEgressAssignment(vm, *d); err != nil {
+			return nil, err
+		}
+	}
 	lock.ReleaseGlobal()
 	if _, err := m.stopRuntime(ctx, vm); err != nil {
 		return nil, err
@@ -291,6 +298,17 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	gvproxyExe, err := host.ExePath("gvproxy")
 	if err != nil {
 		return nil, err
+	}
+	var egressCA []byte
+	if d := vm.Network.Egress; d != nil {
+		if d.Enabled {
+			egressCA, err = m.validateEgress(ctx, vm, gvproxyExe, false)
+		} else {
+			err = egress.Syntax(*d)
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	switch vm.Driver {
 	case "qemu":
@@ -359,6 +377,9 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	if err := m.WriteControlFiles(vm); err != nil {
 		return nil, err
 	}
+	if _, err := publishEgress(rt, vm.Network.Egress != nil && vm.Network.Egress.Enabled, egressCA); err != nil {
+		return nil, err
+	}
 	// From here on, any error must tear down whatever partial runtime state
 	// was allocated. A single deferred cleanup keeps the error paths terse
 	// and surfaces cleanup failures via stderr.
@@ -390,6 +411,9 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		gvproxyArgs = append(gvproxyArgs, "-listen-qemu", "unix://"+rt.QEMUNetSock())
 	case "vfkit":
 		gvproxyArgs = append(gvproxyArgs, "-listen-vfkit", "unixgram://"+rt.VFKitNetSock())
+	}
+	if vm.Network.Egress != nil && vm.Network.Egress.Enabled {
+		gvproxyArgs = append(gvproxyArgs, "-gateway-forward", gvproxy.GatewayArgument(gvproxy.GatewayRoute{Local: egress.Listener, Target: vm.Network.Egress.BackendSocket}))
 	}
 	if err = m.startRecorded(gvproxyExe, gvproxyArgs, m.store.LogPath(vm, "gvproxy"), rt.GVProxyProcessRecord()); err != nil {
 		return nil, err
@@ -536,10 +560,11 @@ func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeS
 			_ = os.Remove(p)
 		}
 	}
+	filesChanged, err := removeEgressFiles(rt)
 	return runtimeStopResult{
-		changed:                     changed,
+		changed:                     changed || filesChanged,
 		gatewayTerminationConfirmed: gatewayErr == nil,
-	}, errors.Join(failures...)
+	}, errors.Join(append(failures, err)...)
 }
 
 func hasRuntimeState(vm *state.VMRecord, rt state.RuntimeLayout) bool {
@@ -549,7 +574,7 @@ func hasRuntimeState(vm *state.VMRecord, rt state.RuntimeLayout) bool {
 		len(process.FindRecords(rt.VirtiofsProcessRecordGlob())) > 0 {
 		return true
 	}
-	paths := []string{rt.AutoForwardsJSON()}
+	paths := []string{rt.AutoForwardsJSON(), rt.EgressManifest(), rt.EgressCA()}
 	paths = append(paths, rt.NetworkArtifacts()...)
 	paths = append(paths, rt.DriverArtifacts(vm.Driver)...)
 	for _, path := range paths {

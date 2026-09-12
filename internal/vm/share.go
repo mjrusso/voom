@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mjrusso/voom/internal/egress"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/share"
 	"github.com/mjrusso/voom/internal/state"
@@ -81,6 +82,7 @@ func (m *Manager) WriteControlFiles(vm *state.VMRecord) error {
 		"controlShare": map[string]any{
 			"tag":        state.ControlShareTag,
 			"guestPath":  state.ControlShareGuestPath(),
+			"egressPath": egress.GuestManifest,
 			"portsPath":  filepath.Join(state.ControlShareGuestPath(), "ports.json"),
 			"mountsPath": filepath.Join(state.ControlShareGuestPath(), "mounts.json"),
 		},

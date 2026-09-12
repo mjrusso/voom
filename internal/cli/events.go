@@ -17,7 +17,7 @@ func eventsCommand() *cobra.Command {
 	var filterValues []string
 	cmd := &cobra.Command{
 		Use:   "events",
-		Short: "Stream VM and forward change events",
+		Short: "Stream VM, forward, and egress change events",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			now := time.Now()
@@ -67,6 +67,9 @@ func formatEvent(ev events.Event) string {
 		name = ev.Actor.Attributes["name"]
 	}
 	base := fmt.Sprintf("%s %s %s %s", ev.Time, ev.Type, ev.Action, name)
+	if ev.Type == "egress" {
+		return fmt.Sprintf("%s (%s, changed=%s, runtimeChanged=%s, enabled=%s)", base, ev.Actor.Attributes["outcome"], ev.Actor.Attributes["changed"], ev.Actor.Attributes["runtimeChanged"], ev.Actor.Attributes["enabled"])
+	}
 	if ev.Type != "forward" {
 		return strings.TrimSpace(base)
 	}

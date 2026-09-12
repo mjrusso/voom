@@ -1,6 +1,6 @@
 ## voom events
 
-Stream VM and forward change events
+Stream VM, forward, and egress change events
 
 ```
 voom events [flags]

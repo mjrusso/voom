@@ -4,7 +4,7 @@ List VMs
 
 ### Synopsis
 
-List VMs, one per row: name, ID, status, image, CPUs, memory, SSH port, and disk capacity. A disk that cannot be read shows as disk=?. 'voom info' also reports host disk allocation.
+List VMs, one per row: name, ID, status, image, CPUs, memory, SSH port, disk capacity, and saved egress configuration. A disk that cannot be read shows as disk=?. The egress-config column shows the saved attachment (enabled, disabled, or none) and does not check the running VM; 'voom info' reports observed egress state and host disk allocation.
 
 ```
 voom list [flags]

@@ -15,7 +15,7 @@ func configCommand() *cobra.Command {
 	show := &cobra.Command{
 		Use:   "show <name>",
 		Short: "Print the commands to reproduce a VM's configuration",
-		Long:  "Print the shell commands that recreate a VM's post-create configuration: its shares, manual forwards, and auto-forward settings. The output is empty for a VM with none of these. ('voom clone' prints the same commands, retargeted at the new VM, so you can match a clone to its source.)",
+		Long:  "Print the shell commands that recreate a VM's post-create configuration: its shares, manual forwards, auto-forward settings, and explicit egress attachment. The output is empty for a VM with none of these. ('voom clone' retargets share and forward commands, but omits egress because the clone needs its own backend socket.)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
@@ -26,7 +26,7 @@ func configCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cmds := replayCommands(vmRec, vmRec.Name)
+			cmds := replayCommands(vmRec, vmRec.Name, true)
 			if outputFormat(cmd) == "json" {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": vmRec.Name, "commands": cmds})
 			}
@@ -68,18 +68,25 @@ func configCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.AddCommand(show, sshPort)
+	cmd.AddCommand(show, sshPort, egressCommand())
 	return cmd
 }
 
-// replayCommands returns the voom commands that recreate the post-create
-// configuration of vm — its shares, manual forwards, and auto-forwarding —
-// targeting a VM named target. Commands are emitted in apply order. Resources,
-// driver, image, and SSH management port are intentionally omitted: fixed
-// create-time settings are already carried by 'voom clone', while clones
-// deliberately retain their freshly allocated SSH ports.
-func replayCommands(vm *state.VMRecord, target string) []string {
+// replayCommands emits post-create settings in apply order. Clone carries the
+// create-time settings and allocates its own SSH port. Its hints exclude egress
+// because backend sockets belong to one VM ID; config show includes the attachment.
+func replayCommands(vm *state.VMRecord, target string, includeEgress bool) []string {
 	cmds := []string{}
+	if d := vm.Network.Egress; d != nil && includeEgress {
+		line := "voom config egress set " + shellQuote(target) + " --backend-socket " + shellQuote(d.BackendSocket)
+		if d.CACertPath != "" {
+			line += " --ca-cert " + shellQuote(d.CACertPath)
+		}
+		cmds = append(cmds, line)
+		if !d.Enabled {
+			cmds = append(cmds, "voom config egress disable "+shellQuote(target))
+		}
+	}
 	for _, s := range vm.Shares {
 		line := fmt.Sprintf("voom share add %s %s %s %s", shellQuote(target), shellQuote(s.Tag), shellQuote(s.HostPath), shellQuote(s.GuestPath))
 		if s.Readonly {

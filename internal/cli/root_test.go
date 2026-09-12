@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mjrusso/voom/internal/egress"
 	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/share"
@@ -453,7 +454,7 @@ func TestFixtureCommands(t *testing.T) {
 	t.Setenv("VOOM_CACHE_DIR", filepath.Join(dir, "cache"))
 	t.Setenv("VOOM_RUNTIME_DIR", filepath.Join(dir, "runtime"))
 
-	if out := runCmd(t, "list"); !strings.Contains(out, "scratch") || !strings.Contains(out, "4096MiB") || !strings.Contains(out, "disk=?") {
+	if out := runCmd(t, "list"); !strings.Contains(out, "scratch") || !strings.Contains(out, "4096MiB") || !strings.Contains(out, "disk=?") || !strings.Contains(out, "egress-config=none") {
 		t.Fatalf("fixture list missing scratch:\n%s", out)
 	}
 	if out := runCmd(t, "info", "scratch"); !strings.Contains(out, "disk: unavailable: ") {
@@ -465,16 +466,29 @@ func TestFixtureCommands(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "vms", "vm-scratch", "disk.qcow2"), header, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out := runCmd(t, "list"); !strings.Contains(out, "disk=20GiB") {
-		t.Fatalf("fixture list missing disk:\n%s", out)
+	st, err := state.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vmRec, err := st.LoadVM("scratch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vmRec.Network.Egress = &egress.Decl{Mode: egress.ModeExplicit, BackendSocket: "/run/proxy/vm-scratch.sock"}
+	if err := st.SaveVM(vmRec); err != nil {
+		t.Fatal(err)
+	}
+	if out := runCmd(t, "list"); !strings.Contains(out, "disk=20GiB") || !strings.Contains(out, "egress-config=disabled") {
+		t.Fatalf("fixture list missing disk or egress:\n%s", out)
 	}
 	var listRows []struct {
-		Name      string           `json:"name"`
-		CPUs      int              `json:"cpus"`
-		MemoryMiB int              `json:"memoryMiB"`
-		Disk      *state.DiskUsage `json:"disk"`
+		Name         string           `json:"name"`
+		CPUs         int              `json:"cpus"`
+		MemoryMiB    int              `json:"memoryMiB"`
+		Disk         *state.DiskUsage `json:"disk"`
+		EgressConfig string           `json:"egressConfig"`
 	}
-	if out := runCmd(t, "--output", "json", "list"); json.Unmarshal([]byte(out), &listRows) != nil || len(listRows) != 1 || listRows[0].Name != "scratch" || listRows[0].CPUs != 4 || listRows[0].MemoryMiB != 4096 || listRows[0].Disk == nil || listRows[0].Disk.VirtualBytes != 20<<30 {
+	if out := runCmd(t, "--output", "json", "list"); json.Unmarshal([]byte(out), &listRows) != nil || len(listRows) != 1 || listRows[0].Name != "scratch" || listRows[0].CPUs != 4 || listRows[0].MemoryMiB != 4096 || listRows[0].Disk == nil || listRows[0].Disk.VirtualBytes != 20<<30 || listRows[0].EgressConfig != "disabled" {
 		t.Fatalf("fixture list JSON missing resources:\n%s", out)
 	}
 	if out := runCmd(t, "info", "scratch"); !strings.Contains(out, "ssh: root@127.0.0.1:2222") || !strings.Contains(out, "cpus: 4") || !strings.Contains(out, "memory: 4096MiB") || !strings.Contains(out, "disk: 20GiB virtual, ") {

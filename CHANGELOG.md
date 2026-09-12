@@ -2,8 +2,12 @@
 
 ## Unreleased
 
-- Show disk capacity in `voom list`, and disk capacity and host allocation in
-  `voom info`.
+- Show disk capacity and saved egress configuration (`egress-config`) in
+  `voom list`, and disk capacity and host allocation in `voom info`.
+- Add per-VM explicit egress proxy configuration with live enable/disable,
+  private TCP-to-Unix transport, and optional public CA guest metadata. Direct
+  networking remains available. Requires the packaged gvproxy patch based on
+  `9cfc86f66679ef0feed0f20ba1df558fe2bef5c6`; see `nix/GVPROXY.md`.
 - Package gvproxy with private gateway TCP-to-Unix forwarding, host-only live
   control, and confirmed tunnel shutdown. Pin gvisor-tap-vsock revision
   `9cfc86f66679ef0feed0f20ba1df558fe2bef5c6` with the maintained patch; include

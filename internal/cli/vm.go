@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/mjrusso/voom/internal/egress"
 	"github.com/mjrusso/voom/internal/state"
 	"github.com/mjrusso/voom/internal/vm"
 )
@@ -83,17 +84,21 @@ func cloneCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// The clone does not inherit the source's shares/forwards; surface
-			// the commands that reproduce them on the clone, retargeted at its
-			// name. Best-effort: a load failure just omits the hint.
 			reproduce := []string{}
+			omitted := []map[string]string{}
 			if src, loadErr := deps.store.LoadVM(args[0]); loadErr == nil {
-				reproduce = replayCommands(src, vmRec.Name)
+				reproduce = replayCommands(src, vmRec.Name, false)
+				if src.Network.Egress != nil {
+					omitted = append(omitted, map[string]string{"config": "egress", "reason": "backend socket belongs exclusively to the source VM ID", "cloneID": vmRec.ID})
+				}
 			}
 			if outputFormat(cmd) == "json" {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": vmRec.Name, "id": vmRec.ID, "source": args[0], "changed": true, "sshPort": vmRec.Network.SSHPort, "cpus": vmRec.Resources.CPUs, "memoryMiB": vmRec.Resources.MemoryMiB, "configCommands": reproduce})
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": vmRec.Name, "id": vmRec.ID, "source": args[0], "changed": true, "sshPort": vmRec.Network.SSHPort, "cpus": vmRec.Resources.CPUs, "memoryMiB": vmRec.Resources.MemoryMiB, "configCommands": reproduce, "omittedConfig": omitted})
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "cloned VM %s to %s (%s), ssh 127.0.0.1:%d\n", args[0], vmRec.Name, vmRec.ID, vmRec.Network.SSHPort)
+			if len(omitted) > 0 {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "egress attachment omitted; provision a unique backend for clone VM ID %s\n", vmRec.ID)
+			}
 			if len(reproduce) > 0 {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "to reproduce %s's configuration on %s, run:\n", args[0], vmRec.Name)
 				for _, c := range reproduce {
@@ -266,6 +271,10 @@ func infoCommand() *cobra.Command {
 		} else {
 			out.DiskError = err.Error()
 		}
+		if out.Running && vmRec.Network.Egress != nil {
+			observed, _ := deps.vm.ObserveEgress(cmd.Context(), vmRec)
+			out.EgressRuntime = &observed
+		}
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
 		}
@@ -274,20 +283,38 @@ func infoCommand() *cobra.Command {
 			disk = fmt.Sprintf("%s virtual, %s allocated on host", formatBytes(out.Disk.VirtualBytes), formatBytes(out.Disk.AllocatedBytes))
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\nstatus: %s\nimage: %s\ncpus: %d\nmemory: %dMiB\ndisk: %s\nssh: %s@%s:%d\nforwards: %d\nshares: %d\n", vmRec.Name, vmRec.ID, vm.Status(out.Running), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, disk, vmRec.Access.SSHUser, vmRec.Network.SSHBind, vmRec.Network.SSHPort, len(vmRec.Network.Forwards), len(vmRec.Shares))
+		status := "not configured"
+		if d := vmRec.Network.Egress; d != nil {
+			status = "disabled while stopped"
+			if d.Enabled {
+				status = "enabled for next start"
+			}
+		}
+		if observed := out.EgressRuntime; observed != nil {
+			status = "running, " + observed.State
+			if observed.ActiveConnections != nil {
+				status += fmt.Sprintf(", %d active connections", *observed.ActiveConnections)
+			}
+			if observed.Error != "" {
+				status += "; " + observed.Error
+			}
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "egress: %s; direct egress remains available\n", status)
 		return nil
 	}}
 }
 
 type vmInfo struct {
-	VM        *state.VMRecord  `json:"vm"`
-	Running   bool             `json:"running"`
-	DiskPath  string           `json:"diskPath"`
-	Disk      *state.DiskUsage `json:"disk,omitempty"`
-	DiskError string           `json:"diskError,omitempty"`
+	EgressRuntime *vm.EgressRuntime `json:"egressRuntime,omitempty"`
+	VM            *state.VMRecord   `json:"vm"`
+	Running       bool              `json:"running"`
+	DiskPath      string            `json:"diskPath"`
+	Disk          *state.DiskUsage  `json:"disk,omitempty"`
+	DiskError     string            `json:"diskError,omitempty"`
 }
 
 func listCommand() *cobra.Command {
-	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List VMs", Long: "List VMs, one per row: name, ID, status, image, CPUs, memory, SSH port, and disk capacity. A disk that cannot be read shows as disk=?. 'voom info' also reports host disk allocation.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List VMs", Long: "List VMs, one per row: name, ID, status, image, CPUs, memory, SSH port, disk capacity, and saved egress configuration. A disk that cannot be read shows as disk=?. The egress-config column shows the saved attachment (enabled, disabled, or none) and does not check the running VM; 'voom info' reports observed egress state and host disk allocation.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -297,14 +324,15 @@ func listCommand() *cobra.Command {
 			return err
 		}
 		type row struct {
-			Name      string           `json:"name"`
-			ID        string           `json:"id"`
-			Status    string           `json:"status"`
-			Image     string           `json:"image"`
-			CPUs      int              `json:"cpus"`
-			MemoryMiB int              `json:"memoryMiB"`
-			SSHPort   int              `json:"sshPort"`
-			Disk      *state.DiskUsage `json:"disk,omitempty"`
+			Name         string           `json:"name"`
+			ID           string           `json:"id"`
+			Status       string           `json:"status"`
+			Image        string           `json:"image"`
+			CPUs         int              `json:"cpus"`
+			MemoryMiB    int              `json:"memoryMiB"`
+			SSHPort      int              `json:"sshPort"`
+			Disk         *state.DiskUsage `json:"disk,omitempty"`
+			EgressConfig string           `json:"egressConfig"`
 		}
 		rows := []row{}
 		for _, vmRec := range vms {
@@ -312,7 +340,7 @@ func listCommand() *cobra.Command {
 			if usage, err := state.ReadDiskUsage(deps.store.VMDiskPath(vmRec)); err == nil {
 				disk = &usage
 			}
-			rows = append(rows, row{vmRec.Name, vmRec.ID, vm.Status(deps.vm.IsRunning(vmRec)), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, vmRec.Network.SSHPort, disk})
+			rows = append(rows, row{vmRec.Name, vmRec.ID, vm.Status(deps.vm.IsRunning(vmRec)), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, vmRec.Network.SSHPort, disk, egressConfig(vmRec.Network.Egress)})
 		}
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(rows)
@@ -323,10 +351,22 @@ func listCommand() *cobra.Command {
 			if r.Disk != nil {
 				disk = formatBytes(r.Disk.VirtualBytes)
 			}
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%dMiB\t%d\tdisk=%s\n", r.Name, r.ID, r.Status, r.Image, r.CPUs, r.MemoryMiB, r.SSHPort, disk)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%dMiB\t%d\tdisk=%s\tegress-config=%s\n", r.Name, r.ID, r.Status, r.Image, r.CPUs, r.MemoryMiB, r.SSHPort, disk, r.EgressConfig)
 		}
 		return tw.Flush()
 	}}
+}
+
+// egressConfig summarizes the saved attachment without querying the runtime.
+func egressConfig(d *egress.Decl) string {
+	switch {
+	case d == nil:
+		return "none"
+	case d.Enabled:
+		return "enabled"
+	default:
+		return "disabled"
+	}
 }
 
 func formatBytes(n int64) string {

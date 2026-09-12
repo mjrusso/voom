@@ -37,7 +37,7 @@ func TestReplayCommands(t *testing.T) {
 		"voom forward add dev 5432 --host-port 5432 --bind 0.0.0.0",
 		"voom forward auto enable dev --offset 10000 --bind 0.0.0.0",
 	}
-	if got := replayCommands(vm, "dev"); !reflect.DeepEqual(got, want) {
+	if got := replayCommands(vm, "dev", true); !reflect.DeepEqual(got, want) {
 		t.Fatalf("replayCommands =\n%#v\nwant\n%#v", got, want)
 	}
 }
@@ -52,14 +52,14 @@ func TestReplayCommandsRetargetsName(t *testing.T) {
 		"voom share add clone1 code /src /mnt/code",
 		"voom forward auto enable clone1",
 	}
-	if got := replayCommands(vm, "clone1"); !reflect.DeepEqual(got, want) {
+	if got := replayCommands(vm, "clone1", false); !reflect.DeepEqual(got, want) {
 		t.Fatalf("replayCommands retargeted =\n%#v\nwant\n%#v", got, want)
 	}
 }
 
 func TestReplayCommandsEmptyForUnconfiguredVM(t *testing.T) {
 	vm := &state.VMRecord{Name: "bare"}
-	if got := replayCommands(vm, "bare"); len(got) != 0 {
+	if got := replayCommands(vm, "bare", true); len(got) != 0 {
 		t.Fatalf("expected no commands, got %#v", got)
 	}
 }
