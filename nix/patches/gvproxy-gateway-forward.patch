@@ -1,0 +1,901 @@
+diff --git a/cmd/gvproxy/config.go b/cmd/gvproxy/config.go
+index 710edc20..a2d40dbb 100644
+--- a/cmd/gvproxy/config.go
++++ b/cmd/gvproxy/config.go
+@@ -1,6 +1,7 @@
+ package main
+ 
+ import (
++	"encoding/json"
+ 	"errors"
+ 	"flag"
+ 	"fmt"
+@@ -12,6 +13,7 @@ import (
+ 	"slices"
+ 	"strings"
+ 
++	"github.com/containers/gvisor-tap-vsock/pkg/services/gatewayforward"
+ 	"github.com/containers/gvisor-tap-vsock/pkg/types"
+ 	log "github.com/sirupsen/logrus"
+ 	yaml "gopkg.in/yaml.v3"
+@@ -26,6 +28,8 @@ const (
+ )
+ 
+ type GvproxyArgs struct {
++	capabilities       bool
++	gatewayForward     arrayFlags
+ 	config             string
+ 	endpoints          arrayFlags
+ 	debug              bool
+@@ -49,10 +53,11 @@ type GvproxyArgs struct {
+ }
+ 
+ type GvproxyConfig struct {
+-	Listen     []string            `yaml:"listen,omitempty"`
+-	LogLevel   string              `yaml:"log-level,omitempty"`
+-	Stack      types.Configuration `yaml:"stack,omitempty"`
+-	Interfaces struct {
++	GatewayForward []string            `yaml:"gateway-forward,omitempty"`
++	Listen         []string            `yaml:"listen,omitempty"`
++	LogLevel       string              `yaml:"log-level,omitempty"`
++	Stack          types.Configuration `yaml:"stack,omitempty"`
++	Interfaces     struct {
+ 		VPNKit string `yaml:"vpnkit,omitempty"`
+ 		Qemu   string `yaml:"qemu,omitempty"`
+ 		Bess   string `yaml:"bess,omitempty"`
+@@ -91,6 +96,10 @@ func GvproxyInit() (*GvproxyConfig, error) {
+ 		return nil, fmt.Errorf("failed to parse command line arguments: %w", err)
+ 	}
+ 
++	if args.capabilities {
++		_ = json.NewEncoder(os.Stdout).Encode(map[string]int{gatewayforward.Capability: 1})
++		os.Exit(0)
++	}
+ 	if version.ShowVersion() {
+ 		fmt.Println(version.String())
+ 		os.Exit(0)
+@@ -113,6 +122,8 @@ func GvproxyInit() (*GvproxyConfig, error) {
+ }
+ 
+ func GvproxyArgParse(flagSet *flag.FlagSet, args *GvproxyArgs, argv []string) (*GvproxyArgs, error) {
++	flagSet.BoolVar(&args.capabilities, "capabilities", false, "Print versioned host capabilities as JSON")
++	flagSet.Var(&args.gatewayForward, "gateway-forward", "Private gateway forward as a JSON local/target object")
+ 	flagSet.StringVar(&args.config, "config", "", "Use configuration file with command line override")
+ 	flagSet.Var(&args.endpoints, "listen", "control endpoint")
+ 	flagSet.BoolVar(&args.debug, "debug", false, "Print debug info")
+@@ -141,6 +152,7 @@ func GvproxyArgParse(flagSet *flag.FlagSet, args *GvproxyArgs, argv []string) (*
+ }
+ 
+ func GvproxyConfigure(config *GvproxyConfig, args *GvproxyArgs, version string) (*GvproxyConfig, error) {
++	config.GatewayForward = append(config.GatewayForward, args.gatewayForward...)
+ 	if args.debug {
+ 		config.LogLevel = "debug"
+ 	}
+diff --git a/cmd/gvproxy/main.go b/cmd/gvproxy/main.go
+index bfe41f4f..44edb0ee 100644
+--- a/cmd/gvproxy/main.go
++++ b/cmd/gvproxy/main.go
+@@ -3,6 +3,7 @@ package main
+ import (
+ 	"bufio"
+ 	"context"
++	"encoding/json"
+ 	"errors"
+ 	"fmt"
+ 	"net"
+@@ -19,6 +20,7 @@ import (
+ 
+ 	"github.com/containers/gvisor-tap-vsock/pkg/net/stdio"
+ 	"github.com/containers/gvisor-tap-vsock/pkg/notification"
++	"github.com/containers/gvisor-tap-vsock/pkg/services/gatewayforward"
+ 	"github.com/containers/gvisor-tap-vsock/pkg/sshclient"
+ 	"github.com/containers/gvisor-tap-vsock/pkg/transport"
+ 	"github.com/containers/gvisor-tap-vsock/pkg/types"
+@@ -126,6 +128,18 @@ func run(ctx context.Context, g *errgroup.Group, config *GvproxyConfig) error {
+ 	if err != nil {
+ 		return err
+ 	}
++	for _, raw := range config.GatewayForward {
++		var route gatewayforward.Route
++		if err := json.Unmarshal([]byte(raw), &route); err != nil {
++			vn.GatewayForward.Close()
++			return err
++		}
++		if err := vn.GatewayForward.Expose(route); err != nil {
++			vn.GatewayForward.Close()
++			return err
++		}
++	}
++	g.Go(func() error { <-ctx.Done(); vn.GatewayForward.Close(); return nil })
+ 	log.Info("waiting for clients...")
+ 
+ 	// Initializing notificationSender here because NewNotificationSender always returns a valid object (a no-op sender when socket is empty),
+@@ -144,7 +158,11 @@ func run(ctx context.Context, g *errgroup.Group, config *GvproxyConfig) error {
+ 		if err != nil {
+ 			return fmt.Errorf("cannot listen: %w", err)
+ 		}
+-		httpServe(ctx, g, ln, withProfiler(vn))
++		mux := withProfiler(vn)
++		if _, ok := ln.Addr().(*net.UnixAddr); ok {
++			vn.GatewayForward.Register(mux)
++		}
++		httpServe(ctx, g, ln, mux)
+ 	}
+ 	notificationSender.Send(types.NotificationMessage{NotificationType: types.Ready})
+ 
+@@ -376,7 +394,7 @@ func httpServe(ctx context.Context, g *errgroup.Group, ln net.Listener, mux http
+ 	})
+ }
+ 
+-func withProfiler(vn *virtualnetwork.VirtualNetwork) http.Handler {
++func withProfiler(vn *virtualnetwork.VirtualNetwork) *http.ServeMux {
+ 	mux := vn.Mux()
+ 	if InDebugMode() {
+ 		mux.HandleFunc("/debug/pprof/", pprof.Index)
+diff --git a/pkg/virtualnetwork/services.go b/pkg/virtualnetwork/services.go
+index 57c5dafa..6ce08b36 100644
+--- a/pkg/virtualnetwork/services.go
++++ b/pkg/virtualnetwork/services.go
+@@ -1,6 +1,7 @@
+ package virtualnetwork
+ 
+ import (
++	"fmt"
+ 	"net"
+ 	"net/http"
+ 	"strings"
+@@ -9,6 +10,7 @@ import (
+ 	"github.com/containers/gvisor-tap-vsock/pkg/services/dhcp"
+ 	"github.com/containers/gvisor-tap-vsock/pkg/services/dns"
+ 	"github.com/containers/gvisor-tap-vsock/pkg/services/forwarder"
++	"github.com/containers/gvisor-tap-vsock/pkg/services/gatewayforward"
+ 	"github.com/containers/gvisor-tap-vsock/pkg/tap"
+ 	"github.com/containers/gvisor-tap-vsock/pkg/types"
+ 	log "github.com/sirupsen/logrus"
+@@ -20,12 +22,17 @@ import (
+ 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
+ )
+ 
+-func addServices(configuration *types.Configuration, s *stack.Stack, ipPool *tap.IPPool) (http.Handler, error) {
++func addServices(configuration *types.Configuration, s *stack.Stack, ipPool *tap.IPPool, gateway *gatewayforward.Forwarder) (http.Handler, error) {
+ 	var natLock sync.Mutex
+ 	translation := parseNATTable(configuration)
+ 
+ 	tcpForwarder := forwarder.TCP(s, translation, &natLock, configuration.Ec2MetadataAccess)
+-	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpForwarder.HandlePacket)
++	s.SetTransportProtocolHandler(tcp.ProtocolNumber, func(id stack.TransportEndpointID, pkt *stack.PacketBuffer) bool {
++		if gateway.Reserved(net.JoinHostPort(id.LocalAddress.String(), fmt.Sprint(id.LocalPort))) {
++			return false
++		}
++		return tcpForwarder.HandlePacket(id, pkt)
++	})
+ 	udpForwarder := forwarder.UDP(s, translation, &natLock, configuration.Ec2MetadataAccess)
+ 	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder.HandlePacket)
+ 
+diff --git a/pkg/virtualnetwork/virtualnetwork.go b/pkg/virtualnetwork/virtualnetwork.go
+index c7d32550..982049f9 100644
+--- a/pkg/virtualnetwork/virtualnetwork.go
++++ b/pkg/virtualnetwork/virtualnetwork.go
+@@ -9,6 +9,7 @@ import (
+ 	"os"
+ 
+ 	"github.com/containers/gvisor-tap-vsock/pkg/notification"
++	"github.com/containers/gvisor-tap-vsock/pkg/services/gatewayforward"
+ 	"github.com/containers/gvisor-tap-vsock/pkg/tap"
+ 	"github.com/containers/gvisor-tap-vsock/pkg/types"
+ 	"gvisor.dev/gvisor/pkg/tcpip"
+@@ -22,11 +23,12 @@ import (
+ )
+ 
+ type VirtualNetwork struct {
+-	configuration *types.Configuration
+-	stack         *stack.Stack
+-	networkSwitch *tap.Switch
+-	servicesMux   http.Handler
+-	ipPool        *tap.IPPool
++	configuration  *types.Configuration
++	GatewayForward *gatewayforward.Forwarder
++	stack          *stack.Stack
++	networkSwitch  *tap.Switch
++	servicesMux    http.Handler
++	ipPool         *tap.IPPool
+ }
+ 
+ func (n *VirtualNetwork) SetNotificationSender(notificationSender *notification.NotificationSender) {
+@@ -78,18 +80,18 @@ func New(configuration *types.Configuration) (*VirtualNetwork, error) {
+ 		return nil, fmt.Errorf("cannot create network stack: %w", err)
+ 	}
+ 
+-	mux, err := addServices(configuration, stack, ipPool)
+-	if err != nil {
+-		return nil, fmt.Errorf("cannot add network services: %w", err)
+-	}
+-
+-	return &VirtualNetwork{
++	n := &VirtualNetwork{
+ 		configuration: configuration,
+ 		stack:         stack,
+ 		networkSwitch: networkSwitch,
+-		servicesMux:   mux,
+ 		ipPool:        ipPool,
+-	}, nil
++	}
++	n.GatewayForward = gatewayforward.New(n.listenGateway)
++	n.servicesMux, err = addServices(configuration, stack, ipPool, n.GatewayForward)
++	if err != nil {
++		return nil, fmt.Errorf("cannot add network services: %w", err)
++	}
++	return n, nil
+ }
+ 
+ func (n *VirtualNetwork) BytesSent() uint64 {
+diff --git a/pkg/services/gatewayforward/gatewayforward.go b/pkg/services/gatewayforward/gatewayforward.go
+new file mode 100644
+index 00000000..f1da1cd2
+--- /dev/null
++++ b/pkg/services/gatewayforward/gatewayforward.go
+@@ -0,0 +1,238 @@
++package gatewayforward
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"net"
++	"net/http"
++	"path/filepath"
++	"sort"
++	"strings"
++	"sync"
++	"time"
++)
++
++const Capability = "gateway-forward-v1"
++
++type Route struct {
++	Local             string `json:"local"`
++	Target            string `json:"target"`
++	ActiveConnections int    `json:"activeConnections"`
++}
++
++type relay struct{ guest, backend net.Conn }
++type listener struct {
++	route   Route
++	ln      net.Listener
++	cancel  context.CancelFunc
++	mu      sync.Mutex
++	closing bool
++	relays  map[*relay]struct{}
++	workers sync.WaitGroup
++}
++
++type Forwarder struct {
++	mu       sync.Mutex
++	listen   func(string, string) (net.Listener, error)
++	routes   map[string]*listener
++	reserved sync.Map
++	closed   bool
++}
++
++func New(listen func(string, string) (net.Listener, error)) *Forwarder {
++	return &Forwarder{listen: listen, routes: map[string]*listener{}}
++}
++
++func (f *Forwarder) Reserved(local string) bool {
++	_, reserved := f.reserved.Load(local)
++	return reserved
++}
++
++func (f *Forwarder) Expose(route Route) error {
++	host, port, err := net.SplitHostPort(route.Local)
++	if err != nil || net.ParseIP(host).To4() == nil || port == "0" {
++		return errors.New("local must be an IPv4 address and nonzero TCP port")
++	}
++	if !filepath.IsAbs(route.Target) || strings.ContainsRune(route.Target, 0) {
++		return errors.New("target must be an absolute Unix socket path")
++	}
++	f.mu.Lock()
++	defer f.mu.Unlock()
++	if f.closed {
++		return errors.New("forwarder is closed")
++	}
++	if old := f.routes[route.Local]; old != nil {
++		if old.route.Target != route.Target {
++			return errors.New("listener target conflict")
++		}
++		return nil
++	}
++	ln, err := f.listen("tcp", route.Local)
++	if err != nil {
++		return err
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	l := &listener{route: route, ln: ln, cancel: cancel, relays: map[*relay]struct{}{}}
++	f.reserved.Store(route.Local, struct{}{})
++	f.routes[route.Local] = l
++	l.workers.Add(1)
++	go l.accept(ctx)
++	return nil
++}
++
++func (l *listener) accept(ctx context.Context) {
++	defer l.workers.Done()
++	for {
++		guest, err := l.ln.Accept()
++		if err != nil {
++			return
++		}
++		l.mu.Lock()
++		if l.closing {
++			l.mu.Unlock()
++			guest.Close()
++			return
++		}
++		r := &relay{guest: guest}
++		l.relays[r] = struct{}{}
++		l.workers.Add(1)
++		l.mu.Unlock()
++		go l.run(ctx, r)
++	}
++}
++
++func (l *listener) run(ctx context.Context, r *relay) {
++	defer l.workers.Done()
++	defer func() {
++		l.mu.Lock()
++		delete(l.relays, r)
++		r.guest.Close()
++		if r.backend != nil {
++			r.backend.Close()
++		}
++		l.mu.Unlock()
++	}()
++	backend, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "unix", l.route.Target)
++	if err != nil {
++		return
++	}
++	l.mu.Lock()
++	if l.closing {
++		l.mu.Unlock()
++		backend.Close()
++		return
++	}
++	r.backend = backend
++	l.mu.Unlock()
++	done := make(chan struct{})
++	go func() { copyHalf(backend, r.guest); close(done) }()
++	copyHalf(r.guest, backend)
++	<-done
++}
++
++func copyHalf(dst, src net.Conn) {
++	_, err := io.Copy(dst, src)
++	if err != nil {
++		dst.Close()
++		src.Close()
++		return
++	}
++	if c, ok := dst.(interface{ CloseWrite() error }); ok {
++		_ = c.CloseWrite()
++	} else {
++		dst.Close()
++	}
++}
++
++func (l *listener) close() {
++	l.mu.Lock()
++	l.closing = true
++	l.cancel()
++	l.ln.Close()
++	for r := range l.relays {
++		r.guest.Close()
++		if r.backend != nil {
++			r.backend.Close()
++		}
++	}
++	l.mu.Unlock()
++	// The accept worker keeps the count nonzero until relay registration has stopped.
++	l.workers.Wait()
++}
++
++func (f *Forwarder) Unexpose(local string) {
++	f.mu.Lock()
++	defer f.mu.Unlock()
++	if l := f.routes[local]; l != nil {
++		l.close()
++		delete(f.routes, local)
++	}
++}
++
++func (f *Forwarder) Close() {
++	f.mu.Lock()
++	defer f.mu.Unlock()
++	f.closed = true
++	for local, l := range f.routes {
++		l.close()
++		delete(f.routes, local)
++	}
++}
++
++func (f *Forwarder) All() []Route {
++	f.mu.Lock()
++	defer f.mu.Unlock()
++	routes := []Route{}
++	for _, l := range f.routes {
++		l.mu.Lock()
++		r := l.route
++		r.ActiveConnections = 0
++		for conn := range l.relays {
++			if conn.backend != nil {
++				r.ActiveConnections++
++			}
++		}
++		l.mu.Unlock()
++		routes = append(routes, r)
++	}
++	sort.Slice(routes, func(i, j int) bool { return routes[i].Local < routes[j].Local })
++	return routes
++}
++
++func (f *Forwarder) Register(mux *http.ServeMux) {
++	mux.HandleFunc("GET /services/gateway-forward/capabilities", func(w http.ResponseWriter, r *http.Request) {
++		_ = json.NewEncoder(w).Encode(map[string]int{Capability: 1})
++	})
++	mux.HandleFunc("GET /services/gateway-forward/all", func(w http.ResponseWriter, r *http.Request) { _ = json.NewEncoder(w).Encode(f.All()) })
++	for _, action := range []string{"expose", "unexpose"} {
++		mux.HandleFunc("POST /services/gateway-forward/"+action, func(w http.ResponseWriter, r *http.Request) {
++			var route Route
++			dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
++			dec.DisallowUnknownFields()
++			if err := dec.Decode(&route); err != nil {
++				http.Error(w, err.Error(), 400)
++				return
++			}
++			if err := dec.Decode(&struct{}{}); err != io.EOF {
++				http.Error(w, "unexpected trailing data", 400)
++				return
++			}
++			if err := r.Context().Err(); err != nil {
++				http.Error(w, err.Error(), 408)
++				return
++			}
++			if action == "expose" {
++				if err := f.Expose(route); err != nil {
++					http.Error(w, fmt.Sprint(err), 409)
++					return
++				}
++			} else {
++				f.Unexpose(route.Local)
++			}
++			w.WriteHeader(http.StatusNoContent)
++		})
++	}
++}
+diff --git a/pkg/services/gatewayforward/gatewayforward_test.go b/pkg/services/gatewayforward/gatewayforward_test.go
+new file mode 100644
+index 00000000..26b39071
+--- /dev/null
++++ b/pkg/services/gatewayforward/gatewayforward_test.go
+@@ -0,0 +1,208 @@
++package gatewayforward
++
++import (
++	"context"
++	"io"
++	"net"
++	"path/filepath"
++	"sync"
++	"testing"
++	"time"
++)
++
++func TestRelayHalfCloseAndRemoval(t *testing.T) {
++	socket := filepath.Join(t.TempDir(), "backend.sock")
++	backend, err := net.Listen("unix", socket)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer backend.Close()
++	accepted := make(chan net.Conn, 2)
++	go func() {
++		for {
++			c, err := backend.Accept()
++			if err != nil {
++				return
++			}
++			accepted <- c
++		}
++	}()
++	var address string
++	f := New(func(_, _ string) (net.Listener, error) {
++		ln, err := net.Listen("tcp", "127.0.0.1:0")
++		if err == nil {
++			address = ln.Addr().String()
++		}
++		return ln, err
++	})
++	defer f.Close()
++	route := Route{Local: "192.168.127.1:3128", Target: socket}
++	if err := f.Expose(route); err != nil {
++		t.Fatal(err)
++	}
++	if err := f.Expose(route); err != nil {
++		t.Fatal(err)
++	}
++	if err := f.Expose(Route{Local: route.Local, Target: socket + "other"}); err == nil {
++		t.Fatal("accepted conflicting target")
++	}
++	guest, err := net.Dial("tcp", address)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer guest.Close()
++	var upstream net.Conn
++	select {
++	case upstream = <-accepted:
++	case <-time.After(3 * time.Second):
++		t.Fatal("no backend connection")
++	}
++	defer upstream.Close()
++	guest.SetDeadline(time.Now().Add(3 * time.Second))
++	upstream.SetDeadline(time.Now().Add(3 * time.Second))
++	guest.Write([]byte("request"))
++	guest.(*net.TCPConn).CloseWrite()
++	data, err := io.ReadAll(upstream)
++	if err != nil || string(data) != "request" {
++		t.Fatalf("request %q: %v", data, err)
++	}
++	upstream.Write([]byte("response"))
++	upstream.(*net.UnixConn).CloseWrite()
++	data, err = io.ReadAll(guest)
++	if err != nil || string(data) != "response" {
++		t.Fatalf("response %q: %v", data, err)
++	}
++	guest2, err := net.Dial("tcp", address)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer guest2.Close()
++	select {
++	case upstream = <-accepted:
++	case <-time.After(3 * time.Second):
++		t.Fatal("no second backend connection")
++	}
++	defer upstream.Close()
++	done := make(chan struct{})
++	go func() { f.Unexpose(route.Local); close(done) }()
++	select {
++	case <-done:
++	case <-time.After(3 * time.Second):
++		t.Fatal("removal stalled")
++	}
++	guest2.SetReadDeadline(time.Now().Add(time.Second))
++	if _, err := guest2.Read(make([]byte, 1)); err == nil {
++		t.Fatal("guest relay survived")
++	} else if n, ok := err.(net.Error); ok && n.Timeout() {
++		t.Fatal("guest relay still open")
++	}
++	if len(f.All()) != 0 || !f.Reserved(route.Local) {
++		t.Fatal("route not removed or reservation lost")
++	}
++	if conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", address); err == nil {
++		conn.Close()
++		t.Fatal("listener survived")
++	}
++	f.Unexpose(route.Local)
++}
++
++func TestRemovalDuringConnectionEstablishment(t *testing.T) {
++	socket := filepath.Join(t.TempDir(), "backend.sock")
++	backend, err := net.Listen("unix", socket)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer backend.Close()
++	var address string
++	f := New(func(_, _ string) (net.Listener, error) {
++		ln, err := net.Listen("tcp", "127.0.0.1:0")
++		if err == nil {
++			address = ln.Addr().String()
++		}
++		return ln, err
++	})
++	defer f.Close()
++	route := Route{Local: "192.168.127.1:3128", Target: socket}
++	if err := f.Expose(route); err != nil {
++		t.Fatal(err)
++	}
++	var clients []net.Conn
++	for i := 0; i < 32; i++ {
++		conn, err := net.DialTimeout("tcp", address, time.Second)
++		if err != nil {
++			t.Fatal(err)
++		}
++		clients = append(clients, conn)
++		defer conn.Close()
++	}
++	done := make(chan struct{})
++	go func() { f.Unexpose(route.Local); close(done) }()
++	select {
++	case <-done:
++	case <-time.After(time.Second):
++		t.Fatal("removal did not cancel connection establishment")
++	}
++	for _, conn := range clients {
++		conn.SetReadDeadline(time.Now().Add(time.Second))
++		_, err := conn.Read(make([]byte, 1))
++		if err == nil {
++			t.Fatal("connection survived")
++		}
++		if ne, ok := err.(net.Error); ok && ne.Timeout() {
++			t.Fatal("pending connection survived removal")
++		}
++	}
++	if len(f.All()) != 0 {
++		t.Fatal("route survived removal")
++	}
++}
++
++type delayedCloseListener struct {
++	net.Listener
++	closing chan struct{}
++	release chan struct{}
++}
++
++func (l *delayedCloseListener) Close() error {
++	close(l.closing)
++	<-l.release
++	return l.Listener.Close()
++}
++
++func TestReservationLookupDoesNotWaitForShutdown(t *testing.T) {
++	tcp, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	listener := &delayedCloseListener{tcp, make(chan struct{}), make(chan struct{})}
++	release := sync.OnceFunc(func() { close(listener.release) })
++	f := New(func(_, _ string) (net.Listener, error) { return listener, nil })
++	t.Cleanup(func() { release(); f.Close() })
++	route := Route{Local: "192.168.127.1:3128", Target: "/tmp/backend.sock"}
++	if err := f.Expose(route); err != nil {
++		t.Fatal(err)
++	}
++	stopped := make(chan struct{})
++	go func() { f.Unexpose(route.Local); close(stopped) }()
++	select {
++	case <-listener.closing:
++	case <-time.After(time.Second):
++		t.Fatal("shutdown did not start")
++	}
++	observed := make(chan bool, 1)
++	go func() { observed <- f.Reserved(route.Local) && !f.Reserved("1.1.1.1:443") }()
++	select {
++	case ok := <-observed:
++		if !ok {
++			t.Fatal("incorrect reservations during shutdown")
++		}
++	case <-time.After(time.Second):
++		t.Fatal("unrelated connections wait for shutdown")
++	}
++	release()
++	select {
++	case <-stopped:
++	case <-time.After(time.Second):
++		t.Fatal("shutdown did not finish")
++	}
++}
+diff --git a/pkg/virtualnetwork/gateway.go b/pkg/virtualnetwork/gateway.go
+new file mode 100644
+index 00000000..d9313c5b
+--- /dev/null
++++ b/pkg/virtualnetwork/gateway.go
+@@ -0,0 +1,35 @@
++package virtualnetwork
++
++import (
++	"errors"
++	"net"
++
++	"gvisor.dev/gvisor/pkg/tcpip"
++	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
++	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
++	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
++	"gvisor.dev/gvisor/pkg/waiter"
++)
++
++func (n *VirtualNetwork) listenGateway(network, address string) (net.Listener, error) {
++	ip, port, err := splitIPPort(network, address)
++	if err != nil {
++		return nil, err
++	}
++	var queue waiter.Queue
++	ep, tcpErr := n.stack.NewEndpoint(tcp.ProtocolNumber, ipv4.ProtocolNumber, &queue)
++	if tcpErr != nil {
++		return nil, errors.New(tcpErr.String())
++	}
++	// Live re-enable must bind while connections from the previous attachment finish closing.
++	ep.SocketOptions().SetReuseAddress(true)
++	if tcpErr := ep.Bind(tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4Slice(ip.To4()), Port: port}); tcpErr != nil {
++		ep.Close()
++		return nil, errors.New(tcpErr.String())
++	}
++	if tcpErr := ep.Listen(128); tcpErr != nil {
++		ep.Close()
++		return nil, errors.New(tcpErr.String())
++	}
++	return gonet.NewTCPListener(n.stack, &queue, ep), nil
++}
+diff --git a/cmd/gvproxy/gateway_integration_test.go b/cmd/gvproxy/gateway_integration_test.go
+new file mode 100644
+index 00000000..18b569ef
+--- /dev/null
++++ b/cmd/gvproxy/gateway_integration_test.go
+@@ -0,0 +1,165 @@
++package main
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"io"
++	"net"
++	"net/http"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"testing"
++	"time"
++
++	"github.com/containers/gvisor-tap-vsock/pkg/services/gatewayforward"
++	"github.com/containers/gvisor-tap-vsock/pkg/types"
++	"github.com/containers/gvisor-tap-vsock/pkg/virtualnetwork"
++)
++
++func TestGatewayTwoProcesses(t *testing.T) {
++	binary := os.Getenv("GVPROXY_TEST_BINARY")
++	if binary == "" {
++		t.Skip("set GVPROXY_TEST_BINARY to test two real gvproxy processes")
++	}
++	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
++	defer cancel()
++	type instance struct {
++		client  *http.Client
++		guest   *virtualnetwork.VirtualNetwork
++		conn    net.Conn
++		backend net.Conn
++		server  net.Listener
++		route   gatewayforward.Route
++	}
++	instances := []instance{}
++	for i := 0; i < 2; i++ {
++		dir, err := os.MkdirTemp("", "gw-")
++		if err != nil {
++			t.Fatal(err)
++		}
++		defer os.RemoveAll(dir)
++		target := filepath.Join(dir, "backend.sock")
++		server, err := net.Listen("unix", target)
++		if err != nil {
++			t.Fatal(err)
++		}
++		defer server.Close()
++		control, network := filepath.Join(dir, "control.sock"), filepath.Join(dir, "network.sock")
++		route := gatewayforward.Route{Local: "192.168.127.1:3128", Target: target}
++		raw, _ := json.Marshal(route)
++		cmd := exec.CommandContext(ctx, binary, "-listen", "unix://"+control, "-listen-qemu", "unix://"+network, "-ssh-port", "-1", "-gateway-forward", string(raw))
++		var log bytes.Buffer
++		cmd.Stdout, cmd.Stderr = &log, &log
++		if err := cmd.Start(); err != nil {
++			t.Fatal(err)
++		}
++		t.Cleanup(func() {
++			cmd.Process.Kill()
++			cmd.Wait()
++			if t.Failed() {
++				t.Log(log.String())
++			}
++		})
++		var wire net.Conn
++		for ctx.Err() == nil {
++			wire, err = net.Dial("unix", network)
++			if err == nil {
++				break
++			}
++			time.Sleep(10 * time.Millisecond)
++		}
++		if err != nil {
++			t.Fatal(err)
++		}
++		defer wire.Close()
++		guest, err := virtualnetwork.New(&types.Configuration{MTU: 1500, Subnet: "192.168.127.0/24", GatewayIP: "192.168.127.2", GatewayMacAddress: "5a:94:ef:e4:0c:ee"})
++		if err != nil {
++			t.Fatal(err)
++		}
++		go guest.AcceptQemu(ctx, wire)
++		client := &http.Client{Timeout: 3 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
++			return (&net.Dialer{}).DialContext(ctx, "unix", control)
++		}}}
++		guestConn, err := guest.DialContextTCP(ctx, route.Local)
++		if err != nil {
++			t.Fatal(err)
++		}
++		defer guestConn.Close()
++		accepted := make(chan net.Conn, 1)
++		go func() { c, _ := server.Accept(); accepted <- c }()
++		var backend net.Conn
++		select {
++		case backend = <-accepted:
++		case <-ctx.Done():
++			t.Fatal("backend accept timed out")
++		}
++		if backend == nil {
++			t.Fatal("backend unavailable")
++		}
++		defer backend.Close()
++		marker := []byte{byte('A' + i)}
++		guestConn.SetDeadline(time.Now().Add(5 * time.Second))
++		backend.SetDeadline(time.Now().Add(5 * time.Second))
++		guestConn.Write(marker)
++		got := make([]byte, 1)
++		if _, err := io.ReadFull(backend, got); err != nil || !bytes.Equal(got, marker) {
++			t.Fatalf("wrong backend: %q %v", got, err)
++		}
++		instances = append(instances, instance{client, guest, guestConn, backend, server, route})
++	}
++	for _, in := range instances {
++		gatewayRequest(t, in.client, "expose", in.route)
++		guestHTTP := &http.Client{Timeout: 3 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) { return in.guest.DialContextTCP(ctx, addr) }}}
++		res, err := guestHTTP.Get("http://192.168.127.1/services/gateway-forward/all")
++		if err != nil {
++			t.Fatal(err)
++		}
++		res.Body.Close()
++		if res.StatusCode != 404 {
++			t.Fatalf("guest API exposed: %d", res.StatusCode)
++		}
++	}
++	a, b := instances[0], instances[1]
++	gatewayRequest(t, a.client, "unexpose", gatewayforward.Route{Local: a.route.Local})
++	for _, conn := range []net.Conn{a.conn, a.backend} {
++		conn.SetReadDeadline(time.Now().Add(time.Second))
++		_, err := conn.Read(make([]byte, 1))
++		if err == nil {
++			t.Fatal("relay survived removal")
++		}
++		if ne, ok := err.(net.Error); ok && ne.Timeout() {
++			t.Fatal("relay did not terminate")
++		}
++	}
++	b.backend.Write([]byte("B"))
++	got := make([]byte, 1)
++	if _, err := io.ReadFull(b.conn, got); err != nil || string(got) != "B" {
++		t.Fatalf("other VM affected: %q %v", got, err)
++	}
++	if conn, err := a.guest.DialContextTCP(ctx, a.route.Local); err == nil {
++		conn.Close()
++		t.Fatal("disabled listener accepted connection")
++	}
++	gatewayRequest(t, a.client, "expose", a.route)
++	conn, err := a.guest.DialContextTCP(ctx, a.route.Local)
++	if err != nil {
++		t.Fatal(err)
++	}
++	conn.Close()
++}
++
++func gatewayRequest(t *testing.T, client *http.Client, action string, route gatewayforward.Route) {
++	t.Helper()
++	raw, _ := json.Marshal(route)
++	response, err := client.Post("http://unix/services/gateway-forward/"+action, "application/json", bytes.NewReader(raw))
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer response.Body.Close()
++	if response.StatusCode != 204 {
++		data, _ := io.ReadAll(response.Body)
++		t.Fatalf("%s: %s", action, data)
++	}
++}

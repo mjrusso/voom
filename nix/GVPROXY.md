@@ -1,0 +1,46 @@
+# Private gateway transport dependency
+
+Voom maintains `gvproxy.nix` and `patches/gvproxy-gateway-forward.patch` until
+upstream provides the complete `gateway-forward-v1` capability. The packaging
+owner is the Voom repository maintainer. The patch is based on gvisor-tap-vsock
+v0.8.9, commit `9cfc86f66679ef0feed0f20ba1df558fe2bef5c6`.
+
+Install this prerequisite before using egress configuration:
+
+```sh
+nix build .#gvproxy
+export VOOM_GVPROXY="$PWD/result/bin/gvproxy"
+```
+
+Both Voom development shells include this build. `nix flake check` builds it
+and runs race-enabled relay tests and a two-process integration test. The test
+connects independent guest network stacks to two real gvproxy processes through
+QEMU network sockets; it needs neither a VM image nor a hypervisor.
+
+For declarative deployment, install this flake's `packages.${system}.gvproxy`
+in the configuration that supplies Voom's runtime dependencies, or use the
+explicit `VOOM_GVPROXY` override above. A stock binary cannot enable an attachment.
+
+The patch exposes JSON capability reporting with `-capabilities` and
+`GET /services/gateway-forward/capabilities`. Startup accepts repeated
+`-gateway-forward` arguments containing a JSON object with `local` and `target`.
+The JSON representation preserves spaces, equals signs, and other supported
+filesystem-path characters without a shell or URL parser.
+
+The host Unix control mux exposes `expose`, `unexpose`, and `all` below
+`/services/gateway-forward/`. These handlers are absent from the guest mux,
+services mux, and host TCP control listeners. Listener removal waits for the
+accept worker, pending backend dials, and relays to terminate. Removed addresses
+remain reserved against the ordinary TCP forwarding fallback for the lifetime
+of the process.
+
+An HTTP request timeout does not establish whether a mutation executed. Voom
+terminates the process when an expose outcome is unknown, rather than assuming
+a later unexpose fences a delayed request. The versioned API's 400, 408, and 409
+responses reject exposure before mutation; these failures do not require VM
+shutdown. Other errors, including unexpected server errors, remain uncertain.
+
+Remove the patch when an upstream release provides startup configuration,
+host-only live control and observation, idempotent listeners, cancellation of
+pending dials, and confirmed active-relay termination. Update the pinned source,
+capability checks, and integration tests together.

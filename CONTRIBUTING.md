@@ -7,7 +7,7 @@ nix develop
 ```
 
 The `default` shell includes everything in the CI shell (`go`, `git`, `just`,
-`goreleaser`, `golangci-lint`, `actionlint`) plus `gopls` and platform-specific
+`goreleaser`, `golangci-lint`, `actionlint`, and the pinned `gvproxy`) plus `gopls` and platform-specific
 notification helpers. `nix develop .#ci` is the minimal shell that CI uses.
 
 Before committing changes, run:
@@ -179,7 +179,7 @@ After Go dependency changes, update `vendorHash` in `flake.nix`:
 Two dev shells are exposed:
 
 - `devShells.ci` — minimal: `go`, `git`, `just`, `goreleaser`, `golangci-lint`,
-  `actionlint`.
+  `actionlint`, and the pinned private-transport `gvproxy`.
 - `devShells.default` — CI shell plus `gopls` and platform niceties
   (`inotify-tools` / `libnotify` on Linux; `terminal-notifier` on Darwin).
 
@@ -281,3 +281,11 @@ dist/checksums.txt
 
 Each archive contains `LICENSE`, `README.md`, `CHANGELOG.md`, and `voom`.
 Verify with `sha256sum -c checksums.txt`.
+
+## Egress transport development
+
+Both shells include the [pinned gvproxy build](nix/GVPROXY.md). Its Nix check
+runs relay tests with the race detector and a two-process integration test using
+simulated guest network stacks. No VM image is downloaded. Changes to the patch
+must keep this gate passing; ordinary Voom unit tests use temporary sockets and
+fake host-control APIs.

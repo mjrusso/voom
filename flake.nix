@@ -16,6 +16,7 @@
         date =
           if modified == null then "unknown"
           else "${builtins.substring 0 4 modified}-${builtins.substring 4 2 modified}-${builtins.substring 6 2 modified}T${builtins.substring 8 2 modified}:${builtins.substring 10 2 modified}:${builtins.substring 12 2 modified}Z";
+        gvproxy = pkgs.callPackage ./nix/gvproxy.nix { };
         voom = pkgs.buildGoModule {
           pname = "voom";
           inherit version;
@@ -35,8 +36,10 @@
           goreleaser
           golangci-lint
           actionlint
+          gvproxy
         ];
       in {
+        packages.gvproxy = gvproxy;
         packages.voom = voom;
         packages.default = voom;
         apps.voom = flake-utils.lib.mkApp { drv = voom; };
@@ -48,5 +51,6 @@
             ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.terminal-notifier ];
         };
         checks.voom = voom;
+        checks.gvproxy = gvproxy;
       });
 }
