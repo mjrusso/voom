@@ -2,6 +2,10 @@
 
 List VMs
 
+### Synopsis
+
+List VMs, one per row: name, ID, status, image, CPUs, memory, SSH port, and disk capacity. A disk that cannot be read shows as disk=?. 'voom info' also reports host disk allocation.
+
 ```
 voom list [flags]
 ```

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -452,18 +453,31 @@ func TestFixtureCommands(t *testing.T) {
 	t.Setenv("VOOM_CACHE_DIR", filepath.Join(dir, "cache"))
 	t.Setenv("VOOM_RUNTIME_DIR", filepath.Join(dir, "runtime"))
 
-	if out := runCmd(t, "list"); !strings.Contains(out, "scratch") || !strings.Contains(out, "4096MiB") {
+	if out := runCmd(t, "list"); !strings.Contains(out, "scratch") || !strings.Contains(out, "4096MiB") || !strings.Contains(out, "disk=?") {
 		t.Fatalf("fixture list missing scratch:\n%s", out)
 	}
-	var listRows []struct {
-		Name      string `json:"name"`
-		CPUs      int    `json:"cpus"`
-		MemoryMiB int    `json:"memoryMiB"`
+	if out := runCmd(t, "info", "scratch"); !strings.Contains(out, "disk: unavailable: ") {
+		t.Fatalf("fixture info should report the missing disk:\n%s", out)
 	}
-	if out := runCmd(t, "--output", "json", "list"); json.Unmarshal([]byte(out), &listRows) != nil || len(listRows) != 1 || listRows[0].Name != "scratch" || listRows[0].CPUs != 4 || listRows[0].MemoryMiB != 4096 {
+	header := make([]byte, 32)
+	copy(header, "QFI\xfb")
+	binary.BigEndian.PutUint64(header[24:], 20<<30)
+	if err := os.WriteFile(filepath.Join(root, "vms", "vm-scratch", "disk.qcow2"), header, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out := runCmd(t, "list"); !strings.Contains(out, "disk=20GiB") {
+		t.Fatalf("fixture list missing disk:\n%s", out)
+	}
+	var listRows []struct {
+		Name      string           `json:"name"`
+		CPUs      int              `json:"cpus"`
+		MemoryMiB int              `json:"memoryMiB"`
+		Disk      *state.DiskUsage `json:"disk"`
+	}
+	if out := runCmd(t, "--output", "json", "list"); json.Unmarshal([]byte(out), &listRows) != nil || len(listRows) != 1 || listRows[0].Name != "scratch" || listRows[0].CPUs != 4 || listRows[0].MemoryMiB != 4096 || listRows[0].Disk == nil || listRows[0].Disk.VirtualBytes != 20<<30 {
 		t.Fatalf("fixture list JSON missing resources:\n%s", out)
 	}
-	if out := runCmd(t, "info", "scratch"); !strings.Contains(out, "ssh: root@127.0.0.1:2222") || !strings.Contains(out, "cpus: 4") || !strings.Contains(out, "memory: 4096MiB") {
+	if out := runCmd(t, "info", "scratch"); !strings.Contains(out, "ssh: root@127.0.0.1:2222") || !strings.Contains(out, "cpus: 4") || !strings.Contains(out, "memory: 4096MiB") || !strings.Contains(out, "disk: 20GiB virtual, ") {
 		t.Fatalf("fixture info mismatch:\n%s", out)
 	}
 	if out := runCmd(t, "image", "inspect", "nixos"); !strings.Contains(out, "name: nixos") {

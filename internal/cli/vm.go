@@ -261,22 +261,33 @@ func infoCommand() *cobra.Command {
 			return err
 		}
 		out := vmInfo{VM: vmRec, Running: deps.vm.IsRunning(vmRec), DiskPath: deps.store.VMDiskPath(vmRec)}
+		if usage, err := state.ReadDiskUsage(out.DiskPath); err == nil {
+			out.Disk = &usage
+		} else {
+			out.DiskError = err.Error()
+		}
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\nstatus: %s\nimage: %s\ncpus: %d\nmemory: %dMiB\nssh: %s@%s:%d\nforwards: %d\nshares: %d\n", vmRec.Name, vmRec.ID, vm.Status(out.Running), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, vmRec.Access.SSHUser, vmRec.Network.SSHBind, vmRec.Network.SSHPort, len(vmRec.Network.Forwards), len(vmRec.Shares))
+		disk := "unavailable: " + out.DiskError
+		if out.Disk != nil {
+			disk = fmt.Sprintf("%s virtual, %s allocated on host", formatBytes(out.Disk.VirtualBytes), formatBytes(out.Disk.AllocatedBytes))
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\nstatus: %s\nimage: %s\ncpus: %d\nmemory: %dMiB\ndisk: %s\nssh: %s@%s:%d\nforwards: %d\nshares: %d\n", vmRec.Name, vmRec.ID, vm.Status(out.Running), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, disk, vmRec.Access.SSHUser, vmRec.Network.SSHBind, vmRec.Network.SSHPort, len(vmRec.Network.Forwards), len(vmRec.Shares))
 		return nil
 	}}
 }
 
 type vmInfo struct {
-	VM       *state.VMRecord `json:"vm"`
-	Running  bool            `json:"running"`
-	DiskPath string          `json:"diskPath"`
+	VM        *state.VMRecord  `json:"vm"`
+	Running   bool             `json:"running"`
+	DiskPath  string           `json:"diskPath"`
+	Disk      *state.DiskUsage `json:"disk,omitempty"`
+	DiskError string           `json:"diskError,omitempty"`
 }
 
 func listCommand() *cobra.Command {
-	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List VMs", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List VMs", Long: "List VMs, one per row: name, ID, status, image, CPUs, memory, SSH port, and disk capacity. A disk that cannot be read shows as disk=?. 'voom info' also reports host disk allocation.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -286,27 +297,49 @@ func listCommand() *cobra.Command {
 			return err
 		}
 		type row struct {
-			Name      string `json:"name"`
-			ID        string `json:"id"`
-			Status    string `json:"status"`
-			Image     string `json:"image"`
-			CPUs      int    `json:"cpus"`
-			MemoryMiB int    `json:"memoryMiB"`
-			SSHPort   int    `json:"sshPort"`
+			Name      string           `json:"name"`
+			ID        string           `json:"id"`
+			Status    string           `json:"status"`
+			Image     string           `json:"image"`
+			CPUs      int              `json:"cpus"`
+			MemoryMiB int              `json:"memoryMiB"`
+			SSHPort   int              `json:"sshPort"`
+			Disk      *state.DiskUsage `json:"disk,omitempty"`
 		}
 		rows := []row{}
 		for _, vmRec := range vms {
-			rows = append(rows, row{vmRec.Name, vmRec.ID, vm.Status(deps.vm.IsRunning(vmRec)), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, vmRec.Network.SSHPort})
+			var disk *state.DiskUsage
+			if usage, err := state.ReadDiskUsage(deps.store.VMDiskPath(vmRec)); err == nil {
+				disk = &usage
+			}
+			rows = append(rows, row{vmRec.Name, vmRec.ID, vm.Status(deps.vm.IsRunning(vmRec)), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, vmRec.Network.SSHPort, disk})
 		}
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(rows)
 		}
 		tw := tableWriter(cmd)
 		for _, r := range rows {
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%dMiB\t%d\n", r.Name, r.ID, r.Status, r.Image, r.CPUs, r.MemoryMiB, r.SSHPort)
+			disk := "?"
+			if r.Disk != nil {
+				disk = formatBytes(r.Disk.VirtualBytes)
+			}
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%dMiB\t%d\tdisk=%s\n", r.Name, r.ID, r.Status, r.Image, r.CPUs, r.MemoryMiB, r.SSHPort, disk)
 		}
 		return tw.Flush()
 	}}
+}
+
+func formatBytes(n int64) string {
+	units := []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB"}
+	v, i := float64(n), 0
+	for v >= 1024 && i < len(units)-1 {
+		v /= 1024
+		i++
+	}
+	if i == 0 {
+		return strconv.FormatInt(n, 10) + "B"
+	}
+	return strings.TrimSuffix(strconv.FormatFloat(v, 'f', 1, 64), ".0") + units[i]
 }
 
 func renameCommand() *cobra.Command {

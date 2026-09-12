@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Show disk capacity in `voom list`, and disk capacity and host allocation in
+  `voom info`.
 - Record each helper's PID and system-specific start identity at launch. Before
   signaling a helper, lifecycle cleanup requires those values to match the
   running process.
