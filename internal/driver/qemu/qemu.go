@@ -19,7 +19,6 @@ type ArgsConfig struct {
 	MAC         string
 	SerialLog   string
 	MonitorSock string
-	Pidfile     string
 	Shares      []Share
 }
 
@@ -41,7 +40,6 @@ func Args(c ArgsConfig) []string {
 		"-display", "none",
 		"-serial", "file:"+c.SerialLog,
 		"-monitor", "unix:"+c.MonitorSock+",server,nowait",
-		"-pidfile", c.Pidfile,
 	)
 	if c.SeedImage != "" {
 		args = append(args, "-drive", "file="+c.SeedImage+",if=virtio,format=raw,readonly=on")

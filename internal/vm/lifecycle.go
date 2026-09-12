@@ -98,22 +98,15 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 // 'voom config show' commands print the commands to reproduce them
 // deliberately. The disk copy honors ctx cancellation.
 func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.VMRecord, retErr error) {
+	lock, err := m.lockVMState(ctx, srcName)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
+	src := lock.VM
 	idx := m.store.IndexSnapshot()
 	if _, ok := idx.VMs[dstName]; ok {
 		return nil, fmt.Errorf("VM %q already exists", dstName)
-	}
-	src, err := m.store.LoadVM(srcName)
-	if err != nil {
-		return nil, err
-	}
-	unlock, err := m.store.LockVM(src.ID)
-	if err != nil {
-		return nil, err
-	}
-	defer unlock()
-	src, err = m.store.LoadVM(srcName)
-	if err != nil {
-		return nil, err
 	}
 	if m.IsRunning(src) {
 		return nil, fmt.Errorf("VM %q is running; stop it before cloning", srcName)
@@ -172,29 +165,45 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.
 
 // Remove stops the named VM if it is running and deletes its state.
 func (m *Manager) Remove(ctx context.Context, name string) error {
-	vm, err := m.store.LoadVM(name)
-	if err != nil {
-		return err
+	var id string
+	for {
+		lock, err := m.lockVMState(ctx, name)
+		if err != nil {
+			return err
+		}
+		vm := lock.VM
+		if id != "" && vm.ID != id {
+			lock.Release()
+			return fmt.Errorf("VM %q was replaced during removal", name)
+		}
+		id = vm.ID
+		rt := m.store.Runtime(vm)
+		if !hasRuntimeState(vm, rt) {
+			_, err = m.store.DeleteVM(name)
+			lock.Release()
+			if err == nil {
+				m.emitVM("rm", vm, nil)
+			}
+			return err
+		}
+		lock.ReleaseGlobal()
+		_, err = m.stopRuntime(ctx, vm)
+		lock.Release()
+		if err != nil {
+			return err
+		}
+		// Recheck under both locks: another command may start the VM before deletion.
 	}
-	_, _ = m.Stop(ctx, name)
-	if _, err := m.store.DeleteVM(name); err != nil {
-		return err
-	}
-	m.emitVM("rm", vm, nil)
-	return nil
 }
 
 // GrowDisk expands the VM's disk image by the given size; the VM must be stopped.
 func (m *Manager) GrowDisk(ctx context.Context, name, amount string) error {
-	vm, err := m.store.LoadVM(name)
+	lock, err := m.lockVM(ctx, name)
 	if err != nil {
 		return err
 	}
-	unlock, err := m.store.LockVM(vm.ID)
-	if err != nil {
-		return err
-	}
-	defer unlock()
+	defer lock.Release()
+	vm := lock.VM
 	if m.IsRunning(vm) {
 		return fmt.Errorf("VM %q is running; stop it before growing its disk", name)
 	}
@@ -217,16 +226,16 @@ func (m *Manager) GrowDisk(ctx context.Context, name, amount string) error {
 // ResetDisk replaces the VM's disk with a fresh copy of the given image,
 // stopping the VM first if necessary.
 func (m *Manager) ResetDisk(ctx context.Context, name, imageName string) error {
-	_, _ = m.Stop(ctx, name)
-	vm, err := m.store.LoadVM(name)
+	lock, err := m.lockVMState(ctx, name)
 	if err != nil {
 		return err
 	}
-	unlock, err := m.store.LockVM(vm.ID)
-	if err != nil {
+	defer lock.Release()
+	lock.ReleaseGlobal()
+	vm := lock.VM
+	if _, err := m.stopRuntime(ctx, vm); err != nil {
 		return err
 	}
-	defer unlock()
 	im, err := m.store.LoadImage(imageName)
 	if err != nil {
 		return err
@@ -258,22 +267,29 @@ func (m *Manager) ResetDisk(ctx context.Context, name, imageName string) error {
 // Start boots the named VM, launching gvproxy and the driver process and
 // installing configured forwards; it returns the live record.
 func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*state.VMRecord, error) {
-	vm, err := m.store.LoadVM(name)
+	lock, err := m.lockVMState(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	unlock, err := m.store.LockVM(vm.ID)
-	if err != nil {
-		return nil, err
-	}
-	defer unlock()
+	defer lock.Release()
+	vm := lock.VM
 	if m.IsRunning(vm) {
 		return vm, nil
+	}
+	if vm.Network.AutoForward {
+		if err := ValidateAutoForwardConfig(vm); err != nil {
+			return nil, err
+		}
+	}
+	lock.ReleaseGlobal()
+	if _, err := m.stopRuntime(ctx, vm); err != nil {
+		return nil, err
 	}
 	if err := host.ValidateHostImage(vm.Arch, state.ImageFormatFromDisk(m.store.VMDiskPath(vm)), vm.Driver); err != nil {
 		return nil, err
 	}
-	if err := host.RequireExe("gvproxy"); err != nil {
+	gvproxyExe, err := host.ExePath("gvproxy")
+	if err != nil {
 		return nil, err
 	}
 	switch vm.Driver {
@@ -351,7 +367,7 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		if started {
 			return
 		}
-		if cerr := m.StopRuntime(ctx, vm); cerr != nil {
+		if _, cerr := m.stopRuntime(ctx, vm); cerr != nil {
 			_, _ = fmt.Fprintf(stderr, "VM %s cleanup after failed start: %v\n", vm.Name, cerr)
 		}
 	}()
@@ -368,18 +384,19 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		return nil, err
 	}
 	virtiofsShares = append(virtiofsShares, userShares...)
-	gvproxyArgs := []string{"-listen", "unix://" + rt.NetworkSock(), "-ssh-port", "-1", "-pid-file", rt.GVProxyPid()}
+	gvproxyArgs := []string{"-listen", "unix://" + rt.NetworkSock(), "-ssh-port", "-1"}
 	switch vm.Driver {
 	case "qemu":
 		gvproxyArgs = append(gvproxyArgs, "-listen-qemu", "unix://"+rt.QEMUNetSock())
 	case "vfkit":
 		gvproxyArgs = append(gvproxyArgs, "-listen-vfkit", "unixgram://"+rt.VFKitNetSock())
 	}
-	if _, err := m.startDetached("gvproxy", gvproxyArgs, m.store.LogPath(vm, "gvproxy")); err != nil {
+	if err = m.startRecorded(gvproxyExe, gvproxyArgs, m.store.LogPath(vm, "gvproxy"), rt.GVProxyProcessRecord()); err != nil {
 		return nil, err
 	}
 	if err := waitFor(ctx, func() bool {
-		return fileExists(rt.GVProxyPid()) && socketExists(rt.NetworkSock()) && socketExists(rt.DriverNetSock(vm.Driver))
+		_, running := process.ValidRecord(rt.GVProxyProcessRecord(), "gvproxy")
+		return running && socketExists(rt.NetworkSock()) && socketExists(rt.DriverNetSock(vm.Driver))
 	}, gvproxyStartTimeout); err != nil {
 		return nil, fmt.Errorf("timed out waiting for gvproxy sockets; see %s", m.store.LogPath(vm, "gvproxy"))
 	}
@@ -400,18 +417,14 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 			qargs = append([]string{"-machine", "virt"}, qargs...)
 			qargs = append(qargs, "-bios", uefi)
 		}
-		if _, err := m.startDetached(qemuBin, qargs, m.store.LogPath(vm, "qemu")); err != nil {
+		if err := m.startRecorded(qemuBin, qargs, m.store.LogPath(vm, "qemu"), rt.VMProcessRecord()); err != nil {
 			return nil, err
 		}
-		if err := waitFor(ctx, func() bool { return m.IsRunning(vm) }, driverStartTimeout); err != nil {
+		if err := waitFor(ctx, func() bool { return m.IsRunning(vm) && socketExists(rt.QEMUMonitor()) }, driverStartTimeout); err != nil {
 			return nil, fmt.Errorf("qemu did not start; see %s", m.store.LogPath(vm, "qemu"))
 		}
 	case "vfkit":
-		cmd, err := m.startDetached("vfkit", m.vfkitArgs(vm, im, virtiofsShares), m.store.LogPath(vm, "vfkit"))
-		if err != nil {
-			return nil, err
-		}
-		if err := os.WriteFile(rt.VMPid(), []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644); err != nil {
+		if err := m.startRecorded("vfkit", m.vfkitArgs(vm, im, virtiofsShares), m.store.LogPath(vm, "vfkit"), rt.VMProcessRecord()); err != nil {
 			return nil, err
 		}
 		if err := waitFor(ctx, func() bool { return m.IsRunning(vm) && socketExists(rt.VFKitRestSock()) }, driverStartTimeout); err != nil {
@@ -438,67 +451,118 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 // Stop shuts down the named VM and tears down its runtime artifacts,
 // returning whether any change occurred.
 func (m *Manager) Stop(ctx context.Context, name string) (bool, error) {
-	vm, err := m.store.LoadVM(name)
+	lock, err := m.lockVM(ctx, name)
 	if err != nil {
 		return false, err
 	}
-	unlock, err := m.store.LockVM(vm.ID)
+	defer lock.Release()
+	vm := lock.VM
+	stop, err := m.stopRuntime(ctx, vm)
 	if err != nil {
-		return false, err
+		return stop.changed, err
 	}
-	defer unlock()
-	rt := m.store.Runtime(vm)
-	changed := m.IsRunning(vm) ||
-		fileExists(rt.GVProxyPid()) ||
-		fileExists(rt.AutoForwardPid()) ||
-		fileExists(rt.AutoForwardsJSON()) ||
-		len(globFiles(rt.VirtiofsPidGlob())) > 0
-	if err := m.StopRuntime(ctx, vm); err != nil {
-		return changed, err
-	}
-	if changed {
+	if stop.changed {
 		m.emitVM("stop", vm, nil)
 	}
-	return changed, nil
+	return stop.changed, nil
 }
 
-// StopRuntime terminates the VM's driver, gvproxy, virtiofsd, and auto-forward
-// watcher processes and removes their runtime artifacts. The provided context
-// bounds the graceful-shutdown waits; if ctx is already cancelled the waits
-// return immediately and the underlying StopPidfile timeouts still kill the
-// processes.
-func (m *Manager) StopRuntime(ctx context.Context, vm *state.VMRecord) error {
+type runtimeStopResult struct {
+	changed                     bool
+	gatewayTerminationConfirmed bool
+}
+
+// stopRuntime requires the VM lock. It attempts every helper and retains records
+// when termination cannot be confirmed.
+// Cancellation ends graceful waits; signal escalation has a separate time bound.
+func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeStopResult, error) {
 	rt := m.store.Runtime(vm)
-	m.StopAutoForwardWatcher(vm)
+	changed := hasRuntimeState(vm, rt)
+	var failures []error
+	var driverErr error
+	var gatewayErr error
+	if !process.HasRecord(rt.GVProxyProcessRecord()) {
+		for _, path := range rt.NetworkArtifacts() {
+			if socketExists(path) {
+				gatewayErr = fmt.Errorf("gvproxy termination unconfirmed: socket %s has no process identity; inspect %s", path, m.store.LogPath(vm, "gvproxy"))
+			}
+		}
+	}
+	if !process.HasRecord(rt.VMProcessRecord()) {
+		for _, path := range rt.DriverArtifacts(vm.Driver) {
+			if socketExists(path) {
+				driverErr = fmt.Errorf("VM termination unconfirmed: socket %s has no process identity", path)
+			}
+		}
+	}
+	if err := process.StopRecorded(rt.AutoForwardProcessRecord(), "auto-forward", processStopTimeout); err != nil {
+		failures = append(failures, err)
+	}
 	_ = m.CleanupAutoForwards(ctx, vm)
-	if pid, ok := validPid(rt.VMPid(), state.VMProcessKind(vm.Driver)); ok {
+	if pid, ok := process.ValidRecord(rt.VMProcessRecord(), state.VMProcessKind(vm.Driver)); ok {
 		switch vm.Driver {
 		case "qemu":
 			if conn, err := net.DialTimeout("unix", rt.QEMUMonitor(), time.Second); err == nil {
 				_, _ = conn.Write([]byte("system_powerdown\n"))
 				_ = conn.Close()
-				_ = waitFor(ctx, func() bool { return !processAlive(pid) }, driverStopTimeout)
+				_ = waitFor(ctx, func() bool { return !process.Alive(pid) }, driverStopTimeout)
 			}
 		case "vfkit":
 			_ = vfkit.Stop(rt.VFKitRestSock(), false)
-			_ = waitFor(ctx, func() bool { return !processAlive(pid) }, driverStopTimeout)
+			_ = waitFor(ctx, func() bool { return !process.Alive(pid) }, driverStopTimeout)
 		}
 	}
-	process.StopPidfile(rt.VMPid(), state.VMProcessKind(vm.Driver), processStopTimeout)
-	for _, p := range rt.VMArtifacts(vm.Driver) {
-		_ = os.Remove(p)
+	if driverErr == nil {
+		driverErr = process.StopRecorded(rt.VMProcessRecord(), state.VMProcessKind(vm.Driver), processStopTimeout)
 	}
-	process.StopPidfile(rt.GVProxyPid(), "gvproxy", processStopTimeout)
-	m.stopVirtiofsd(rt)
-	for _, p := range rt.NetworkArtifacts() {
-		_ = os.Remove(p)
+	if driverErr != nil {
+		failures = append(failures, driverErr)
+	} else {
+		for _, path := range rt.DriverArtifacts(vm.Driver) {
+			_ = os.Remove(path)
+		}
 	}
-	return nil
+	if gatewayErr == nil {
+		gatewayErr = process.StopRecorded(rt.GVProxyProcessRecord(), "gvproxy", processStopTimeout)
+	}
+	if gatewayErr != nil {
+		failures = append(failures, fmt.Errorf("%w; log: %s", gatewayErr, m.store.LogPath(vm, "gvproxy")))
+	}
+	if err := m.stopVirtiofsd(rt); err != nil {
+		failures = append(failures, err)
+	}
+	if gatewayErr == nil {
+		for _, p := range rt.NetworkArtifacts() {
+			_ = os.Remove(p)
+		}
+	}
+	return runtimeStopResult{
+		changed:                     changed,
+		gatewayTerminationConfirmed: gatewayErr == nil,
+	}, errors.Join(failures...)
+}
+
+func hasRuntimeState(vm *state.VMRecord, rt state.RuntimeLayout) bool {
+	if process.HasRecord(rt.VMProcessRecord()) ||
+		process.HasRecord(rt.GVProxyProcessRecord()) ||
+		process.HasRecord(rt.AutoForwardProcessRecord()) ||
+		len(process.FindRecords(rt.VirtiofsProcessRecordGlob())) > 0 {
+		return true
+	}
+	paths := []string{rt.AutoForwardsJSON()}
+	paths = append(paths, rt.NetworkArtifacts()...)
+	paths = append(paths, rt.DriverArtifacts(vm.Driver)...)
+	for _, path := range paths {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			return true
+		}
+	}
+	return len(globFiles(rt.VirtiofsSockGlob())) > 0 || len(globFiles(rt.VirtiofsdLockFileGlob())) > 0
 }
 
 // IsRunning reports whether the VM's driver process is alive.
 func (m *Manager) IsRunning(vm *state.VMRecord) bool {
-	_, ok := validPid(m.store.Runtime(vm).VMPid(), state.VMProcessKind(vm.Driver))
+	_, ok := process.ValidRecord(m.store.Runtime(vm).VMProcessRecord(), state.VMProcessKind(vm.Driver))
 	return ok
 }
 

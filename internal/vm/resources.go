@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -12,19 +13,12 @@ func (m *Manager) SetCPUs(name string, cpus int) (*state.VMRecord, bool, error) 
 	if cpus < 1 {
 		return nil, false, fmt.Errorf("cpus must be at least 1")
 	}
-	vm, err := m.store.LoadVM(name)
+	lock, err := m.lockVM(context.Background(), name)
 	if err != nil {
 		return nil, false, err
 	}
-	unlock, err := m.store.LockVM(vm.ID)
-	if err != nil {
-		return nil, false, err
-	}
-	defer unlock()
-	vm, err = m.store.LoadVM(name)
-	if err != nil {
-		return nil, false, err
-	}
+	defer lock.Release()
+	vm := lock.VM
 	if m.IsRunning(vm) {
 		return nil, false, fmt.Errorf("VM %q is running; stop it before changing CPU allocation", name)
 	}
@@ -44,19 +38,12 @@ func (m *Manager) SetMemory(name string, memoryMiB int) (*state.VMRecord, bool, 
 	if memoryMiB < 1 {
 		return nil, false, fmt.Errorf("memory must be at least 1MiB")
 	}
-	vm, err := m.store.LoadVM(name)
+	lock, err := m.lockVM(context.Background(), name)
 	if err != nil {
 		return nil, false, err
 	}
-	unlock, err := m.store.LockVM(vm.ID)
-	if err != nil {
-		return nil, false, err
-	}
-	defer unlock()
-	vm, err = m.store.LoadVM(name)
-	if err != nil {
-		return nil, false, err
-	}
+	defer lock.Release()
+	vm := lock.VM
 	if m.IsRunning(vm) {
 		return nil, false, fmt.Errorf("VM %q is running; stop it before changing memory allocation", name)
 	}
@@ -74,19 +61,12 @@ func (m *Manager) SetMemory(name string, memoryMiB int) (*state.VMRecord, bool, 
 // SetSSHPort updates the host SSH port for a stopped VM. A port of zero
 // allocates a fresh port from the automatic SSH port range.
 func (m *Manager) SetSSHPort(name string, port int) (*state.VMRecord, bool, error) {
-	vm, err := m.store.LoadVM(name)
+	lock, err := m.lockVMState(context.Background(), name)
 	if err != nil {
 		return nil, false, err
 	}
-	unlock, err := m.store.LockVM(vm.ID)
-	if err != nil {
-		return nil, false, err
-	}
-	defer unlock()
-	vm, err = m.store.LoadVM(name)
-	if err != nil {
-		return nil, false, err
-	}
+	defer lock.Release()
+	vm := lock.VM
 	if m.IsRunning(vm) {
 		return nil, false, fmt.Errorf("VM %q is running; stop it before changing the SSH port", name)
 	}

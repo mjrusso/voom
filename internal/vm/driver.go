@@ -26,7 +26,6 @@ func (m *Manager) qemuArgs(vm *state.VMRecord, shares []share.Runtime) []string 
 		MAC:         state.GuestMAC(vm.Driver, vm.ID),
 		SerialLog:   m.store.LogPath(vm, "serial"),
 		MonitorSock: m.store.Runtime(vm).QEMUMonitor(),
-		Pidfile:     m.store.Runtime(vm).VMPid(),
 		Shares:      qshares,
 	})
 }

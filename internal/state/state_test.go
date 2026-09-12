@@ -123,18 +123,19 @@ func TestRuntimeLayoutPaths(t *testing.T) {
 		t.Fatalf("Runtime.Dir() = %q, want %q", rt.Dir(), wantDir)
 	}
 	checks := map[string]string{
-		rt.VMPid():            filepath.Join(wantDir, "vm.pid"),
-		rt.GVProxyPid():       filepath.Join(wantDir, "gvproxy.pid"),
-		rt.NetworkSock():      filepath.Join(wantDir, "network.sock"),
-		rt.QEMUNetSock():      filepath.Join(wantDir, "qemu-net.sock"),
-		rt.VFKitNetSock():     filepath.Join(wantDir, "vfkit-net.sock"),
-		rt.QEMUMonitor():      filepath.Join(wantDir, "qemu.mon"),
-		rt.VFKitRestSock():    filepath.Join(wantDir, "vfkit.sock"),
-		rt.EFIStore():         filepath.Join(wantDir, "efi-variable-store"),
-		rt.AutoForwardPid():   filepath.Join(wantDir, "auto-forward.pid"),
-		rt.AutoForwardsJSON(): filepath.Join(wantDir, "auto-forwards.json"),
-		rt.VirtiofsPidGlob():  filepath.Join(wantDir, "virtiofs-*.pid"),
-		rt.VirtiofsSockGlob(): filepath.Join(wantDir, "virtiofs-*.sock"),
+		rt.VMProcessRecord():           filepath.Join(wantDir, "vm.process.json"),
+		rt.GVProxyProcessRecord():      filepath.Join(wantDir, "gvproxy.process.json"),
+		rt.NetworkSock():               filepath.Join(wantDir, "network.sock"),
+		rt.QEMUNetSock():               filepath.Join(wantDir, "qemu-net.sock"),
+		rt.VFKitNetSock():              filepath.Join(wantDir, "vfkit-net.sock"),
+		rt.QEMUMonitor():               filepath.Join(wantDir, "qemu.mon"),
+		rt.VFKitRestSock():             filepath.Join(wantDir, "vfkit.sock"),
+		rt.EFIStore():                  filepath.Join(wantDir, "efi-variable-store"),
+		rt.AutoForwardProcessRecord():  filepath.Join(wantDir, "auto-forward.process.json"),
+		rt.AutoForwardsJSON():          filepath.Join(wantDir, "auto-forwards.json"),
+		rt.VirtiofsProcessRecordGlob(): filepath.Join(wantDir, "virtiofs-*.process.json"),
+		rt.VirtiofsSockGlob():          filepath.Join(wantDir, "virtiofs-*.sock"),
+		rt.VirtiofsdLockFileGlob():     filepath.Join(wantDir, "virtiofs-*.sock.pid"),
 	}
 	for got, want := range checks {
 		if got != want {

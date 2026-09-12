@@ -49,12 +49,7 @@ func forwardAddCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		unlock, err := deps.store.LockGlobalAndReload()
-		if err != nil {
-			return err
-		}
-		defer unlock()
-		fwd, err := deps.vm.AddForward(args[0], guestPort, hostPort, bind, auto)
+		fwd, err := deps.vm.AddForward(cmd.Context(), args[0], guestPort, hostPort, bind, auto)
 		if err != nil {
 			return err
 		}

@@ -371,6 +371,14 @@ If a VM is already stopped and only runtime debris remains, it is safe to
 remove that VM's `<runtime>/vms/<vm-id>` directory. Removing files under
 `<state>` is destructive and should be handled with care.
 
+Lifecycle cleanup applies to all VMs.
+Voom records each helper's PID and system-specific start identity at launch.
+Cleanup sends signals only when the current values match that launch record.
+Start cleans up surviving helpers before launching replacement runtime. Stop,
+remove, and disk reset retain process records and return an error when identity
+or termination cannot be verified. Inspect the reported PID and logs before
+removing retained recovery records.
+
 ## Custom Images
 
 Voom's guest integrations can be configured to be installed on first boot by
@@ -635,8 +643,8 @@ temp-file-and-rename; partial files are ignored on load.
 Runtime files are process-owned and disposable, and are removed when a VM
 stops. Notable paths under `<runtime>/vms/<vm-id>/`:
 
-- `vm.pid`, `gvproxy.pid`, `auto-forward.pid`, `virtiofs-<tag>.pid` — pidfiles
-  validated against process command before voom signals them
+- `vm.pid`, `gvproxy.pid`, `auto-forward.pid`, `virtiofs-<tag>.pid` — process
+  IDs, with adjacent `.identity` files containing launch-time identity records
 - `seed.img` — regenerated cloud-init NoCloud disk (`meta-data`, `user-data`,
   `network-config`)
 - `control/mounts.json`, `control/ports.json` — host side of the reserved

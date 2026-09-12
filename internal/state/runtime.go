@@ -1,12 +1,8 @@
 package state
 
-import (
-	"path/filepath"
+import "path/filepath"
 
-	"github.com/mjrusso/voom/internal/forward"
-)
-
-// RuntimeLayout resolves per-VM runtime file paths (pids, sockets, monitors) under one base dir.
+// RuntimeLayout resolves per-VM process record and socket paths under one base directory.
 type RuntimeLayout struct {
 	dir string
 }
@@ -21,14 +17,14 @@ func (r RuntimeLayout) Dir() string {
 	return r.dir
 }
 
-// VMPid returns the path to the VM process pidfile.
-func (r RuntimeLayout) VMPid() string {
-	return filepath.Join(r.dir, "vm.pid")
+// VMProcessRecord returns the VM process record path.
+func (r RuntimeLayout) VMProcessRecord() string {
+	return filepath.Join(r.dir, "vm.process.json")
 }
 
-// GVProxyPid returns the path to the gvproxy pidfile.
-func (r RuntimeLayout) GVProxyPid() string {
-	return filepath.Join(r.dir, "gvproxy.pid")
+// GVProxyProcessRecord returns the gvproxy process record path.
+func (r RuntimeLayout) GVProxyProcessRecord() string {
+	return filepath.Join(r.dir, "gvproxy.process.json")
 }
 
 // NetworkSock returns the path to the gvproxy network socket.
@@ -69,19 +65,19 @@ func (r RuntimeLayout) EFIStore() string {
 	return filepath.Join(r.dir, "efi-variable-store")
 }
 
-// AutoForwardPid returns the pidfile path used by the auto-forward watcher.
-func (r RuntimeLayout) AutoForwardPid() string {
-	return forward.WatcherPidfile(r.dir)
+// AutoForwardProcessRecord returns the auto-forward watcher process record path.
+func (r RuntimeLayout) AutoForwardProcessRecord() string {
+	return filepath.Join(r.dir, "auto-forward.process.json")
 }
 
 // AutoForwardsJSON returns the path to the auto-forward runtime state JSON.
 func (r RuntimeLayout) AutoForwardsJSON() string {
-	return forward.RuntimeStatePath(r.dir)
+	return filepath.Join(r.dir, "auto-forwards.json")
 }
 
-// VirtiofsPidGlob returns a glob pattern matching virtiofs daemon pidfiles.
-func (r RuntimeLayout) VirtiofsPidGlob() string {
-	return filepath.Join(r.dir, "virtiofs-*.pid")
+// VirtiofsProcessRecordGlob returns a glob pattern matching virtiofsd process records.
+func (r RuntimeLayout) VirtiofsProcessRecordGlob() string {
+	return filepath.Join(r.dir, "virtiofs-*.process.json")
 }
 
 // VirtiofsSockGlob returns a glob pattern matching virtiofs daemon sockets.
@@ -89,14 +85,19 @@ func (r RuntimeLayout) VirtiofsSockGlob() string {
 	return filepath.Join(r.dir, "virtiofs-*.sock")
 }
 
+// VirtiofsdLockFileGlob returns a glob for lock files owned by virtiofsd.
+func (r RuntimeLayout) VirtiofsdLockFileGlob() string {
+	return filepath.Join(r.dir, "virtiofs-*.sock.pid")
+}
+
 // DriverSockets returns the union of driver and network socket paths used by both drivers.
 func (r RuntimeLayout) DriverSockets() []string {
 	return []string{r.NetworkSock(), r.QEMUNetSock(), r.QEMUMonitor(), r.VFKitNetSock(), r.VFKitRestSock()}
 }
 
-// VMArtifacts returns the pidfile and driver-specific control endpoint paths for a running VM.
-func (r RuntimeLayout) VMArtifacts(driver string) []string {
-	out := []string{r.VMPid()}
+// DriverArtifacts returns the driver-specific control endpoint paths for a running VM.
+func (r RuntimeLayout) DriverArtifacts(driver string) []string {
+	var out []string
 	switch driver {
 	case "qemu":
 		out = append(out, r.QEMUMonitor())

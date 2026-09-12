@@ -16,7 +16,7 @@ func shareCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		decl, err := deps.vm.AddShare(args[0], args[1], args[2], args[3], readonly)
+		decl, err := deps.vm.AddShare(cmd.Context(), args[0], args[1], args[2], args[3], readonly)
 		if err != nil {
 			return err
 		}
@@ -39,7 +39,7 @@ func shareCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err := deps.vm.RemoveShare(args[0], args[1]); err != nil {
+		if err := deps.vm.RemoveShare(cmd.Context(), args[0], args[1]); err != nil {
 			return err
 		}
 		if outputFormat(cmd) == "json" {

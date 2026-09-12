@@ -6,7 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
+
+	"github.com/mjrusso/voom/internal/atomicfile"
 )
 
 var cloneCopy = tryCloneCopy
@@ -26,33 +27,13 @@ func (c *ctxReader) Read(p []byte) (int, error) {
 	return c.r.Read(p)
 }
 
-// WriteJSONAtomic writes v as indented JSON to path via a tempfile-and-rename plus fsync of the directory.
+// WriteJSONAtomic writes indented JSON and durably replaces path.
 func WriteJSONAtomic(path string, v any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp := path + ".tmp." + strconv.Itoa(os.Getpid())
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(v); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return err
-	}
-	return syncDir(filepath.Dir(path))
+	return atomicfile.Write(path, append(data, '\n'), 0o644)
 }
 
 // CopyFile copies src to dst, preferring a reflink/clone fast path and falling

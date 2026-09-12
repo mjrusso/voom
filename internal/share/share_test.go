@@ -34,7 +34,7 @@ func TestRuntimeAndVirtiofsdArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rt.Sock != filepath.Join(rtDir, "virtiofs-repo.sock") || rt.Pidfile != filepath.Join(rtDir, "virtiofs-repo.pid") || rt.LogKind != "virtiofs-repo" {
+	if rt.Sock != filepath.Join(rtDir, "virtiofs-repo.sock") || rt.ProcessRecord != filepath.Join(rtDir, "virtiofs-repo.process.json") || rt.LogKind != "virtiofs-repo" {
 		t.Fatalf("unexpected runtime: %#v", rt)
 	}
 	args := VirtiofsdArgs(rt)

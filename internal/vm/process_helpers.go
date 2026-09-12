@@ -3,7 +3,6 @@ package vm
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -13,20 +12,12 @@ import (
 	"github.com/mjrusso/voom/internal/process"
 )
 
-func startDetached(bin string, args []string, logPath string) (*exec.Cmd, error) {
-	return process.StartDetached(bin, args, logPath, host.ExePath)
+func (m *Manager) startRecorded(bin string, args []string, logPath, recordPath string) error {
+	return process.StartRecorded(bin, args, logPath, recordPath, host.ExePath)
 }
 
 func waitFor(ctx context.Context, ok func() bool, d time.Duration) error {
 	return process.WaitForContext(ctx, ok, d)
-}
-
-func validPid(path, kind string) (int, bool) {
-	return process.ValidPID(path, kind)
-}
-
-func processAlive(pid int) bool {
-	return process.Alive(pid)
 }
 
 func fileExists(path string) bool {

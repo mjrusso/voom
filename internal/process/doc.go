@@ -1,3 +1,3 @@
-// Package process owns detached process launching, pidfile validation, and
+// Package process owns detached process launching, process validation, and
 // bounded wait/termination helpers for runtime services.
 package process

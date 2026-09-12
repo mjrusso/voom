@@ -25,11 +25,7 @@ func nixosCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		vmRec, err := deps.store.LoadVM(args[0])
-		if err != nil {
-			return err
-		}
-		unlock, err := deps.store.LockVM(vmRec.ID)
+		vmRec, unlock, err := deps.store.LockVMRecord(c.Context(), args[0])
 		if err != nil {
 			return err
 		}

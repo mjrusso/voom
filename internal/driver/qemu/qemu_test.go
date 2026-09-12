@@ -13,7 +13,6 @@ func TestArgsIncludesVirtiofsDevices(t *testing.T) {
 		MAC:         "02:00:00:00:00:01",
 		SerialLog:   "/logs/serial.log",
 		MonitorSock: "/run/vm/qemu.mon",
-		Pidfile:     "/run/vm/vm.pid",
 		Shares:      []Share{{Tag: "voom-control", Sock: "/run/vm/control.sock"}, {Tag: "src", Sock: "/run/vm/src.sock"}},
 	})
 	for _, pair := range [][2]string{
@@ -29,6 +28,9 @@ func TestArgsIncludesVirtiofsDevices(t *testing.T) {
 		if !hasArgPair(args, pair[0], pair[1]) {
 			t.Fatalf("missing %s %s in %#v", pair[0], pair[1], args)
 		}
+	}
+	if hasArg(args, "-pidfile") {
+		t.Fatalf("unexpected pidfile argument in %#v", args)
 	}
 }
 

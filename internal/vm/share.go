@@ -2,10 +2,11 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mjrusso/voom/internal/process"
@@ -15,20 +16,17 @@ import (
 
 // AddShare attaches a host directory share to the VM under the given tag;
 // the VM must be stopped.
-func (m *Manager) AddShare(name, tag, hostPath, guestPath string, readonly bool) (share.Decl, error) {
+func (m *Manager) AddShare(ctx context.Context, name, tag, hostPath, guestPath string, readonly bool) (share.Decl, error) {
 	decl, err := share.NewDecl(tag, hostPath, guestPath, state.ControlShareTag, readonly)
 	if err != nil {
 		return share.Decl{}, err
 	}
-	vm, err := m.store.LoadVM(name)
+	lock, err := m.lockVM(ctx, name)
 	if err != nil {
 		return share.Decl{}, err
 	}
-	unlock, err := m.store.LockVM(vm.ID)
-	if err != nil {
-		return share.Decl{}, err
-	}
-	defer unlock()
+	defer lock.Release()
+	vm := lock.VM
 	if m.IsRunning(vm) {
 		return share.Decl{}, fmt.Errorf("VM %q is running; stop or restart the VM before changing shares", vm.Name)
 	}
@@ -44,16 +42,13 @@ func (m *Manager) AddShare(name, tag, hostPath, guestPath string, readonly bool)
 
 // RemoveShare detaches the share with the given tag from the VM; the VM must
 // be stopped.
-func (m *Manager) RemoveShare(name, tag string) error {
-	vm, err := m.store.LoadVM(name)
+func (m *Manager) RemoveShare(ctx context.Context, name, tag string) error {
+	lock, err := m.lockVM(ctx, name)
 	if err != nil {
 		return err
 	}
-	unlock, err := m.store.LockVM(vm.ID)
-	if err != nil {
-		return err
-	}
-	defer unlock()
+	defer lock.Release()
+	vm := lock.VM
 	if m.IsRunning(vm) {
 		return fmt.Errorf("VM %q is running; stop or restart the VM before changing shares", vm.Name)
 	}
@@ -128,8 +123,7 @@ func (m *Manager) StartUserShares(ctx context.Context, vm *state.VMRecord) ([]sh
 	for _, sh := range vm.Shares {
 		rt, err := m.userShareRuntime(vm, sh)
 		if err != nil {
-			m.stopVirtiofsd(m.store.Runtime(vm))
-			return nil, err
+			return nil, errors.Join(err, m.stopVirtiofsd(m.store.Runtime(vm)))
 		}
 		if vm.Driver == "vfkit" {
 			out = append(out, rt)
@@ -137,8 +131,7 @@ func (m *Manager) StartUserShares(ctx context.Context, vm *state.VMRecord) ([]sh
 		}
 		started, err := m.startVirtiofsd(ctx, vm, rt)
 		if err != nil {
-			m.stopVirtiofsd(m.store.Runtime(vm))
-			return nil, err
+			return nil, errors.Join(err, m.stopVirtiofsd(m.store.Runtime(vm)))
 		}
 		out = append(out, started)
 	}
@@ -159,25 +152,36 @@ func (m *Manager) userShareRuntime(vm *state.VMRecord, sh share.Decl) (share.Run
 }
 
 func (m *Manager) startVirtiofsd(ctx context.Context, vm *state.VMRecord, sh share.Runtime) (share.Runtime, error) {
-	cmd, err := m.startDetached("virtiofsd", share.VirtiofsdArgs(sh), m.store.LogPath(vm, "share-mount"))
-	if err != nil {
+	if err := m.startRecorded("virtiofsd", share.VirtiofsdArgs(sh), m.store.LogPath(vm, "share-mount"), sh.ProcessRecord); err != nil {
 		return sh, err
 	}
-	if err := os.WriteFile(sh.Pidfile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644); err != nil {
-		_ = cmd.Process.Kill()
-		return sh, err
-	}
-	if err := waitFor(ctx, func() bool { return socketExists(sh.Sock) }, virtiofsdStartTimeout); err != nil {
+	if err := waitFor(ctx, func() bool {
+		_, running := process.ValidRecord(sh.ProcessRecord, "virtiofsd")
+		return running && socketExists(sh.Sock)
+	}, virtiofsdStartTimeout); err != nil {
 		return sh, fmt.Errorf("virtiofsd did not create socket %s", sh.Sock)
 	}
 	return sh, nil
 }
 
-func (m *Manager) stopVirtiofsd(rt state.RuntimeLayout) {
-	for _, path := range globFiles(rt.VirtiofsPidGlob()) {
-		process.StopPidfile(path, "virtiofsd", virtiofsdShutdownTimeout)
-	}
+func (m *Manager) stopVirtiofsd(rt state.RuntimeLayout) error {
+	var failures []error
 	for _, path := range globFiles(rt.VirtiofsSockGlob()) {
-		_ = os.Remove(path)
+		recordPath := strings.TrimSuffix(path, ".sock") + ".process.json"
+		if socketExists(path) && !process.HasRecord(recordPath) {
+			failures = append(failures, fmt.Errorf("virtiofsd termination unconfirmed: %s has no process identity", path))
+		}
 	}
+	for _, path := range process.FindRecords(rt.VirtiofsProcessRecordGlob()) {
+		if err := process.StopRecorded(path, "virtiofsd", virtiofsdShutdownTimeout); err != nil {
+			failures = append(failures, err)
+		}
+	}
+	if len(failures) == 0 {
+		paths := append(globFiles(rt.VirtiofsSockGlob()), globFiles(rt.VirtiofsdLockFileGlob())...)
+		for _, path := range paths {
+			_ = os.Remove(path)
+		}
+	}
+	return errors.Join(failures...)
 }

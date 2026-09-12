@@ -16,6 +16,7 @@ import (
 
 	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/host"
+	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/share"
 	"github.com/mjrusso/voom/internal/state"
 )
@@ -194,13 +195,11 @@ func TestSetResourcesRejectsRunningVM(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := fakeNamedVMProcess(t, "qemu-system-test")
-	pidfile := st.Runtime(vmRec).VMPid()
-	if err := os.MkdirAll(filepath.Dir(pidfile), 0o755); err != nil {
+	recordPath := st.Runtime(vmRec).VMProcessRecord()
+	if err := os.MkdirAll(filepath.Dir(recordPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(pidfile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeProcessRecord(t, recordPath, cmd)
 
 	if _, _, err := mgr.SetCPUs("scratch", 4); err == nil || !strings.Contains(err.Error(), "running") {
 		t.Fatalf("expected running CPU mutation rejection, got %v", err)
@@ -267,6 +266,13 @@ func fakeNamedVMProcess(t *testing.T, name string, args ...string) *exec.Cmd {
 		_, _ = cmd.Process.Wait()
 	})
 	return cmd
+}
+
+func writeProcessRecord(t *testing.T, path string, cmd *exec.Cmd) {
+	t.Helper()
+	if err := process.Record(path, cmd.Process.Pid); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func stringsForShell(args []string) string {
@@ -607,13 +613,11 @@ func TestCloneRejectsRunningSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := fakeNamedVMProcess(t, "qemu-system-test")
-	pidfile := st.Runtime(src).VMPid()
-	if err := os.MkdirAll(filepath.Dir(pidfile), 0o755); err != nil {
+	recordPath := st.Runtime(src).VMProcessRecord()
+	if err := os.MkdirAll(filepath.Dir(recordPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(pidfile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeProcessRecord(t, recordPath, cmd)
 
 	if _, err := mgr.Clone(context.Background(), "src", "dst"); err == nil || !strings.Contains(err.Error(), "running") {
 		t.Fatalf("expected running-source rejection, got %v", err)

@@ -79,12 +79,7 @@ func cloneCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			unlock, err := deps.store.LockGlobalAndReload()
-			if err != nil {
-				return err
-			}
 			vmRec, err := deps.vm.Clone(cmd.Context(), args[0], args[1])
-			unlock()
 			if err != nil {
 				return err
 			}
@@ -357,11 +352,6 @@ func rmCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		unlock, err := deps.store.LockGlobalAndReload()
-		if err != nil {
-			return err
-		}
-		defer unlock()
 		if err := deps.vm.Remove(cmd.Context(), args[0]); err != nil {
 			return err
 		}

@@ -3,8 +3,7 @@ package vm
 import "time"
 
 const (
-	// gvproxyStartTimeout bounds how long Start waits for gvproxy to come up
-	// (pidfile written and control + driver sockets present).
+	// gvproxyStartTimeout bounds how long Start waits for gvproxy to come up.
 	gvproxyStartTimeout = 5 * time.Second
 	// driverStartTimeout bounds how long Start waits for the qemu or vfkit
 	// driver process to become reachable.

@@ -17,15 +17,15 @@ type Decl struct {
 	Readonly  bool   `json:"readonly"`
 }
 
-// Runtime captures the per-VM virtiofsd socket, pidfile, and paths derived from a share.
+// Runtime captures the per-VM virtiofsd process, socket, and share paths.
 type Runtime struct {
-	Tag       string
-	Sock      string
-	Pidfile   string
-	HostPath  string
-	GuestPath string
-	Readonly  bool
-	LogKind   string
+	Tag           string
+	Sock          string
+	ProcessRecord string
+	HostPath      string
+	GuestPath     string
+	Readonly      bool
+	LogKind       string
 }
 
 var tagRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -46,20 +46,20 @@ func NewDecl(tag, hostPath, guestPath, reservedTag string, readonly bool) (Decl,
 	return Decl{Tag: tag, HostPath: hostPath, GuestPath: guestPath, Readonly: readonly}, nil
 }
 
-// RuntimeForVM builds a Runtime for the given share, placing its socket and pidfile under runtimeVMDir.
+// RuntimeForVM builds a Runtime for the given share.
 func RuntimeForVM(runtimeVMDir string, sh Decl) (Runtime, error) {
 	sock := filepath.Join(runtimeVMDir, "virtiofs-"+sh.Tag+".sock")
 	if err := ValidateUnixSocketPath("share "+sh.Tag, sock); err != nil {
 		return Runtime{}, err
 	}
 	return Runtime{
-		Tag:       sh.Tag,
-		Sock:      sock,
-		Pidfile:   filepath.Join(runtimeVMDir, "virtiofs-"+sh.Tag+".pid"),
-		HostPath:  sh.HostPath,
-		GuestPath: sh.GuestPath,
-		Readonly:  sh.Readonly,
-		LogKind:   "virtiofs-" + sh.Tag,
+		Tag:           sh.Tag,
+		Sock:          sock,
+		ProcessRecord: filepath.Join(runtimeVMDir, "virtiofs-"+sh.Tag+".process.json"),
+		HostPath:      sh.HostPath,
+		GuestPath:     sh.GuestPath,
+		Readonly:      sh.Readonly,
+		LogKind:       "virtiofs-" + sh.Tag,
 	}, nil
 }
 
@@ -70,11 +70,11 @@ func ControlRuntime(runtimeVMDir, controlDir, tag string) (Runtime, error) {
 		return Runtime{}, err
 	}
 	return Runtime{
-		Tag:      tag,
-		Sock:     sock,
-		Pidfile:  filepath.Join(runtimeVMDir, "virtiofs-"+tag+".pid"),
-		HostPath: controlDir,
-		LogKind:  "virtiofs-" + tag,
+		Tag:           tag,
+		Sock:          sock,
+		ProcessRecord: filepath.Join(runtimeVMDir, "virtiofs-"+tag+".process.json"),
+		HostPath:      controlDir,
+		LogKind:       "virtiofs-" + tag,
 	}, nil
 }
 

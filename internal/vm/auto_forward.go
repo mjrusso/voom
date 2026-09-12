@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/mjrusso/voom/internal/forward"
@@ -70,7 +69,9 @@ func (m *Manager) SetAutoForward(ctx context.Context, name string, enabled bool,
 				return nil, err
 			}
 		} else {
-			m.StopAutoForwardWatcher(vm)
+			if err := m.StopAutoForwardWatcher(vm); err != nil {
+				return nil, err
+			}
 			if err := m.CleanupAutoForwards(ctx, vm); err != nil {
 				return nil, err
 			}
@@ -85,12 +86,6 @@ func (m *Manager) RuntimeAutoForwardsPath(vm *state.VMRecord) string {
 	return m.store.Runtime(vm).AutoForwardsJSON()
 }
 
-// AutoForwardWatcherPidfile returns the path to the pidfile for the VM's
-// auto-forward watcher process.
-func (m *Manager) AutoForwardWatcherPidfile(vm *state.VMRecord) string {
-	return m.store.Runtime(vm).AutoForwardPid()
-}
-
 // ReadRuntimeAutoForwards loads the persisted auto-forward runtime rows for the VM.
 func (m *Manager) ReadRuntimeAutoForwards(vm *state.VMRecord) ([]RuntimeAutoForward, error) {
 	return forward.ReadRuntimeState(m.RuntimeAutoForwardsPath(vm))
@@ -103,26 +98,21 @@ func (m *Manager) saveRuntimeAutoForwards(vm *state.VMRecord, rows []RuntimeAuto
 // StartAutoForwardWatcher spawns a detached `voom forward auto watch` process
 // for the VM if one is not already running.
 func (m *Manager) StartAutoForwardWatcher(vm *state.VMRecord) error {
-	pidfile := m.AutoForwardWatcherPidfile(vm)
-	if pid, ok := validPid(pidfile, "auto-forward"); ok && processAlive(pid) {
+	recordPath := m.store.Runtime(vm).AutoForwardProcessRecord()
+	if _, ok := process.ValidRecord(recordPath, "auto-forward"); ok {
 		return nil
 	}
-	_ = os.Remove(pidfile)
-	cmd, err := m.startSelfDetached([]string{"forward", "auto", "watch", vm.Name}, m.store.LogPath(vm, "auto-forward"))
-	if err != nil {
-		return err
+	if process.HasRecord(recordPath) {
+		if err := process.StopRecorded(recordPath, "auto-forward", processStopTimeout); err != nil {
+			return err
+		}
 	}
-	if err := os.MkdirAll(filepath.Dir(pidfile), 0o755); err != nil {
-		_ = cmd.Process.Kill()
-		return err
-	}
-	return os.WriteFile(pidfile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644)
+	return m.startSelfRecorded([]string{"forward", "auto", "watch", vm.Name}, m.store.LogPath(vm, "auto-forward"), recordPath)
 }
 
 // StopAutoForwardWatcher terminates the VM's auto-forward watcher process.
-func (m *Manager) StopAutoForwardWatcher(vm *state.VMRecord) {
-	pidfile := m.AutoForwardWatcherPidfile(vm)
-	process.StopPidfile(pidfile, "auto-forward", processStopTimeout)
+func (m *Manager) StopAutoForwardWatcher(vm *state.VMRecord) error {
+	return process.StopRecorded(m.store.Runtime(vm).AutoForwardProcessRecord(), "auto-forward", processStopTimeout)
 }
 
 // WatchAutoForwards runs the foreground auto-forward reconciliation loop for
@@ -132,14 +122,7 @@ func (m *Manager) WatchAutoForwards(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	pidfile := m.AutoForwardWatcherPidfile(vm)
-	if err := os.MkdirAll(filepath.Dir(pidfile), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(pidfile, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644); err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(pidfile) }()
+	defer func() { _ = process.RemoveRecord(m.store.Runtime(vm).AutoForwardProcessRecord()) }()
 	ticker := time.NewTicker(autoForwardTick)
 	defer ticker.Stop()
 	for {
@@ -339,7 +322,7 @@ func autoForwardBind(vm *state.VMRecord) string {
 }
 
 func (m *Manager) runtimeGVProxyPID(vm *state.VMRecord) int {
-	pid, ok := validPid(m.store.Runtime(vm).GVProxyPid(), "gvproxy")
+	pid, ok := process.ValidRecord(m.store.Runtime(vm).GVProxyProcessRecord(), "gvproxy")
 	if !ok {
 		return 0
 	}

@@ -3,7 +3,9 @@
 package vm
 
 import (
-	"os/exec"
+	"context"
+	"sync"
+	"time"
 
 	"github.com/mjrusso/voom/internal/events"
 	"github.com/mjrusso/voom/internal/forward"
@@ -16,11 +18,10 @@ import (
 type Manager struct {
 	store             *state.Store
 	events            EventEmitter
-	startDetached     func(string, []string, string) (*exec.Cmd, error)
-	startSelfDetached func([]string, string) (*exec.Cmd, error)
+	startSelfRecorded func([]string, string, string) error
 }
 
-// EventEmitter accepts best-effort VM and forward change notifications.
+// EventEmitter accepts best-effort change notifications.
 type EventEmitter interface {
 	Emit(events.Event)
 }
@@ -28,6 +29,21 @@ type EventEmitter interface {
 type noopEmitter struct{}
 
 func (noopEmitter) Emit(events.Event) {}
+
+type vmLock struct {
+	VM            *state.VMRecord
+	releaseGlobal func()
+	releaseLocal  func()
+}
+
+func (l *vmLock) ReleaseGlobal() {
+	l.releaseGlobal()
+}
+
+func (l *vmLock) Release() {
+	l.releaseLocal()
+	l.releaseGlobal()
+}
 
 // Option customizes a Manager.
 type Option func(*Manager)
@@ -58,11 +74,60 @@ func New(store *state.Store, opts ...Option) *Manager {
 	m := &Manager{
 		store:             store,
 		events:            noopEmitter{},
-		startDetached:     startDetached,
-		startSelfDetached: process.StartSelfDetached,
+		startSelfRecorded: process.StartSelfRecorded,
 	}
 	for _, opt := range opts {
 		opt(m)
 	}
 	return m
+}
+
+// Callers must not hold either lock. Release global before slow VM work when no
+// assignment or index mutation remains; never reacquire it while holding local.
+func (m *Manager) lockVMState(ctx context.Context, name string) (*vmLock, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		global, err := m.store.LockGlobalAndReload()
+		if err != nil {
+			return nil, err
+		}
+		vm, err := m.store.LoadVM(name)
+		if err != nil {
+			global()
+			return nil, err
+		}
+		local, err := m.store.TryLockVM(vm.ID)
+		if err != nil {
+			global()
+			return nil, err
+		}
+		if local != nil {
+			vm, err = m.store.LoadVMByID(vm.ID)
+			if err != nil {
+				local()
+				global()
+				return nil, err
+			}
+			return &vmLock{VM: vm, releaseGlobal: sync.OnceFunc(global), releaseLocal: sync.OnceFunc(local)}, nil
+		}
+		// Do not block unrelated VMs behind a long-running per-VM operation.
+		global()
+		timer := time.NewTimer(20 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (m *Manager) lockVM(ctx context.Context, name string) (*vmLock, error) {
+	vm, release, err := m.store.LockVMRecord(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	return &vmLock{VM: vm, releaseGlobal: func() {}, releaseLocal: release}, nil
 }

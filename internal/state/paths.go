@@ -14,7 +14,7 @@ func (s *Store) VMDir(id string) string {
 	return filepath.Join(s.paths.State, "vms", id)
 }
 
-// RuntimeVMDir returns the per-VM runtime directory used for ephemeral sockets and pidfiles.
+// RuntimeVMDir returns the per-VM runtime directory used for process records and sockets.
 func (s *Store) RuntimeVMDir(vm *VMRecord) string {
 	return filepath.Join(s.paths.Runtime, "vms", vm.ID)
 }

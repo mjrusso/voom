@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -10,20 +11,17 @@ import (
 
 // AddForward declares a host-to-guest port forward on the VM and installs it
 // in gvproxy if the VM is running.
-func (m *Manager) AddForward(name string, guestPort, hostPort int, bind string, auto bool) (forward.Decl, error) {
+func (m *Manager) AddForward(ctx context.Context, name string, guestPort, hostPort int, bind string, auto bool) (forward.Decl, error) {
 	bind, err := forward.NormalizeBind(bind)
 	if err != nil {
 		return forward.Decl{}, err
 	}
-	vm, err := m.store.LoadVM(name)
+	lock, err := m.lockVMState(ctx, name)
 	if err != nil {
 		return forward.Decl{}, err
 	}
-	unlock, err := m.store.LockVM(vm.ID)
-	if err != nil {
-		return forward.Decl{}, err
-	}
-	defer unlock()
+	defer lock.Release()
+	vm := lock.VM
 	if auto {
 		hostPort, err = m.allocateAutoPort(bind)
 		if err != nil {
@@ -45,6 +43,7 @@ func (m *Manager) AddForward(name string, guestPort, hostPort int, bind string, 
 	if err := m.store.SaveVM(vm); err != nil {
 		return forward.Decl{}, err
 	}
+	lock.ReleaseGlobal()
 	if m.IsRunning(vm) {
 		rt := m.store.Runtime(vm)
 		if err := gvproxyExpose(rt.NetworkSock(), fmt.Sprintf("%s:%d", bind, hostPort), fmt.Sprintf("%s:%d", m.GuestTargetIP(vm), guestPort)); err != nil {
@@ -66,15 +65,12 @@ func (m *Manager) RemoveForward(name string, port int, bind string) error {
 	if err != nil {
 		return err
 	}
-	vm, err := m.store.LoadVM(name)
+	lock, err := m.lockVM(context.Background(), name)
 	if err != nil {
 		return err
 	}
-	unlock, err := m.store.LockVM(vm.ID)
-	if err != nil {
-		return err
-	}
-	defer unlock()
+	defer lock.Release()
+	vm := lock.VM
 	next := vm.Network.Forwards[:0]
 	found := false
 	for _, f := range vm.Network.Forwards {

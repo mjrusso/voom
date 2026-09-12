@@ -95,7 +95,7 @@ func KVMAvailable() error {
 }
 
 // StateDiagnostics inspects the on-disk state store for dangling, duplicated,
-// or orphaned VM and image entries, stale pidfiles, and other consistency
+// or orphaned VM and image entries, stale process records, and other consistency
 // issues, returning one Check per finding (or a single ok entry when clean).
 func StateDiagnostics(st *state.Store) []Check {
 	out := []Check{}
@@ -127,15 +127,15 @@ func StateDiagnostics(st *state.Store) []Check {
 			out = append(out, Check{"lan-auto-forward-" + name, "warn", false, "VM auto-forwarding is exposed beyond loopback"})
 		}
 		rt := st.Runtime(vmRec)
-		staticPidfiles := []struct {
+		staticRecords := []struct {
 			name string
 			path string
 			kind string
-		}{{"vm.pid", rt.VMPid(), state.VMProcessKind(vmRec.Driver)}, {"gvproxy.pid", rt.GVProxyPid(), "gvproxy"}, {"auto-forward.pid", rt.AutoForwardPid(), "auto-forward"}}
-		for _, pf := range staticPidfiles {
-			if fileExists(pf.path) {
-				if _, ok := process.ValidPID(pf.path, pf.kind); !ok {
-					out = append(out, Check{"stale-pidfile-" + name + "-" + pf.name, "warn", false, "stale or mismatched pidfile at " + pf.path})
+		}{{"vm.process.json", rt.VMProcessRecord(), state.VMProcessKind(vmRec.Driver)}, {"gvproxy.process.json", rt.GVProxyProcessRecord(), "gvproxy"}, {"auto-forward.process.json", rt.AutoForwardProcessRecord(), "auto-forward"}}
+		for _, record := range staticRecords {
+			if process.HasRecord(record.path) {
+				if _, ok := process.ValidRecord(record.path, record.kind); !ok {
+					out = append(out, Check{"stale-process-record-" + name + "-" + record.name, "warn", false, "stale or mismatched process record at " + record.path})
 				}
 			}
 		}
@@ -150,10 +150,10 @@ func StateDiagnostics(st *state.Store) []Check {
 				}
 			}
 		}
-		for _, path := range globFiles(rt.VirtiofsPidGlob()) {
-			if _, ok := process.ValidPID(path, "virtiofsd"); !ok {
-				pfName := filepath.Base(path)
-				out = append(out, Check{"stale-pidfile-" + name + "-" + pfName, "warn", false, "stale or mismatched pidfile at " + path})
+		for _, path := range process.FindRecords(rt.VirtiofsProcessRecordGlob()) {
+			if _, ok := process.ValidRecord(path, "virtiofsd"); !ok {
+				recordName := filepath.Base(path)
+				out = append(out, Check{"stale-process-record-" + name + "-" + recordName, "warn", false, "stale or mismatched process record at " + path})
 			}
 		}
 	}
@@ -271,9 +271,4 @@ func hasControlShareImages(st *state.Store) bool {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func globFiles(pattern string) []string {
-	out, _ := filepath.Glob(pattern)
-	return out
 }

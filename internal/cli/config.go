@@ -53,11 +53,6 @@ func configCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			unlock, err := deps.store.LockGlobalAndReload()
-			if err != nil {
-				return err
-			}
-			defer unlock()
 			vmRec, changed, err := deps.vm.SetSSHPort(args[0], port)
 			if err != nil {
 				return err
