@@ -3,13 +3,12 @@ package vm
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"golang.org/x/sys/unix"
 
+	"github.com/mjrusso/voom/internal/atomicfile"
 	"github.com/mjrusso/voom/internal/egress"
 	"github.com/mjrusso/voom/internal/state"
 )
@@ -87,39 +86,10 @@ func publishEgress(rt state.RuntimeLayout, enabled bool, ca []byte) (changed boo
 			return changed, err
 		}
 	} else if !caOK {
-		if err = writeEgressFile(rt.EgressCA(), ca); err != nil {
+		if err = atomicfile.Write(rt.EgressCA(), ca, 0o644); err != nil {
 			return changed, err
 		}
 	}
-	err = writeEgressFile(rt.EgressManifest(), manifest)
+	err = atomicfile.Write(rt.EgressManifest(), manifest, 0o644)
 	return changed, err
-}
-
-func writeEgressFile(path string, data []byte) (err error) {
-	if err = os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".egress-*")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = f.Close()
-		if e := os.Remove(f.Name()); e != nil && !errors.Is(e, os.ErrNotExist) {
-			err = errors.Join(err, e)
-		}
-	}()
-	if _, err = f.Write(data); err != nil {
-		return err
-	}
-	if err = f.Chmod(0644); err != nil {
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	if err = os.Rename(f.Name(), path); err != nil {
-		return fmt.Errorf("publish egress file: %w", err)
-	}
-	return nil
 }

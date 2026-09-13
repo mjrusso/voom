@@ -483,12 +483,13 @@ func TestFixtureCommands(t *testing.T) {
 	}
 	var listRows []struct {
 		Name         string           `json:"name"`
+		ID           string           `json:"id"`
 		CPUs         int              `json:"cpus"`
 		MemoryMiB    int              `json:"memoryMiB"`
 		Disk         *state.DiskUsage `json:"disk"`
 		EgressConfig string           `json:"egressConfig"`
 	}
-	if out := runCmd(t, "--output", "json", "list"); json.Unmarshal([]byte(out), &listRows) != nil || len(listRows) != 1 || listRows[0].Name != "scratch" || listRows[0].CPUs != 4 || listRows[0].MemoryMiB != 4096 || listRows[0].Disk == nil || listRows[0].Disk.VirtualBytes != 20<<30 || listRows[0].EgressConfig != "disabled" {
+	if out := runCmd(t, "--output", "json", "list"); json.Unmarshal([]byte(out), &listRows) != nil || len(listRows) != 1 || listRows[0].Name != "scratch" || listRows[0].ID != vmRec.ID || listRows[0].CPUs != 4 || listRows[0].MemoryMiB != 4096 || listRows[0].Disk == nil || listRows[0].Disk.VirtualBytes != 20<<30 || listRows[0].EgressConfig != "disabled" {
 		t.Fatalf("fixture list JSON missing resources:\n%s", out)
 	}
 	if out := runCmd(t, "info", "scratch"); !strings.Contains(out, "ssh: root@127.0.0.1:2222") || !strings.Contains(out, "cpus: 4") || !strings.Contains(out, "memory: 4096MiB") || !strings.Contains(out, "disk: 20GiB virtual, ") {
@@ -499,6 +500,40 @@ func TestFixtureCommands(t *testing.T) {
 	}
 	if err := runCmdErr("guest", "ports", "scratch"); err == nil || !strings.Contains(err.Error(), "controlShare capability is false") {
 		t.Fatalf("expected fixture guest ports capability gate, got %v", err)
+	}
+}
+
+func TestRMForceWarnsAboutExternalEgress(t *testing.T) {
+	dir := t.TempDir()
+	root := copyFixtureState(t, dir)
+	t.Setenv("VOOM_STATE_DIR", root)
+	t.Setenv("VOOM_CONFIG_DIR", filepath.Join(dir, "config"))
+	t.Setenv("VOOM_CACHE_DIR", filepath.Join(dir, "cache"))
+	t.Setenv("VOOM_RUNTIME_DIR", filepath.Join(dir, "runtime"))
+
+	st, err := state.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vmRec, err := st.LoadVM("scratch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vmRec.Network.Egress = &egress.Decl{Mode: egress.ModeExplicit, BackendSocket: "/run/proxy/vm-scratch.sock"}
+	if err := st.SaveVM(vmRec); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	cmd := NewRootCommand()
+	cmd.SetOut(&out)
+	cmd.SetErr(&errb)
+	cmd.SetArgs([]string{"rm", "scratch", "--force"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("forced remove failed: %v\nstderr:%s", err, errb.String())
+	}
+	if !strings.Contains(errb.String(), "external egress attachment") || !strings.Contains(errb.String(), "detach") {
+		t.Fatalf("forced remove did not warn about the external attachment:\n%s", errb.String())
 	}
 }
 

@@ -4,7 +4,7 @@ Set the explicit proxy attachment
 
 ### Synopsis
 
-Attach a unique host Unix proxy socket to a stopped VM and enable the attachment. An optional CA file must contain public certificates only. Ordinary direct network egress remains available.
+Attach a unique host Unix proxy socket to a stopped VM. The attachment is enabled unless --disabled is set. An optional CA file must contain public certificates only. Ordinary direct network egress remains available.
 
 ```
 voom config egress set <name> [flags]
@@ -15,6 +15,8 @@ voom config egress set <name> [flags]
 ```
       --backend-socket string   absolute path to this VM's host Unix proxy socket
       --ca-cert string          public CA certificate PEM file
+      --disabled                store the attachment disabled
+      --expect-id string        require the VM to have this immutable ID
   -h, --help                    help for set
 ```
 

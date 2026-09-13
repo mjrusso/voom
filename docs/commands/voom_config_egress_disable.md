@@ -13,7 +13,8 @@ voom config egress disable <name> [flags]
 ### Options
 
 ```
-  -h, --help   help for disable
+      --expect-id string   require the VM to have this immutable ID
+  -h, --help               help for disable
 ```
 
 ### Options inherited from parent commands

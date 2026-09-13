@@ -411,6 +411,17 @@ func renameCommand() *cobra.Command {
 func rmCommand() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{Use: "rm <name>", Aliases: []string{"remove", "destroy"}, Short: "Remove a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		deps, err := loadRuntimeDeps()
+		if err != nil {
+			return err
+		}
+		vmRec, err := deps.store.LoadVM(args[0])
+		if err != nil {
+			return err
+		}
+		if vmRec.Network.Egress != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "VM %s has an external egress attachment.\nRemoving the VM will not revoke or remove its backend.\nRun the provider's detach command first.\n", vmRec.Name)
+		}
 		if !force {
 			if outputFormat(cmd) == "json" || !isTerminalFunc(os.Stdin) {
 				return errors.New("refusing to remove without --force in non-interactive or JSON mode")
@@ -420,10 +431,6 @@ func rmCommand() *cobra.Command {
 			if strings.TrimSpace(line) != args[0] {
 				return errors.New("remove cancelled")
 			}
-		}
-		deps, err := loadRuntimeDeps()
-		if err != nil {
-			return err
 		}
 		if err := deps.vm.Remove(cmd.Context(), args[0]); err != nil {
 			return err

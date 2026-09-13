@@ -57,32 +57,62 @@ func egressMutationStore(t *testing.T) (*state.Store, string) {
 func TestEgressStoppedMutationsAndReservations(t *testing.T) {
 	st, socket := egressMutationStore(t)
 	manager := New(st)
-	result, err := manager.SetEgress(context.Background(), "a", socket, "")
-	if err != nil || !result.Changed || !result.Enabled {
+	result, err := manager.SetEgress(context.Background(), "a", socket, "", EgressOptions{})
+	if err != nil || result.ID == "" || !result.Changed || result.Egress == nil || !result.Egress.Enabled {
 		t.Fatalf("set: %+v %v", result, err)
 	}
 	first, _ := st.LoadVM("a")
-	result, err = manager.SetEgress(context.Background(), "a", socket, "")
+	result, err = manager.SetEgress(context.Background(), "a", socket, "", EgressOptions{})
 	second, _ := st.LoadVM("a")
 	if err != nil || result.Changed || !first.UpdatedAt.Equal(second.UpdatedAt) {
 		t.Fatalf("repeat set: %+v %v", result, err)
 	}
-	result, err = manager.DisableEgress(context.Background(), "a")
-	if err != nil || !result.Changed || result.Enabled {
+	rt := st.Runtime(first)
+	if err := os.MkdirAll(rt.Dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rt.AutoForwardsJSON(), []byte("[]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err = manager.DisableEgress(context.Background(), "a", EgressOptions{})
+	if err != nil || !result.Changed || !result.RuntimeChanged || result.Egress == nil || result.Egress.Enabled {
 		t.Fatalf("disable: %+v %v", result, err)
 	}
-	if _, err = manager.SetEgress(context.Background(), "b", socket, ""); err == nil {
+	if _, err = manager.SetEgress(context.Background(), "b", socket, "", EgressOptions{}); err == nil {
 		t.Fatal("disabled reservation reused")
 	}
 	t.Setenv("VOOM_GVPROXY", "")
 	t.Setenv("PATH", t.TempDir())
-	result, err = manager.ClearEgress(context.Background(), "a")
+	result, err = manager.ClearEgress(context.Background(), "a", EgressOptions{})
 	if err != nil || !result.Changed || result.Egress != nil {
 		t.Fatalf("clear with missing dependency: %+v %v", result, err)
 	}
-	result, err = manager.ClearEgress(context.Background(), "a")
+	result, err = manager.ClearEgress(context.Background(), "a", EgressOptions{})
 	if err != nil || result.Changed {
 		t.Fatalf("repeat clear: %+v %v", result, err)
+	}
+}
+
+func TestEgressOptions(t *testing.T) {
+	st, socket := egressMutationStore(t)
+	manager := New(st)
+	record, err := st.LoadVM("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := manager.SetEgress(context.Background(), "a", socket, "", EgressOptions{ExpectedID: record.ID, Disabled: true})
+	if err != nil || result.ID != record.ID || !result.Changed || result.Egress == nil || result.Egress.Enabled {
+		t.Fatalf("disabled set: %+v %v", result, err)
+	}
+	if _, err := manager.EnableEgress(context.Background(), "a", EgressOptions{ExpectedID: "replacement"}); err == nil {
+		t.Fatal("expected immutable ID mismatch")
+	}
+	reloaded, err := st.LoadVM("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Network.Egress == nil || reloaded.Network.Egress.Enabled {
+		t.Fatalf("ID mismatch changed declaration: %+v", reloaded.Network.Egress)
 	}
 }
 
@@ -93,7 +123,7 @@ func TestEgressConcurrentReservations(t *testing.T) {
 	for _, name := range []string{"a", "b"} {
 		wg.Go(func() {
 			manager := New(st)
-			_, err := manager.SetEgress(context.Background(), name, socket, "")
+			_, err := manager.SetEgress(context.Background(), name, socket, "", EgressOptions{})
 			results <- err
 		})
 	}

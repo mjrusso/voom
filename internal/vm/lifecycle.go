@@ -299,16 +299,18 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	if err != nil {
 		return nil, err
 	}
+	requiredCapabilities := []string{gvproxy.GuestIsolationCapability}
 	var egressCA []byte
 	if d := vm.Network.Egress; d != nil {
 		if d.Enabled {
-			egressCA, err = m.validateEgress(ctx, vm, gvproxyExe, false)
+			egressCA, err = m.validateEgressTarget(ctx, vm)
+			requiredCapabilities = append(requiredCapabilities, gvproxy.GatewayCapability)
 		} else {
 			err = egress.Syntax(*d)
 		}
 	}
-	if err == nil && (vm.Network.Egress == nil || !vm.Network.Egress.Enabled) {
-		err = gvproxy.CheckExecutable(ctx, gvproxyExe, gvproxy.GuestIsolationCapability)
+	if err == nil {
+		err = gvproxy.CheckExecutable(ctx, gvproxyExe, requiredCapabilities...)
 	}
 	if err != nil {
 		return nil, err
@@ -500,7 +502,8 @@ type runtimeStopResult struct {
 }
 
 // stopRuntime requires the VM lock. It attempts every helper and retains records
-// when termination cannot be confirmed.
+// when termination cannot be confirmed. Gateway confirmation is independent of
+// other cleanup errors because live egress rollback depends on it.
 // Cancellation ends graceful waits; signal escalation has a separate time bound.
 func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeStopResult, error) {
 	rt := m.store.Runtime(vm)

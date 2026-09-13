@@ -121,7 +121,7 @@ func TestEgressLiveReconciliation(t *testing.T) {
 	recorder := &recordingEmitter{}
 	manager := New(st, WithEventEmitter(recorder))
 	ctx := context.Background()
-	result, err := manager.EnableEgress(ctx, "live")
+	result, err := manager.EnableEgress(ctx, "live", EgressOptions{})
 	if err != nil || !result.Changed || !result.RuntimeChanged {
 		t.Fatalf("enable: %+v %v", result, err)
 	}
@@ -129,7 +129,7 @@ func TestEgressLiveReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err = manager.EnableEgress(ctx, "live")
+	result, err = manager.EnableEgress(ctx, "live", EgressOptions{})
 	if err != nil || result.Changed || result.RuntimeChanged {
 		t.Fatalf("repeat: %+v %v", result, err)
 	}
@@ -140,7 +140,7 @@ func TestEgressLiveReconciliation(t *testing.T) {
 	if err := os.WriteFile(rt.EgressManifest(), []byte("wrong"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	result, err = manager.EnableEgress(ctx, "live")
+	result, err = manager.EnableEgress(ctx, "live", EgressOptions{})
 	if err != nil || result.Changed || !result.RuntimeChanged {
 		t.Fatalf("file repair: %+v %v", result, err)
 	}
@@ -153,11 +153,11 @@ func TestEgressLiveReconciliation(t *testing.T) {
 	if err := os.Chmod(st.VMDir(record.ID), 0500); err != nil {
 		t.Fatal(err)
 	}
-	result, err = manager.DisableEgress(ctx, "live")
+	result, err = manager.DisableEgress(ctx, "live", EgressOptions{})
 	if chmodErr := os.Chmod(st.VMDir(record.ID), 0700); chmodErr != nil {
 		t.Fatal(chmodErr)
 	}
-	if err == nil || result.Changed || !result.RuntimeChanged || !result.Enabled {
+	if err == nil || result.Changed || !result.RuntimeChanged || result.Egress == nil || !result.Egress.Enabled {
 		t.Fatalf("failed persistence: %+v %v", result, err)
 	}
 	mu.Lock()
@@ -169,15 +169,15 @@ func TestEgressLiveReconciliation(t *testing.T) {
 	if len(recorder.events) == 0 || recorder.events[len(recorder.events)-1].Actor.Attributes["outcome"] != "failed" {
 		t.Fatal("missing failure event")
 	}
-	result, err = manager.EnableEgress(ctx, "live")
+	result, err = manager.EnableEgress(ctx, "live", EgressOptions{})
 	if err != nil || result.Changed || !result.RuntimeChanged {
 		t.Fatalf("repair after failed persistence: %+v %v", result, err)
 	}
-	result, err = manager.DisableEgress(ctx, "live")
-	if err != nil || !result.Changed || !result.RuntimeChanged || result.Enabled {
+	result, err = manager.DisableEgress(ctx, "live", EgressOptions{})
+	if err != nil || !result.Changed || !result.RuntimeChanged || result.Egress == nil || result.Egress.Enabled {
 		t.Fatalf("disable: %+v %v", result, err)
 	}
-	result, err = manager.DisableEgress(ctx, "live")
+	result, err = manager.DisableEgress(ctx, "live", EgressOptions{})
 	if err != nil || result.Changed || result.RuntimeChanged {
 		t.Fatalf("repeat disable: %+v %v", result, err)
 	}
@@ -185,8 +185,8 @@ func TestEgressLiveReconciliation(t *testing.T) {
 	rejectExpose = true
 	beforeUnexposes := unexposes
 	mu.Unlock()
-	result, err = manager.EnableEgress(ctx, "live")
-	if err == nil || result.Enabled || result.RuntimeChanged || !manager.IsRunning(record) {
+	result, err = manager.EnableEgress(ctx, "live", EgressOptions{})
+	if err == nil || result.Egress == nil || result.Egress.Enabled || result.RuntimeChanged || !manager.IsRunning(record) {
 		t.Fatalf("definite rejection changed runtime: %+v %v", result, err)
 	}
 	mu.Lock()
@@ -200,8 +200,8 @@ func TestEgressLiveReconciliation(t *testing.T) {
 	mu.Lock()
 	failExpose = true
 	mu.Unlock()
-	result, err = manager.EnableEgress(ctx, "live")
-	if err == nil || result.Enabled {
+	result, err = manager.EnableEgress(ctx, "live", EgressOptions{})
+	if err == nil || result.Egress == nil || result.Egress.Enabled {
 		t.Fatalf("failed expose did not restore disabled declaration: %+v %v", result, err)
 	}
 	if manager.IsRunning(record) {

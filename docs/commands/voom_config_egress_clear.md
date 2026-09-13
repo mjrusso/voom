@@ -13,7 +13,8 @@ voom config egress clear <name> [flags]
 ### Options
 
 ```
-  -h, --help   help for clear
+      --expect-id string   require the VM to have this immutable ID
+  -h, --help               help for clear
 ```
 
 ### Options inherited from parent commands

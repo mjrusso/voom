@@ -349,6 +349,26 @@ voom stop agent-a
 voom config egress clear agent-a
 ```
 
+External attachment managers should bind every mutation to the immutable VM
+ID and create new declarations in the disabled state:
+
+```sh
+voom info agent-a
+VM_ID=30BD3BFA3D7C382195F82F603B5D4F11
+voom config egress set agent-a \
+  --expect-id "$VM_ID" \
+  --disabled \
+  --backend-socket "/run/credential-proxy/$VM_ID.sock" \
+  --ca-cert /etc/voom-proxy/ca.pem
+voom config egress enable agent-a --expect-id "$VM_ID"
+```
+
+`--expect-id` is available on set, clear, enable, and disable. Voom checks it
+while holding the VM state lock, so a replacement VM with the same name cannot
+receive the old attachment. `set --disabled` validates and reserves the socket
+and CA without publishing a guest route. The manager can then perform its
+final policy and emergency-hold checks before a separate enable operation.
+
 Set and clear require a stopped VM with no surviving runtime. Enable and disable
 also work while running. Repeated enable repairs runtime drift; a synchronized
 repeat preserves listeners, tunnels, and runtime files. Disable closes the

@@ -82,10 +82,10 @@ func replayCommands(vm *state.VMRecord, target string, includeEgress bool) []str
 		if d.CACertPath != "" {
 			line += " --ca-cert " + shellQuote(d.CACertPath)
 		}
-		cmds = append(cmds, line)
 		if !d.Enabled {
-			cmds = append(cmds, "voom config egress disable "+shellQuote(target))
+			line += " --disabled"
 		}
+		cmds = append(cmds, line)
 	}
 	for _, s := range vm.Shares {
 		line := fmt.Sprintf("voom share add %s %s %s %s", shellQuote(target), shellQuote(s.Tag), shellQuote(s.HostPath), shellQuote(s.GuestPath))
