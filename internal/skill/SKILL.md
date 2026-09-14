@@ -61,6 +61,8 @@ Image capabilities gate guest integrations:
 
 - Automatic forwarding requires `guestPortReport` and `controlShare`.
 - Mounting declared shares requires `controlShare` and `guestShareMount`.
+- An enabled explicit proxy attachment requires `controlShare`. A disabled
+  attachment does not.
 - `voom nixos switch` requires `nixosSwitch`.
 
 If a capability is absent, report the gap. Retrying cannot add a missing image
@@ -78,9 +80,9 @@ failures while the guest boots, but leave SSH errors visible so configuration
 and authentication failures are not hidden. Do not rely on the external
 `timeout` command: it is not installed by default on every macOS host.
 
-`voom events` provides best-effort VM and forwarding change notifications, not
-guest or SSH readiness. Events are wake-up hints and must be reconciled with
-current state.
+`voom events` provides best-effort VM, forwarding, and egress change
+notifications, not guest or SSH readiness. Events are wake-up hints and must
+be reconciled with current state.
 
 An empty `voom forward ls` immediately after start may mean "not yet."
 Automatic forwards appear only after the guest reports listeners and the host
@@ -120,8 +122,8 @@ reconfigure the VM afterward unless the user requested that operation.
 
 ### Reach a guest service from the host
 
-Verify the image capabilities, enable automatic forwarding if needed, wait for
-the guest to report its listener, and reconcile current state:
+Verify the image capabilities, enable automatic forwarding if needed, and poll
+the effective forwarding state:
 
 ```bash
 voom forward auto enable <name> --output json
@@ -130,6 +132,37 @@ voom forward ls <name> --output json
 
 Read `voom forward auto enable --help` before selecting bind or LAN exposure.
 Exposing a service beyond loopback requires explicit user intent.
+
+Enabling automatic forwarding starts the watcher but does not wait for its
+first reconciliation. Repeat `voom forward ls <name> --output json` until the
+expected installed row appears or the operation reaches its deadline.
+
+### Configure an explicit proxy attachment
+
+Use this workflow only when the user asks to connect a VM to an existing HTTP
+CONNECT proxy available through a host Unix socket. The attachment does not
+disable direct network access and is not an enforcement boundary. Voom does
+not create or manage the proxy backend.
+
+Inspect the VM first. Bind every change to its immutable ID, and assign a
+different backend socket to each VM:
+
+```bash
+voom info <name> --output json
+voom config egress set <name> --backend-socket <socket> --disabled --expect-id <vm-id> --output json
+voom config egress enable <name> --expect-id <vm-id> --output json
+voom info <name> --output json
+```
+
+When coordinating with an external attachment manager, save the declaration
+with `--disabled`, complete the manager's policy checks, and then enable it.
+Add `--ca-cert` only for a requested public CA certificate bundle. `set` and
+`clear` require a stopped VM. `enable` and `disable` also work while the VM is
+running.
+
+`voom list --output json` reports the saved attachment state. `voom info
+<name> --output json` also reports observed runtime state. Removing a VM does
+not detach or remove its proxy backend.
 
 ### Rebuild a NixOS guest
 
@@ -155,8 +188,9 @@ voom console <name>
 
 - Track which VMs were created during the current task. Existing VMs may hold
   active user work.
-- Inspect existing VMs freely. Before `stop`, `rm`, `disk reset`, `rename`, or
-  resource changes on one, require explicit authorization for that operation.
+- Inspect existing VMs freely. Before `stop`, `rm`, `disk reset`, `rename`,
+  resource changes, or egress configuration changes on one, require explicit
+  authorization for that operation.
 - A user request such as "stop my Voom VM named build" is authorization to
   stop that VM, but not to remove or reset it.
 - Use `--force` only when removing a VM created during the current task or when

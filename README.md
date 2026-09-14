@@ -20,6 +20,14 @@ Voom is deliberately simple and not magical. In particular, Voom has:
 Voom optionally supports automatic host-to-guest port forwarding (with
 configurable per-VM offsets to avoid collisions) and host directory mounting.
 
+Voom can also give each VM access to an external HTTP CONNECT proxy. An
+external broker can use the separate connection to apply VM-specific policies
+or supply credentials without storing those credentials in the guest. Guest
+applications choose whether or not to use the proxy. Voom does **not** enforce
+proxy use. Traffic that does not use the proxy still has direct network access,
+but the external broker cannot inject credentials or apply policy to that
+traffic.
+
 Note that there are many excellent tools in this space, with differing goals
 and trade-offs. [Kevin Lynagh](https://kevinlynagh.com/)'s
 [Vibe](https://github.com/lynaghk/vibe/) is one such example for Mac users; see
@@ -181,8 +189,8 @@ Run `voom stop` to shut down a running VM:
 voom stop deb
 ```
 
-This command clears runtime state (sockets, pidfiles, helper logs), but keeps
-persistent state (disk, declared shares and forwards).
+This command clears active runtime state (sockets and process records), but
+keeps persistent state and logs.
 
 ### 7. Make adjustments to a stopped VM
 
@@ -309,6 +317,7 @@ image or a bootable disk image.
 | Disk      | `resources disk grow`, `disk reset`                                                                     |
 | Access    | `ssh`, `console`, `ssh-config`, `config show`, `config ssh-port`                                        |
 | Forwards  | `forward add`, `forward rm`, `forward ls`, `forward discover`, `forward auto enable`/`disable`/`offset` |
+| Egress    | `config egress set`, `config egress clear`, `config egress enable`, `config egress disable`             |
 | Shares    | `share add`, `share rm`, `share ls`                                                                     |
 | NixOS     | `nixos switch`                                                                                          |
 | Inspect   | `list`, `info`, `logs`, `events`, `doctor`, `guest ports`, `debug paths`, `version`, `skill`            |
@@ -329,94 +338,53 @@ Notes and considerations:
 
 _For the full command reference, see [docs/commands](docs/commands/)._
 
-## Explicit egress proxy attachments
+## External HTTP proxy access
 
-An attachment connects one VM's `192.168.127.1:3128` endpoint to a unique host
-Unix socket serving an HTTP CONNECT proxy. It is advisory: ordinary direct
-network access remains available, and guests can ignore proxy configuration.
-Bypassed requests receive no broker-injected credentials. Voom does not deploy
-the broker, inject credentials, install certificates, or configure guest tools.
+An external proxy or broker can apply VM-specific policy and supply credentials
+without storing those credentials in the guest. Voom records the connection
+between a VM and its proxy as an egress attachment. Each attachment names a
+private Unix socket on the host:
+
+```text
+Guest application
+├── connects to the published proxy address
+│   └── 192.168.127.1:3128
+│       └── gvproxy private TCP-to-Unix route
+│           └── Unix socket assigned to this VM
+│               └── external proxy or broker
+│                   └── destination
+│
+└── connects directly
+    └── ordinary direct networking
+        └── destination
+```
+
+Voom manages the private listener and the TCP-to-Unix route. It also publishes
+the proxy manifest and an optional CA bundle to the guest. Voom does not run or
+manage the external proxy.
+
+Guest applications must explicitly use the published proxy address. Voom does
+not set `HTTP_PROXY`, `HTTPS_PROXY`, or application proxy settings. It also does
+not block direct network access. Voom publishes the optional CA bundle but does
+not install it.
 
 Enabled attachments require an image with `controlShare` capability.
+To set a new attachment or enable one, the external proxy must accept
+connections on the configured Unix socket.
 
 ```sh
-voom config egress set agent-a --backend-socket /run/credential-proxy/vm-01JXYZ.sock --ca-cert /etc/voom-proxy/ca.pem
-voom config show agent-a
-voom start agent-a
-voom config egress disable agent-a
-voom config egress enable agent-a
-voom stop agent-a
-voom config egress clear agent-a
-```
-
-External attachment managers should bind every mutation to the immutable VM
-ID and create new declarations in the disabled state:
-
-```sh
-voom info agent-a
-VM_ID=30BD3BFA3D7C382195F82F603B5D4F11
 voom config egress set agent-a \
-  --expect-id "$VM_ID" \
-  --disabled \
-  --backend-socket "/run/credential-proxy/$VM_ID.sock" \
-  --ca-cert /etc/voom-proxy/ca.pem
-voom config egress enable agent-a --expect-id "$VM_ID"
+  --backend-socket /run/credential-proxy/vm-01JXYZ.sock
+voom start agent-a
 ```
 
-`--expect-id` is available on set, clear, enable, and disable. Voom checks it
-while holding the VM state lock, so a replacement VM with the same name cannot
-receive the old attachment. `set --disabled` validates and reserves the socket
-and CA without publishing a guest route. The manager can then perform its
-final policy and emergency-hold checks before a separate enable operation.
+The `--ca-cert` option adds a CA bundle. Use `voom config egress disable` and
+`voom config egress enable` to change proxy access while the VM runs. To remove
+the saved attachment, stop the VM and use `voom config egress clear`.
 
-Set and clear require a stopped VM with no surviving runtime. Enable and disable
-also work while running. Repeated enable repairs runtime drift; a synchronized
-repeat preserves listeners, tunnels, and runtime files. Disable closes the
-private listener, pending dials, and active tunnels. It cannot retract requests
-already accepted by a broker or guarantee cancellation of upstream work.
-
-Assign each backend socket and broker policy to the immutable VM ID shown by
-`voom info`, not the mutable VM name. Voom reserves a socket across stopped and
-disabled VMs in its state store. Operators must enforce uniqueness across other
-state stores, users, and clients. Keep socket directories and broker policy under
-trusted host control. Relaying all sockets to a shared unauthenticated listener
-does not preserve VM identity. Guest headers and manifest contents do not
-authenticate a VM. Rename preserves attachments; clones omit them and report the
-new VM ID for provisioning a separate backend.
-
-Enabled attachments publish these files through `voom-control`:
-
-- `/run/voom/egress.json`: schema version 1, mode `explicit`, and `httpProxy` and
-  `httpsProxy` set to `http://192.168.127.1:3128`.
-- `/run/voom/egress-ca.pem`: optional validated public certificate bundle. The
-  manifest includes `caCertificate` only when this file is configured.
-
-Host copies live under `<runtime VM directory>/control/`. Files have mode 0644;
-the manifest is published after the CA. Separate file replacements are not one
-atomic transaction. The metadata document advertises
-`controlShare.egressPath` even when no attachment is configured. Guests must
-choose how to consume the manifest and install the public CA.
-
-CA bundles must contain only X.509 certificate PEM blocks and at least one CA
-certificate. Private keys, other PEM blocks, and extraneous data are rejected.
-Bundles are limited to 4 MiB. Each operation publishes the exact bytes it
-validated. `info` and `doctor` compare the published CA to the current source;
-source rotation requires explicit enable or restart to update guest files.
-
-The `egress-config` column of `voom list` shows the saved attachment (`enabled`,
-`disabled`, or `none`) and does not check the running VM. `voom info` reports
-observed route state, connection count when available, and configuration drift.
-`voom doctor` uses local socket probes and host API queries; it sends no proxy
-requests or outbound internet traffic. Disabled declarations can start without
-their backend, certificate, or private-transport capability.
-
-Disable persists the disabled declaration after removing runtime access. A
-crash or persistence failure between those steps can leave enabled desired
-state on disk, so a later restart can restore access. A failed enable can leave
-an enabled declaration with runtime access removed; repeat enable after fixing
-the reported cause. When route removal is uncertain, Voom attempts to stop the
-VM runtime. Unconfirmed termination is an error, with process-record and log
-paths retained for recovery.
+For attachment states, external-manager integration, guest files, security
+requirements, and recovery behavior, see [Egress proxy
+integration](#egress-proxy-integration).
 
 ## Agent Skill
 
@@ -436,7 +404,7 @@ chmod 0644 ~/.agents/skills/voom/SKILL.md
 
 Use `voom doctor` to check system dependencies (as per [Host
 Requirements](#host-requirements)), as well as writable directories, port
-availability, LAN exposure, stale pidfiles, and state consistency.
+availability, LAN exposure, stale process records, and state consistency.
 
 `voom logs <name>` reads the serial log by default; pass `--kind` to inspect
 helper logs (`qemu`, `vfkit`, `gvproxy`, `auto-forward`, `share-mount`).
@@ -528,7 +496,7 @@ always opt-in.
 | Configuration               | `$XDG_CONFIG_HOME/voom` or `~/.config/voom`    | `VOOM_CONFIG_DIR`  |
 | State (source of truth)     | `$XDG_DATA_HOME/voom` or `~/.local/share/voom` | `VOOM_STATE_DIR`   |
 | Cache (logs)                | `$XDG_CACHE_HOME/voom` or `~/.cache/voom`      | `VOOM_CACHE_DIR`   |
-| Runtime (sockets, pidfiles) | `$XDG_RUNTIME_DIR/voom` or `/tmp/voom-$UID`    | `VOOM_RUNTIME_DIR` |
+| Runtime (sockets, process records) | `$XDG_RUNTIME_DIR/voom` or `/tmp/voom-$UID` | `VOOM_RUNTIME_DIR` |
 
 Run `voom debug paths` to inspect resolved values. Voom uses a `gvproxy` binary
 next to its own executable before searching `PATH`. External helpers can be
@@ -705,6 +673,107 @@ plans host forwards from fresh reports and records installed/skipped rows in
 `voom forward discover <name>` is an audit/preview command; `voom forward ls`
 shows effective rows including skipped auto-forwards with an explanation.
 
+### Egress proxy integration
+
+#### Attachment state
+
+This table shows the expected healthy state. `voom info` reports the observed
+runtime state and any difference from the saved attachment.
+
+| Saved attachment | VM state           | Private listener | Published manifest |
+|------------------|--------------------|------------------|--------------------|
+| None or disabled | Stopped or running | No               | No                 |
+| Enabled          | Stopped            | No               | No                 |
+| Enabled          | Running            | Yes              | Yes                |
+
+Set and clear require a stopped VM with no surviving runtime. Enable and disable
+also work while the VM runs. Run enable again to repair runtime drift. If the
+runtime already matches the saved attachment, enable preserves the listeners,
+tunnels, and runtime files. Disable closes the private listener, pending dials,
+and active tunnels. Disable cannot retract requests that a broker already
+accepted or guarantee cancellation of upstream work.
+
+#### External managers
+
+External attachment managers should pass the immutable VM ID with every change.
+They should first save the attachment in the disabled state:
+
+```sh
+voom info agent-a
+VM_ID=30BD3BFA3D7C382195F82F603B5D4F11
+voom config egress set agent-a \
+  --expect-id "$VM_ID" \
+  --disabled \
+  --backend-socket "/run/credential-proxy/$VM_ID.sock" \
+  --ca-cert /etc/voom-proxy/ca.pem
+voom config egress enable agent-a --expect-id "$VM_ID"
+```
+
+`--expect-id` is available on set, clear, enable, and disable. Voom checks it
+while it holds the VM state lock. Thus, a replacement VM with the same name
+cannot receive the old attachment. `set --disabled` validates and reserves the
+socket without publishing a guest route. Voom also validates the CA bundle. The
+manager can then complete its policy checks and confirm that no emergency hold
+applies before it enables the attachment.
+
+Assign each backend socket and broker policy to the immutable VM ID shown by
+`voom info`, not the mutable VM name. Voom reserves a socket across stopped and
+disabled VMs in its state store. Operators must enforce uniqueness across other
+state stores, users, and clients. Rename preserves attachments. Clones omit them
+and report the new VM ID for a separate backend.
+
+#### Security boundaries
+
+The external proxy or broker, not Voom, controls authentication, credential
+injection, and policy enforcement. Proxy use is advisory, and direct networking
+remains available. Requests that bypass the proxy receive no broker-injected
+credentials.
+
+Keep socket directories and broker policy under trusted host control. A shared
+unauthenticated listener for all sockets does not preserve VM identity. Guest
+headers and manifest contents do not authenticate a VM.
+
+#### Guest files and CA bundles
+
+Voom publishes these files through `voom-control` when it enables an attachment:
+
+- `/run/voom/egress.json`: schema version 1, mode `explicit`, and `httpProxy` and
+  `httpsProxy` set to `http://192.168.127.1:3128`.
+- `/run/voom/egress-ca.pem`: optional validated public certificate bundle. The
+  manifest includes `caCertificate` only when this file is configured.
+
+Host copies live under `<runtime VM directory>/control/`. Files have mode 0644.
+Voom publishes the manifest after the CA file. Voom replaces the files
+separately, so the update is not atomic. The metadata document always advertises
+`controlShare.egressPath`, including when the saved configuration has no
+attachment. Guests must choose how to consume the manifest and install the
+public CA.
+
+CA bundles must contain only X.509 certificate PEM blocks and at least one CA
+certificate. Voom rejects private keys, other PEM blocks, and extraneous data.
+A bundle can contain a maximum of 4 MiB. Each operation publishes the exact
+bytes that it validated. `info` and `doctor` compare the published CA to the
+current source. After the source changes, run enable or restart to update the
+guest files.
+
+#### Observation and recovery
+
+The `egress-config` column of `voom list` shows the saved attachment (`enabled`,
+`disabled`, or `none`) and does not check the running VM. `voom info` reports
+observed route state, connection count when available, and configuration drift.
+`voom doctor` uses local socket probes and host API queries. `voom doctor` sends
+no proxy requests or outbound internet traffic. Disabled declarations can start
+without their backend, certificate, or private-transport capability.
+
+Disable persists the disabled declaration after removing runtime access. A
+crash or persistence failure between those steps can leave the saved attachment
+enabled. A later restart can restore access.
+
+A failed enable can leave an enabled declaration with runtime access removed.
+After you fix the reported cause, run enable again. If Voom cannot confirm route
+removal, it tries to stop the VM runtime. Unconfirmed termination is an error.
+Voom retains the process record and log paths for recovery.
+
 ### Shares
 
 `voom share add <name> <tag> <host-path> <guest-path>` declares a `virtio-fs`
@@ -729,11 +798,11 @@ temp-file-and-rename; partial files are ignored on load.
 <state>/locks/...                           # state and per-VM locks
 ```
 
-Runtime files are process-owned and disposable, and are removed when a VM
-stops. Notable paths under `<runtime>/vms/<vm-id>/`:
+Runtime files are disposable. Notable paths under `<runtime>/vms/<vm-id>/`:
 
-- `vm.pid`, `gvproxy.pid`, `auto-forward.pid`, `virtiofs-<tag>.pid` — process
-  IDs, with adjacent `.identity` files containing launch-time identity records
+- `vm.process.json`, `gvproxy.process.json`, `auto-forward.process.json`,
+  `virtiofs-<tag>.process.json` — process IDs and system-specific start
+  identities
 - `seed.img` — regenerated cloud-init NoCloud disk (`meta-data`, `user-data`,
   `network-config`)
 - `control/mounts.json`, `control/ports.json` — host side of the reserved
@@ -782,7 +851,7 @@ Events for an unexpected VM process exit are not emitted in this version.
 
 `voom doctor` scans object directories in addition to `state.json` and reports
 dangling index entries, orphaned records, duplicate names or IDs, LAN exposure,
-stale pidfiles, stale auto-forward state, and malformed guest port reports.
+stale process records, stale auto-forward state, and malformed guest port reports.
 
 Common command effects:
 
@@ -792,10 +861,10 @@ Common command effects:
 | `voom image rm` | `state.json`, `image.json`, VM references | image record and disk; `state.json` entry |
 | `voom create` | `state.json`, `image.json`, image disk | `state.json`, `vm.json`, VM disk copy, event log |
 | `voom clone` | `state.json`, source `vm.json`, source VM disk | `state.json`, new `vm.json`, VM disk copy (no shares/forwards), event log |
-| `voom start` | `state.json`, `vm.json`, `image.json`, VM disk | runtime directory, `seed.img`, control share files, sockets, pidfiles, helper logs, runtime auto-forward state, event log |
-| `voom stop` | `state.json`, `vm.json`, runtime pidfiles | stops runtime helper processes; removes sockets, pidfiles, and the runtime auto-forward state file; writes event log |
-| `voom rm` | `state.json`, `vm.json`, runtime pidfiles | removes VM state, VM disk, runtime directory, cache logs, and `state.json` entry; writes event log |
-| `voom resources cpus` / `memory` | `state.json`, `vm.json`, runtime pidfile | updates stopped-VM CPU or memory allocation in `vm.json` |
+| `voom start` | `state.json`, `vm.json`, `image.json`, VM disk | runtime directory, `seed.img`, control share files, sockets, process records, helper logs, runtime auto-forward state, event log |
+| `voom stop` | `state.json`, `vm.json`, runtime process records | stops runtime helper processes; removes sockets, process records, and the runtime auto-forward state file; writes event log |
+| `voom rm` | `state.json`, `vm.json`, runtime process records | removes VM state, VM disk, runtime directory, cache logs, and `state.json` entry; writes event log |
+| `voom resources cpus` / `memory` | `state.json`, `vm.json`, runtime process record | updates stopped-VM CPU or memory allocation in `vm.json` |
 | `voom resources disk grow` | `state.json`, `vm.json`, VM disk | grows the stopped VM disk |
 | `voom disk reset` | `state.json`, `vm.json`, `image.json`, image disk | replaces the VM disk and updates the VM image/access metadata |
 | `voom forward add` / `rm` | `state.json`, `vm.json`, runtime socket when running | updates declared forwards in `vm.json`; exposes or unexposes gvproxy forwards for running VMs |
@@ -803,9 +872,9 @@ Common command effects:
 | `voom share add` / `rm` | `state.json`, `vm.json`, host path | updates share declarations in `vm.json`; running VMs must be stopped first |
 | `voom nixos switch` | `state.json`, `vm.json`, image capabilities, flake metadata | runs `nixos-rebuild` over SSH and records switch metadata in `vm.json` |
 | `voom config show` | `state.json`, `vm.json` | no state changes |
-| `voom config ssh-port` | `state.json`, `vm.json`, runtime pidfile, host port availability | updates the stopped VM's SSH management port in `vm.json` |
+| `voom config ssh-port` | `state.json`, `vm.json`, runtime process record, host port availability | updates the stopped VM's SSH management port in `vm.json` |
 | `voom logs` | `state.json`, `vm.json`, cache log | no state changes |
-| `voom doctor` | state, runtime, cache, host tools, pidfiles | no state changes |
+| `voom doctor` | state, runtime, cache, host tools, process records | no state changes |
 | `voom events` | `<cache>/events.jsonl`, retained generation | no state changes beyond creating the event lock while waiting |
 
 ## Development

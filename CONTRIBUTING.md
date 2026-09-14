@@ -95,8 +95,8 @@ handlers.
 - `internal/image` — image disk inspection and direct-boot extraction.
 - `internal/host` — host OS/architecture detection, image system/format
   derivation, executable lookup, KVM detection, environment-derived paths.
-- `internal/process` — process launching, pidfile writing, PID reuse
-  detection, expected process-kind validation, signal handling.
+- `internal/process` — detached process launching, process-record creation and
+  validation, PID reuse detection, signal handling.
 - `internal/gvproxy` — HTTP-over-Unix-socket gvproxy forwarder client.
 - `internal/bootstrap` — cloud-init NoCloud seed image generation.
 - `internal/driver/qemu` — Linux/QEMU launch args, monitor protocol, graceful
@@ -137,7 +137,7 @@ Areas that should stay covered by unit tests:
 - guest `ports.json` parsing and stale-file handling;
 - auto-forward enable/disable state changes and fake gvproxy reconciliation;
 - all-VM `forward ls` output;
-- pidfile process-kind validation and PID reuse handling;
+- process-record validation by process kind and PID reuse;
 - `rm` confirmation and `--force`;
 - gvproxy request/response parsing.
 
