@@ -149,7 +149,13 @@ func forwardDiscoverCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		preview := deps.vm.PlanAutoForwards(vmRec, report, runtimeForwards)
+		var preview []vm.RuntimeAutoForward
+		if vmRec.Network.AutoForward {
+			preview, err = deps.vm.PlanAutoForwards(vmRec, *report, runtimeForwards)
+			if err != nil {
+				return err
+			}
+		}
 		autoBind := vmRec.Network.AutoForwardBind
 		if autoBind == "" {
 			autoBind = "127.0.0.1"
@@ -188,39 +194,30 @@ func forwardAutoCommand() *cobra.Command {
 		if bind == "" {
 			bind = "127.0.0.1"
 		}
-		return setAutoForward(cmd, args[0], true, enableOffset, true, bind, true)
+		enabled := true
+		return updateAutoForward(cmd, args[0], vm.AutoForwardUpdate{Enabled: &enabled, Offset: &enableOffset, Bind: &bind})
 	}}
 	enable.Flags().IntVar(&enableOffset, "offset", 0, "host port offset")
 	enable.Flags().StringVar(&enableBind, "bind", "", "host bind address")
 	enable.Flags().BoolVar(&enableLan, "lan", false, "bind to 0.0.0.0")
 	cmd.AddCommand(enable)
 	cmd.AddCommand(&cobra.Command{Use: "disable <name>", Short: "Disable auto-forwarding", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		return setAutoForward(cmd, args[0], false, 0, false, "", false)
+		enabled := false
+		return updateAutoForward(cmd, args[0], vm.AutoForwardUpdate{Enabled: &enabled})
 	}})
 	cmd.AddCommand(&cobra.Command{Use: "offset <name> <n>", Short: "Set auto-forward offset", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		n, err := strconv.Atoi(args[1])
 		if err != nil || n < 0 {
 			return errors.New("offset must be a non-negative integer")
 		}
-		return setAutoForwardOffset(cmd, args[0], n)
+		return updateAutoForward(cmd, args[0], vm.AutoForwardUpdate{Offset: &n})
 	}})
 	reconcile := &cobra.Command{Use: "reconcile <name>", Short: "Reconcile runtime auto-forwards", Args: cobra.ExactArgs(1), Hidden: true, RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
 		}
-		vmRec, err := deps.store.LoadVM(args[0])
-		if err != nil {
-			return err
-		}
-		im, err := deps.store.LoadImageByID(vmRec.Image.ID)
-		if err != nil {
-			return err
-		}
-		if err := vm.RequireGuestPortReport(im, "auto-forward reconciliation"); err != nil {
-			return err
-		}
-		rows, err := deps.vm.ReconcileAutoForwards(cmd.Context(), vmRec)
+		rows, err := deps.vm.ReconcileAutoForwards(cmd.Context(), args[0])
 		if err != nil {
 			return err
 		}
@@ -234,7 +231,7 @@ func forwardAutoCommand() *cobra.Command {
 		return tw.Flush()
 	}}
 	cmd.AddCommand(reconcile)
-	watch := &cobra.Command{Use: "watch <name>", Short: "Watch guest port reports and reconcile runtime auto-forwards", Args: cobra.ExactArgs(1), Hidden: true, RunE: func(cmd *cobra.Command, args []string) error {
+	watch := &cobra.Command{Use: "watch <id>", Short: "Watch guest port reports and reconcile runtime auto-forwards", Args: cobra.ExactArgs(1), Hidden: true, RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err

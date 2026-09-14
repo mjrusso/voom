@@ -172,6 +172,43 @@ index bfe41f4f..6c1a9a61 100644
  	mux := vn.Mux()
  	if InDebugMode() {
  		mux.HandleFunc("/debug/pprof/", pprof.Index)
+diff --git a/pkg/services/forwarder/ports.go b/pkg/services/forwarder/ports.go
+--- a/pkg/services/forwarder/ports.go
++++ b/pkg/services/forwarder/ports.go
+@@ -266,9 +266,9 @@ func (f *PortsForwarder) Unexpose(protocol types.TransportProtocol, local string
+ 	f.proxiesLock.Lock()
+ 	defer f.proxiesLock.Unlock()
+ 	proxy, ok := f.proxies[key(protocol, local)]
+ 	if !ok {
+-		return errors.New("proxy not found")
++		return nil
+ 	}
+ 	delete(f.proxies, key(protocol, local))
+ 	return proxy.underlying.Close()
+ }
+diff --git a/pkg/services/forwarder/ports_test.go b/pkg/services/forwarder/ports_test.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/services/forwarder/ports_test.go
+@@ -0,0 +1,18 @@
++package forwarder
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++)
++
++func TestUnexposeMissingIsIdempotent(t *testing.T) {
++	f := &PortsForwarder{proxies: map[ProxyKey]proxy{}}
++	request := httptest.NewRequest(http.MethodPost, "/unexpose", strings.NewReader(`{"local":"127.0.0.1:8080","protocol":"tcp"}`))
++	response := httptest.NewRecorder()
++	f.Mux().ServeHTTP(response, request)
++	if response.Code != http.StatusOK {
++		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
++	}
++}
 diff --git a/pkg/services/forwarder/tcp.go b/pkg/services/forwarder/tcp.go
 index ae18ada5..1948022b 100644
 --- a/pkg/services/forwarder/tcp.go

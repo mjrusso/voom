@@ -1,7 +1,7 @@
 { lib, buildGoModule, gvproxyLicenses, gvproxyNotice, gvproxySource }:
 buildGoModule {
   pname = "gvproxy";
-  version = "0.8.9-voom.2";
+  version = "0.8.9-voom.3";
   src = gvproxySource;
   vendorHash = null;
   subPackages = [ "cmd/gvproxy" ];
@@ -13,7 +13,7 @@ buildGoModule {
   '';
   checkPhase = ''
     runHook preCheck
-    GVPROXY_TEST_BINARY="$GOPATH/bin/gvproxy" go test -race ./pkg/services/gatewayforward ./pkg/virtualnetwork ./cmd/gvproxy
+    GVPROXY_TEST_BINARY="$GOPATH/bin/gvproxy" go test -race ./pkg/services/forwarder ./pkg/services/gatewayforward ./pkg/virtualnetwork ./cmd/gvproxy
     runHook postCheck
   '';
   meta = {

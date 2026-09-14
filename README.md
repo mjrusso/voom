@@ -632,9 +632,11 @@ only when attaching to a real network (bridged, macvtap, VPN).
 #### `voom-portfwd` Contract
 
 The helper writes `/run/voom/ports.json` atomically (tmp-and-rename) every
-interval. The host treats reports older than ~2× the scan interval as stale;
-stale or malformed data removes runtime auto-forwards while leaving manual
-forwards intact.
+interval. The host treats a report older than 30 seconds as stale. A missing,
+stale, or malformed report leaves installed runtime auto-forwards in place. A
+valid report is authoritative: Voom removes auto-forwards for listeners that
+the report does not list, and a valid empty report removes all of them. Manual
+forwards are never affected.
 
 ```json
 {
@@ -696,6 +698,9 @@ plans host forwards from fresh reports and records installed/skipped rows in
 - runtime auto-forwards bind `127.0.0.1` on the host by default; pass
   `--bind <ip>` or `--lan` to expose them elsewhere;
 - host port = guest port + configured auto-forward offset.
+- changing the bind or offset removes runtime auto-forwards that no longer
+  match immediately, without waiting for a guest report; forwards for the new
+  bind or offset appear after the next valid report.
 
 `voom forward discover <name>` is an audit/preview command; `voom forward ls`
 shows effective rows including skipped auto-forwards with an explanation.
@@ -794,7 +799,7 @@ Common command effects:
 | `voom resources disk grow` | `state.json`, `vm.json`, VM disk | grows the stopped VM disk |
 | `voom disk reset` | `state.json`, `vm.json`, `image.json`, image disk | replaces the VM disk and updates the VM image/access metadata |
 | `voom forward add` / `rm` | `state.json`, `vm.json`, runtime socket when running | updates declared forwards in `vm.json`; exposes or unexposes gvproxy forwards for running VMs |
-| `voom forward auto enable` / `disable` / `offset` | `state.json`, `vm.json`, image capabilities, runtime report when running | updates auto-forward settings in `vm.json`; reconciles or removes runtime auto-forwards for running VMs; writes event log on transitions |
+| `voom forward auto enable` / `disable` / `offset` | `state.json`, `vm.json`, image capabilities, runtime report when running | updates auto-forward settings in `vm.json`; for running VMs, removes runtime auto-forwards that no longer match the bind or offset and starts or stops the watcher, which reconciles from guest reports; writes the event log on transitions |
 | `voom share add` / `rm` | `state.json`, `vm.json`, host path | updates share declarations in `vm.json`; running VMs must be stopped first |
 | `voom nixos switch` | `state.json`, `vm.json`, image capabilities, flake metadata | runs `nixos-rebuild` over SSH and records switch metadata in `vm.json` |
 | `voom config show` | `state.json`, `vm.json` | no state changes |

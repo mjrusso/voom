@@ -5,17 +5,24 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/mjrusso/voom/internal/state"
+	"github.com/mjrusso/voom/internal/vm"
 )
 
-func setAutoForward(cmd *cobra.Command, name string, enabled bool, offset int, setOffset bool, bind string, setBind bool) error {
+func updateAutoForward(cmd *cobra.Command, name string, update vm.AutoForwardUpdate) error {
 	deps, err := loadRuntimeDeps()
 	if err != nil {
 		return err
 	}
-	vmRec, err := deps.vm.SetAutoForward(cmd.Context(), name, enabled, offset, setOffset, bind, setBind)
+	vmRec, err := deps.vm.UpdateAutoForward(cmd.Context(), name, update)
 	if err != nil {
 		return err
 	}
+	return writeAutoForwardResult(cmd, vmRec)
+}
+
+func writeAutoForwardResult(cmd *cobra.Command, vmRec *state.VMRecord) error {
 	autoBind := vmRec.Network.AutoForwardBind
 	if autoBind == "" {
 		autoBind = "127.0.0.1"
@@ -29,18 +36,6 @@ func setAutoForward(cmd *cobra.Command, name string, enabled bool, offset int, s
 			"bind":        autoBind,
 		})
 	}
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "auto-forward %s for %s (bind %s)\n", map[bool]string{true: "enabled", false: "disabled"}[enabled], vmRec.Name, autoBind)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "auto-forward %s for %s (bind %s)\n", map[bool]string{true: "enabled", false: "disabled"}[vmRec.Network.AutoForward], vmRec.Name, autoBind)
 	return nil
-}
-
-func setAutoForwardOffset(cmd *cobra.Command, name string, offset int) error {
-	deps, err := loadRuntimeDeps()
-	if err != nil {
-		return err
-	}
-	vmRec, err := deps.store.LoadVM(name)
-	if err != nil {
-		return err
-	}
-	return setAutoForward(cmd, vmRec.Name, vmRec.Network.AutoForward, offset, true, "", false)
 }

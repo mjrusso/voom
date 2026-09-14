@@ -2,6 +2,7 @@ package gvproxy
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -64,11 +65,9 @@ func TestUnexposeReportsNon2xxBody(t *testing.T) {
 		_, _ = w.Write([]byte("forwarder not found\n"))
 	}))
 	err := Unexpose(sock, "127.0.0.1:2222")
-	if err == nil {
-		t.Fatal("expected error from 400 response")
-	}
-	if !strings.Contains(err.Error(), "forwarder not found") {
-		t.Errorf("err = %v, want body included", err)
+	var response *HTTPError
+	if !errors.As(err, &response) || response.Status != http.StatusBadRequest || response.Body != "forwarder not found" {
+		t.Fatalf("Unexpose error = %#v", err)
 	}
 }
 

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Keep installed automatic forwards when the guest report is missing, stale,
+  or malformed. Apply bind and offset changes immediately, serialize
+  reconciliation per VM, and replace runtime forwarding state atomically.
 - Show disk capacity and saved egress configuration (`egress-config`) in
   `voom list`, and disk capacity and host allocation in `voom info`.
 - Add per-VM explicit egress proxy configuration with live enable/disable,

@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -46,10 +45,6 @@ func Expose(sock, local, remote string) error {
 // Unexpose removes a previously registered host-to-guest TCP forwarder.
 func Unexpose(sock, local string) error {
 	_, err := request(context.Background(), sock, http.MethodPost, "/services/forwarder/unexpose", map[string]string{"local": local})
-	var responseErr *HTTPError
-	if errors.As(err, &responseErr) && responseErr.Status == http.StatusInternalServerError && responseErr.Body == "proxy not found" {
-		return nil
-	}
 	return err
 }
 

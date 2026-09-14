@@ -38,15 +38,15 @@ func TestNormalizeBindAndConflictRules(t *testing.T) {
 }
 
 func TestPlanAutoSelectionOffsetAndConflicts(t *testing.T) {
-	report := &PortsReport{SchemaVersion: 1, GeneratedAt: time.Now().UTC(), Listeners: []Listener{
+	report := PortsReport{SchemaVersion: 1, GeneratedAt: time.Now().UTC(), Listeners: []Listener{
 		{Proto: "tcp", Addr: "0.0.0.0", Port: 8080},
 		{Proto: "tcp", Addr: "127.0.0.1", Port: 9090},
 		{Proto: "tcp", Addr: "0.0.0.0", Port: 22},
 		{Proto: "tcp", Addr: "0.0.0.0", Port: 18080},
 		{Proto: "tcp", Addr: "0.0.0.0", Port: 70000},
 	}}
-	rows := PlanAuto(VMPlanConfig{VMID: "vm1", AutoForward: true, HostOffset: 10000, GuestTargetIP: "192.168.127.3"}, report, nil, PlanOptions{
-		PortReserved: func(_ string, port int) bool { return port == 28080 },
+	rows := mustPlanAuto(t, VMPlanConfig{HostOffset: 10000, GuestTargetIP: "192.168.127.3"}, report, nil, PlanOptions{
+		PortReserved: func(_ string, port int) (bool, error) { return port == 28080, nil },
 		HostPortAvailable: func(_ string, port int) (bool, string) {
 			if port == 19090 {
 				return false, "host port is already in use"
@@ -62,17 +62,17 @@ func TestPlanAutoSelectionOffsetAndConflicts(t *testing.T) {
 }
 
 func TestPlanAutoKeepsExistingInstalledPortWithoutAvailabilityCheck(t *testing.T) {
-	report := &PortsReport{SchemaVersion: 1, GeneratedAt: time.Now().UTC(), Listeners: []Listener{{Proto: "tcp", Addr: "0.0.0.0", Port: 8080}}}
+	report := PortsReport{SchemaVersion: 1, GeneratedAt: time.Now().UTC(), Listeners: []Listener{{Proto: "tcp", Addr: "0.0.0.0", Port: 8080}}}
 	existing := []RuntimeAuto{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 8080, GuestPort: 8080, Installed: true}}
-	rows := PlanAuto(VMPlanConfig{VMID: "vm1", AutoForward: true, GuestTargetIP: "192.168.127.3"}, report, existing, PlanOptions{
+	rows := mustPlanAuto(t, VMPlanConfig{GuestTargetIP: "192.168.127.3"}, report, existing, PlanOptions{
 		HostPortAvailable: func(string, int) (bool, string) { return false, "host port is already in use" },
 	})
 	assertRow(t, rows[0], "active", 8080, "")
 }
 
 func TestPlanAutoUsesConfiguredBind(t *testing.T) {
-	report := &PortsReport{SchemaVersion: 1, GeneratedAt: time.Now().UTC(), Listeners: []Listener{{Proto: "tcp", Addr: "0.0.0.0", Port: 8080}}}
-	rows := PlanAuto(VMPlanConfig{VMID: "vm1", AutoForward: true, HostBind: "0.0.0.0", GuestTargetIP: "192.168.127.3"}, report, nil, PlanOptions{
+	report := PortsReport{SchemaVersion: 1, GeneratedAt: time.Now().UTC(), Listeners: []Listener{{Proto: "tcp", Addr: "0.0.0.0", Port: 8080}}}
+	rows := mustPlanAuto(t, VMPlanConfig{HostBind: "0.0.0.0", GuestTargetIP: "192.168.127.3"}, report, nil, PlanOptions{
 		HostPortAvailable: func(bind string, port int) (bool, string) {
 			if bind != "0.0.0.0" || port != 8080 {
 				t.Fatalf("availability checked %s:%d", bind, port)
@@ -87,11 +87,11 @@ func TestPlanAutoUsesConfiguredBind(t *testing.T) {
 }
 
 func TestPlanAutoPrefersForwardableDuplicateGuestPort(t *testing.T) {
-	report := &PortsReport{SchemaVersion: 1, GeneratedAt: time.Now().UTC(), Listeners: []Listener{
+	report := PortsReport{SchemaVersion: 1, GeneratedAt: time.Now().UTC(), Listeners: []Listener{
 		{Proto: "tcp", Addr: "127.0.0.1", Port: 8080},
 		{Proto: "tcp", Addr: "0.0.0.0", Port: 8080},
 	}}
-	rows := PlanAuto(VMPlanConfig{VMID: "vm1", AutoForward: true, GuestTargetIP: "192.168.127.3"}, report, nil, PlanOptions{
+	rows := mustPlanAuto(t, VMPlanConfig{GuestTargetIP: "192.168.127.3"}, report, nil, PlanOptions{
 		HostPortAvailable: func(string, int) (bool, string) { return true, "" },
 	})
 	if len(rows) != 1 {
@@ -102,13 +102,7 @@ func TestPlanAutoPrefersForwardableDuplicateGuestPort(t *testing.T) {
 
 func TestRuntimeStateRoundTripAndPaths(t *testing.T) {
 	dir := t.TempDir()
-	path := RuntimeStatePath(dir)
-	if path != filepath.Join(dir, "auto-forwards.json") {
-		t.Fatalf("RuntimeStatePath = %s", path)
-	}
-	if WatcherPidfile(dir) != filepath.Join(dir, "auto-forward.pid") {
-		t.Fatalf("unexpected watcher pidfile")
-	}
+	path := filepath.Join(dir, "auto-forwards.json")
 	rows := []RuntimeAuto{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 18080, GuestPort: 8080, GuestTargetIP: "192.168.127.3", Status: "active", Installed: true}}
 	if err := WriteRuntimeState(path, rows); err != nil {
 		t.Fatal(err)
@@ -120,11 +114,43 @@ func TestRuntimeStateRoundTripAndPaths(t *testing.T) {
 	if len(got) != 1 || got[0].HostPort != 18080 || !got[0].Installed {
 		t.Fatalf("unexpected rows: %#v", got)
 	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("state file mode = %o, want 644", info.Mode().Perm())
+	}
 	if err := WriteRuntimeState(path, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("state file was not removed: %v", err)
+	}
+}
+
+func TestWriteRuntimeStateReportsRemovalFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "destination")
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "child"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteRuntimeState(path, nil); err == nil {
+		t.Fatal("expected non-empty directory removal failure")
+	}
+}
+
+func TestPlanAutoReturnsReservationErrors(t *testing.T) {
+	report := PortsReport{Listeners: []Listener{{Proto: "tcp", Addr: "0.0.0.0", Port: 8080}}}
+	want := errors.New("reservation read failed")
+	_, err := PlanAuto(VMPlanConfig{}, report, nil, PlanOptions{
+		PortReserved: func(string, int) (bool, error) { return false, want },
+	})
+	if !errors.Is(err, want) {
+		t.Fatalf("PlanAuto error = %v, want %v", err, want)
 	}
 }
 
@@ -176,4 +202,13 @@ func assertRow(t *testing.T, row RuntimeAuto, status string, hostPort int, reaso
 	if row.Status != status || row.HostPort != hostPort || (reason != "" && !strings.Contains(row.Reason, reason)) {
 		t.Fatalf("row = %#v, want status=%s hostPort=%d reason~=%q", row, status, hostPort, reason)
 	}
+}
+
+func mustPlanAuto(t *testing.T, cfg VMPlanConfig, report PortsReport, existing []RuntimeAuto, opts PlanOptions) []RuntimeAuto {
+	t.Helper()
+	rows, err := PlanAuto(cfg, report, existing, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
 }

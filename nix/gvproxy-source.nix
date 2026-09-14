@@ -1,6 +1,6 @@
 { applyPatches, fetchFromGitHub }:
 applyPatches {
-  name = "gvproxy-0.8.9-voom.2-source";
+  name = "gvproxy-0.8.9-voom.3-source";
   src = fetchFromGitHub {
     owner = "containers";
     repo = "gvisor-tap-vsock";

@@ -461,12 +461,6 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		}
 	}
 	if vm.Network.AutoForward && im.Capabilities.GuestPortReport && im.Capabilities.ControlShare {
-		if err := ValidateAutoForwardConfig(vm); err != nil {
-			return nil, err
-		}
-		if _, err := m.ReconcileAutoForwards(ctx, vm); err != nil {
-			return nil, err
-		}
 		if err := m.StartAutoForwardWatcher(vm); err != nil {
 			return nil, err
 		}
@@ -528,7 +522,7 @@ func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeS
 	if err := process.StopRecorded(rt.AutoForwardProcessRecord(), "auto-forward", processStopTimeout); err != nil {
 		failures = append(failures, err)
 	}
-	_ = m.CleanupAutoForwards(ctx, vm)
+	cleanupErr := m.cleanupAutoForwardsLocked(vm)
 	if pid, ok := process.ValidRecord(rt.VMProcessRecord(), state.VMProcessKind(vm.Driver)); ok {
 		switch vm.Driver {
 		case "qemu":
@@ -565,6 +559,10 @@ func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeS
 		for _, p := range rt.NetworkArtifacts() {
 			_ = os.Remove(p)
 		}
+		cleanupErr = m.cleanupAutoForwardsLocked(vm)
+	}
+	if cleanupErr != nil {
+		failures = append(failures, cleanupErr)
 	}
 	filesChanged, err := removeEgressFiles(rt)
 	return runtimeStopResult{

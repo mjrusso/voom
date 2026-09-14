@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/mjrusso/voom/internal/atomicfile"
 )
 
 // Decl declares a host-to-guest port forward configured for a VM.
@@ -67,8 +68,6 @@ type PortsReport struct {
 
 // VMPlanConfig holds per-VM settings consumed by PlanAuto.
 type VMPlanConfig struct {
-	VMID          string
-	AutoForward   bool
 	HostOffset    int
 	HostBind      string
 	GuestTargetIP string
@@ -76,8 +75,8 @@ type VMPlanConfig struct {
 
 // PlanOptions supplies reservation checks and host-port probes used by PlanAuto.
 type PlanOptions struct {
-	PortReserved        func(bind string, port int) bool
-	RuntimeAutoReserved func(bind string, port int) bool
+	PortReserved        func(bind string, port int) (bool, error)
+	RuntimeAutoReserved func(bind string, port int) (bool, error)
 	HostPortAvailable   func(bind string, port int) (bool, string)
 }
 
@@ -166,19 +165,16 @@ func ValidateReport(r PortsReport) error {
 }
 
 // PlanAuto computes the desired runtime auto-forward rows for a VM from a guest ports report.
-func PlanAuto(cfg VMPlanConfig, report *PortsReport, existing []RuntimeAuto, opts PlanOptions) []RuntimeAuto {
-	if !cfg.AutoForward || report == nil {
-		return nil
-	}
+func PlanAuto(cfg VMPlanConfig, report PortsReport, existing []RuntimeAuto, opts PlanOptions) ([]RuntimeAuto, error) {
 	hostBind := cfg.HostBind
 	if hostBind == "" {
 		hostBind = "127.0.0.1"
 	}
 	if opts.PortReserved == nil {
-		opts.PortReserved = func(string, int) bool { return false }
+		opts.PortReserved = func(string, int) (bool, error) { return false, nil }
 	}
 	if opts.RuntimeAutoReserved == nil {
-		opts.RuntimeAutoReserved = func(string, int) bool { return false }
+		opts.RuntimeAutoReserved = func(string, int) (bool, error) { return false, nil }
 	}
 	if opts.HostPortAvailable == nil {
 		opts.HostPortAvailable = HostPortAvailable
@@ -195,27 +191,49 @@ func PlanAuto(cfg VMPlanConfig, report *PortsReport, existing []RuntimeAuto, opt
 		hostPort := l.Port + cfg.HostOffset
 		f := RuntimeAuto{Protocol: "tcp", Bind: hostBind, HostPort: hostPort, GuestPort: l.Port, GuestTargetIP: cfg.GuestTargetIP, Offset: cfg.HostOffset, Status: "active", Installed: true}
 		_, alreadyActive := existingActive[Key(f)]
-		switch {
-		case l.Proto != "tcp":
-			f.Status, f.Installed, f.Reason = "skipped", false, "non-tcp listener"
-		case l.Port == 22:
-			f.Status, f.Installed, f.Reason = "skipped", false, "guest SSH port is reserved"
-		case !ListenerForwardable(l):
-			f.Status, f.Installed, f.Reason = "skipped", false, "listener is not bound to all guest interfaces"
-		case hostPort < 1 || hostPort > 65535:
-			f.Status, f.Installed, f.Reason = "skipped", false, "calculated host port is outside 1..65535"
-		case opts.PortReserved(f.Bind, f.HostPort):
-			f.Status, f.Installed, f.Reason = "skipped", false, "host port is reserved by SSH or a manual forward"
-		case opts.RuntimeAutoReserved(f.Bind, f.HostPort):
-			f.Status, f.Installed, f.Reason = "skipped", false, "host port is already used by another runtime auto-forward"
-		case !alreadyActive:
-			if ok, reason := opts.HostPortAvailable(f.Bind, f.HostPort); !ok {
-				f.Status, f.Installed, f.Reason = "skipped", false, reason
-			}
+		reason, err := autoForwardSkipReason(l, f, alreadyActive, opts)
+		if err != nil {
+			return nil, err
+		}
+		if reason != "" {
+			f.Status, f.Installed, f.Reason = "skipped", false, reason
 		}
 		rows = append(rows, f)
 	}
-	return rows
+	return rows, nil
+}
+
+func autoForwardSkipReason(listener Listener, f RuntimeAuto, alreadyActive bool, opts PlanOptions) (string, error) {
+	switch {
+	case listener.Proto != "tcp":
+		return "non-tcp listener", nil
+	case listener.Port == 22:
+		return "guest SSH port is reserved", nil
+	case !ListenerForwardable(listener):
+		return "listener is not bound to all guest interfaces", nil
+	case f.HostPort < 1 || f.HostPort > 65535:
+		return "calculated host port is outside 1..65535", nil
+	}
+	reserved, err := opts.PortReserved(f.Bind, f.HostPort)
+	if err != nil {
+		return "", err
+	}
+	if reserved {
+		return "host port is reserved by SSH or a manual forward", nil
+	}
+	reserved, err = opts.RuntimeAutoReserved(f.Bind, f.HostPort)
+	if err != nil {
+		return "", err
+	}
+	if reserved {
+		return "host port is already used by another runtime auto-forward", nil
+	}
+	if !alreadyActive {
+		if ok, reason := opts.HostPortAvailable(f.Bind, f.HostPort); !ok {
+			return reason, nil
+		}
+	}
+	return "", nil
 }
 
 func preferredListeners(listeners []Listener) []Listener {
@@ -243,16 +261,6 @@ func Key(f RuntimeAuto) string {
 	return fmt.Sprintf("%s/%s/%d/%d", f.Protocol, f.Bind, f.HostPort, f.GuestPort)
 }
 
-// RuntimeStatePath returns the path to the persisted auto-forward state file for a VM.
-func RuntimeStatePath(runtimeVMDir string) string {
-	return filepath.Join(runtimeVMDir, "auto-forwards.json")
-}
-
-// WatcherPidfile returns the path to the auto-forward watcher pidfile for a VM.
-func WatcherPidfile(runtimeVMDir string) string {
-	return filepath.Join(runtimeVMDir, "auto-forward.pid")
-}
-
 // ReadRuntimeState loads the persisted runtime auto-forward rows from path.
 func ReadRuntimeState(path string) ([]RuntimeAuto, error) {
 	var rows []RuntimeAuto
@@ -275,15 +283,14 @@ func ReadRuntimeState(path string) ([]RuntimeAuto, error) {
 // WriteRuntimeState persists rows to path, removing the file when rows is empty.
 func WriteRuntimeState(path string, rows []RuntimeAuto) error {
 	if len(rows) == 0 {
-		_ = os.Remove(path)
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
 	}
 	b, err := json.MarshalIndent(rows, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(b, '\n'), 0o644)
+	return atomicfile.Write(path, append(b, '\n'), 0o644)
 }

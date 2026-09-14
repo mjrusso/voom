@@ -40,6 +40,9 @@ cannot reach host `127.0.0.0/8` or `::1` services through
 Voom's host-to-guest SSH, declared-forward, and automatic-forward listeners do
 not use that mapping.
 
+The patched host forwarder treats removal of an absent listener as success.
+Cleanup can retry without matching gvproxy error text.
+
 The host Unix control mux exposes `expose`, `unexpose`, and `all` below
 `/services/gateway-forward/`. These handlers are absent from the guest mux,
 services mux, and host TCP control listeners. Listener removal waits for the
