@@ -32,12 +32,11 @@ func (m *Manager) UpdateAutoForward(ctx context.Context, name string, update Aut
 		}
 		update.Bind = &bind
 	}
-	lock, err := m.lockVM(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	if update.Enabled != nil {
 		vm.Network.AutoForward = *update.Enabled
 	}
@@ -214,12 +213,11 @@ func (m *Manager) cleanupAutoForwardsLocked(vm *state.VMRecord) error {
 
 // ReconcileAutoForwards reconciles a running VM under its per-VM lock.
 func (m *Manager) ReconcileAutoForwards(ctx context.Context, name string) ([]RuntimeAutoForward, error) {
-	lock, err := m.lockVM(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	if !m.IsRunning(vm) {
 		return nil, fmt.Errorf("VM %q is not running", vm.Name)
 	}

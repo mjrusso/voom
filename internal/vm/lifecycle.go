@@ -26,10 +26,6 @@ import (
 // an SSH port, and registering it in the store. The disk copy honors ctx
 // cancellation.
 func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cpus, mem, sshPort int) (*state.VMRecord, error) {
-	idx := m.store.IndexSnapshot()
-	if _, ok := idx.VMs[name]; ok {
-		return nil, fmt.Errorf("VM %q already exists", name)
-	}
 	im, err := m.store.LoadImage(imageName)
 	if err != nil {
 		return nil, err
@@ -38,15 +34,6 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 		driver = state.DefaultDriver()
 	}
 	if err := host.ValidateHostImage(im.Arch, im.Format, driver); err != nil {
-		return nil, err
-	}
-	if sshPort == 0 {
-		allocated, err := m.store.AllocateSSHPort()
-		if err != nil {
-			return nil, err
-		}
-		sshPort = allocated
-	} else if err := m.store.EnsureSSHPortAvailable(sshPort); err != nil {
 		return nil, err
 	}
 	id, err := state.NewID()
@@ -76,15 +63,37 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 	if err := os.MkdirAll(m.store.VMDir(id), 0o755); err != nil {
 		return nil, err
 	}
+	cleanupObject := true
+	defer func() {
+		if cleanupObject {
+			_ = os.RemoveAll(m.store.VMDir(id))
+		}
+	}()
 	if err := state.CopyFile(ctx, m.store.ImageDiskPath(im), m.store.VMDiskPath(vm)); err != nil {
 		return nil, err
 	}
-	if err := m.store.SaveVM(vm); err != nil {
+	if err := m.store.WithGlobal(func() error {
+		idx := m.store.IndexSnapshot()
+		if idx.Images[imageName] != im.ID {
+			return fmt.Errorf("image %q changed while creating VM", imageName)
+		}
+		var err error
+		if sshPort == 0 {
+			vm.Network.SSHPort, err = m.store.AllocateSSHPort()
+		} else {
+			err = m.store.EnsureSSHPortAvailable(sshPort)
+		}
+		if err != nil {
+			return err
+		}
+		if err := m.store.SaveVM(vm); err != nil {
+			return err
+		}
+		return m.store.RegisterVMLocked(name, id)
+	}); err != nil {
 		return nil, err
 	}
-	if err := m.store.RegisterVM(name, id); err != nil {
-		return vm, err
-	}
+	cleanupObject = false
 	m.emitVM("create", vm, map[string]string{"image": im.Name, "driver": vm.Driver, "arch": vm.Arch})
 	return vm, nil
 }
@@ -100,24 +109,15 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 // 'voom config show' commands print the commands to reproduce them
 // deliberately. The disk copy honors ctx cancellation.
 func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.VMRecord, retErr error) {
-	lock, err := m.lockVMState(ctx, srcName)
+	src, unlock, err := m.store.LockVMRecord(ctx, srcName)
 	if err != nil {
 		return nil, err
 	}
-	defer lock.Release()
-	src := lock.VM
-	idx := m.store.IndexSnapshot()
-	if _, ok := idx.VMs[dstName]; ok {
-		return nil, fmt.Errorf("VM %q already exists", dstName)
-	}
+	defer unlock()
 	if m.IsRunning(src) {
 		return nil, fmt.Errorf("VM %q is running; stop it before cloning", srcName)
 	}
 	id, err := state.NewID()
-	if err != nil {
-		return nil, err
-	}
-	sshPort, err := m.store.AllocateSSHPort()
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.
 	clone.CreatedAt = now
 	clone.UpdatedAt = now
 	clone.Shares = nil
-	clone.Network = state.VMNetwork{SSHPort: sshPort, SSHBind: src.Network.SSHBind}
+	clone.Network = state.VMNetwork{SSHBind: src.Network.SSHBind}
 	if src.Nixos != nil {
 		nixos := *src.Nixos
 		clone.Nixos = &nixos
@@ -148,14 +148,17 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.
 	if err := state.CopyFile(ctx, m.store.VMDiskPath(src), m.store.VMDiskPath(&clone)); err != nil {
 		return nil, err
 	}
-	if err := m.store.SaveVM(&clone); err != nil {
-		return nil, err
-	}
-	if err := m.store.RegisterVM(dstName, id); err != nil {
-		if rollbackErr := m.store.UnregisterVM(dstName); rollbackErr != nil {
-			cleanupObject = false
-			return nil, errors.Join(err, fmt.Errorf("rolling back failed clone registration: %w", rollbackErr))
+	if err := m.store.WithGlobalVM(srcName, src.ID, func() error {
+		port, err := m.store.AllocateSSHPort()
+		if err != nil {
+			return err
 		}
+		clone.Network.SSHPort = port
+		if err := m.store.SaveVM(&clone); err != nil {
+			return err
+		}
+		return m.store.RegisterVMLocked(dstName, id)
+	}); err != nil {
 		return nil, err
 	}
 	cleanupObject = false
@@ -167,45 +170,30 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.
 
 // Remove stops the named VM if it is running and deletes its state.
 func (m *Manager) Remove(ctx context.Context, name string) error {
-	var id string
-	for {
-		lock, err := m.lockVMState(ctx, name)
-		if err != nil {
-			return err
-		}
-		vm := lock.VM
-		if id != "" && vm.ID != id {
-			lock.Release()
-			return fmt.Errorf("VM %q was replaced during removal", name)
-		}
-		id = vm.ID
-		rt := m.store.Runtime(vm)
-		if !hasRuntimeState(vm, rt) {
-			_, err = m.store.DeleteVM(name)
-			lock.Release()
-			if err == nil {
-				m.emitVM("rm", vm, nil)
-			}
-			return err
-		}
-		lock.ReleaseGlobal()
-		_, err = m.stopRuntime(ctx, vm)
-		lock.Release()
-		if err != nil {
-			return err
-		}
-		// Recheck under both locks: another command may start the VM before deletion.
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
+	if err != nil {
+		return err
 	}
+	defer unlock()
+	if hasRuntimeState(vm, m.store.Runtime(vm)) {
+		if _, err := m.stopRuntime(ctx, vm); err != nil {
+			return err
+		}
+	}
+	if err := m.store.DeleteVM(vm); err != nil {
+		return err
+	}
+	m.emitVM("rm", vm, nil)
+	return nil
 }
 
 // GrowDisk expands the VM's disk image by the given size; the VM must be stopped.
 func (m *Manager) GrowDisk(ctx context.Context, name, amount string) error {
-	lock, err := m.lockVM(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	if m.IsRunning(vm) {
 		return fmt.Errorf("VM %q is running; stop it before growing its disk", name)
 	}
@@ -228,13 +216,11 @@ func (m *Manager) GrowDisk(ctx context.Context, name, amount string) error {
 // ResetDisk replaces the VM's disk with a fresh copy of the given image,
 // stopping the VM first if necessary.
 func (m *Manager) ResetDisk(ctx context.Context, name, imageName string) error {
-	lock, err := m.lockVMState(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return err
 	}
-	defer lock.Release()
-	lock.ReleaseGlobal()
-	vm := lock.VM
+	defer unlock()
 	if _, err := m.stopRuntime(ctx, vm); err != nil {
 		return err
 	}
@@ -245,36 +231,46 @@ func (m *Manager) ResetDisk(ctx context.Context, name, imageName string) error {
 	if err := host.ValidateHostImage(im.Arch, im.Format, vm.Driver); err != nil {
 		return err
 	}
-	oldDisk := m.store.VMDiskPath(vm)
-	vm.Image = state.VMImageRef{ID: im.ID, Name: im.Name}
-	vm.Arch = im.Arch
-	vm.Access = state.VMAccess{SSHUser: im.Metadata.SSHUser, SSHIdentityPath: im.Metadata.SSHIdentityPath, NixosTargetUser: im.Metadata.NixosTargetUser}
-	if vm.Access.SSHUser == "" {
-		vm.Access.SSHUser = "root"
+	candidate := *vm
+	candidate.Image = state.VMImageRef{ID: im.ID, Name: im.Name}
+	candidate.Arch = im.Arch
+	candidate.Access = state.VMAccess{SSHUser: im.Metadata.SSHUser, SSHIdentityPath: im.Metadata.SSHIdentityPath, NixosTargetUser: im.Metadata.NixosTargetUser}
+	if candidate.Access.SSHUser == "" {
+		candidate.Access.SSHUser = "root"
 	}
-	if vm.Access.NixosTargetUser == "" {
-		vm.Access.NixosTargetUser = vm.Access.SSHUser
+	if candidate.Access.NixosTargetUser == "" {
+		candidate.Access.NixosTargetUser = candidate.Access.SSHUser
 	}
-	newDisk := m.store.VMDiskPath(vm)
-	if err := state.CopyFile(ctx, m.store.ImageDiskPath(im), newDisk); err != nil {
+	disk := m.store.VMDiskPath(vm)
+	stagedDisk := disk + ".reset"
+	if err := state.CopyFile(ctx, m.store.ImageDiskPath(im), stagedDisk); err != nil {
 		return err
 	}
-	if oldDisk != newDisk {
-		_ = os.Remove(oldDisk)
+	defer func() { _ = os.Remove(stagedDisk) }()
+	candidate.UpdatedAt = time.Now().UTC()
+	if err := m.store.WithGlobalVM(name, vm.ID, func() error {
+		if m.store.IndexSnapshot().Images[imageName] != im.ID {
+			return fmt.Errorf("image %q changed while resetting VM", imageName)
+		}
+		if err := os.Rename(stagedDisk, disk); err != nil {
+			return err
+		}
+		return m.store.SaveVM(&candidate)
+	}); err != nil {
+		return err
 	}
-	vm.UpdatedAt = time.Now().UTC()
-	return m.store.SaveVM(vm)
+	*vm = candidate
+	return nil
 }
 
 // Start boots the named VM, launching gvproxy and the driver process and
 // installing configured forwards; it returns the live record.
 func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*state.VMRecord, error) {
-	lock, err := m.lockVMState(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	if m.IsRunning(vm) {
 		return vm, nil
 	}
@@ -284,11 +280,12 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		}
 	}
 	if d := vm.Network.Egress; d != nil {
-		if err := m.CheckEgressAssignment(vm, *d); err != nil {
+		if err := m.store.WithGlobalVM(name, vm.ID, func() error {
+			return m.CheckEgressAssignment(vm, *d)
+		}); err != nil {
 			return nil, err
 		}
 	}
-	lock.ReleaseGlobal()
 	if _, err := m.stopRuntime(ctx, vm); err != nil {
 		return nil, err
 	}
@@ -474,12 +471,11 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 // Stop shuts down the named VM and tears down its runtime artifacts,
 // returning whether any change occurred.
 func (m *Manager) Stop(ctx context.Context, name string) (bool, error) {
-	lock, err := m.lockVM(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return false, err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	stop, err := m.stopRuntime(ctx, vm)
 	if err != nil {
 		return stop.changed, err

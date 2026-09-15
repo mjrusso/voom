@@ -580,9 +580,12 @@ func TestWatcherSkipsBusyVMAndReloadsByID(t *testing.T) {
 	if err := manager.saveRuntimeAutoForwards(vm, []RuntimeAutoForward{row}); err != nil {
 		t.Fatal(err)
 	}
-	unlock, err := manager.store.LockVM(vm.ID)
+	unlock, err := manager.store.TryLockVM(vm.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if unlock == nil {
+		t.Fatal("VM lock was unavailable")
 	}
 	vm.Network.AutoForwardBind = "127.0.0.1"
 	if err := manager.store.SaveVM(vm); err != nil {
@@ -640,9 +643,12 @@ func TestWatcherDeduplicatesErrorsAndLogsRecovery(t *testing.T) {
 
 func TestReconcileLockWaitHonorsContext(t *testing.T) {
 	_, manager, vm, _ := newAutoForwardFixture(t)
-	unlock, err := manager.store.LockVM(vm.ID)
+	unlock, err := manager.store.TryLockVM(vm.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if unlock == nil {
+		t.Fatal("VM lock was unavailable")
 	}
 	defer unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)

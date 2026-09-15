@@ -9,16 +9,15 @@ import (
 )
 
 // SetCPUs updates the configured CPU allocation for a stopped VM.
-func (m *Manager) SetCPUs(name string, cpus int) (*state.VMRecord, bool, error) {
+func (m *Manager) SetCPUs(ctx context.Context, name string, cpus int) (*state.VMRecord, bool, error) {
 	if cpus < 1 {
 		return nil, false, fmt.Errorf("cpus must be at least 1")
 	}
-	lock, err := m.lockVM(context.Background(), name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return nil, false, err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	if m.IsRunning(vm) {
 		return nil, false, fmt.Errorf("VM %q is running; stop it before changing CPU allocation", name)
 	}
@@ -34,16 +33,15 @@ func (m *Manager) SetCPUs(name string, cpus int) (*state.VMRecord, bool, error) 
 }
 
 // SetMemory updates the configured memory allocation for a stopped VM.
-func (m *Manager) SetMemory(name string, memoryMiB int) (*state.VMRecord, bool, error) {
+func (m *Manager) SetMemory(ctx context.Context, name string, memoryMiB int) (*state.VMRecord, bool, error) {
 	if memoryMiB < 1 {
 		return nil, false, fmt.Errorf("memory must be at least 1MiB")
 	}
-	lock, err := m.lockVM(context.Background(), name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return nil, false, err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	if m.IsRunning(vm) {
 		return nil, false, fmt.Errorf("VM %q is running; stop it before changing memory allocation", name)
 	}
@@ -60,30 +58,32 @@ func (m *Manager) SetMemory(name string, memoryMiB int) (*state.VMRecord, bool, 
 
 // SetSSHPort updates the host SSH port for a stopped VM. A port of zero
 // allocates a fresh port from the automatic SSH port range.
-func (m *Manager) SetSSHPort(name string, port int) (*state.VMRecord, bool, error) {
-	lock, err := m.lockVMState(context.Background(), name)
+func (m *Manager) SetSSHPort(ctx context.Context, name string, port int) (*state.VMRecord, bool, error) {
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return nil, false, err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	if m.IsRunning(vm) {
 		return nil, false, fmt.Errorf("VM %q is running; stop it before changing the SSH port", name)
 	}
 	if vm.Network.SSHPort == port {
 		return vm, false, nil
 	}
-	if port == 0 {
-		port, err = m.store.AllocateSSHPort()
-	} else {
-		err = m.store.EnsureSSHPortAvailable(port)
-	}
+	err = m.store.WithGlobalVM(name, vm.ID, func() error {
+		if port == 0 {
+			port, err = m.store.AllocateSSHPort()
+		} else {
+			err = m.store.EnsureSSHPortAvailable(port)
+		}
+		if err != nil {
+			return err
+		}
+		vm.Network.SSHPort = port
+		vm.UpdatedAt = time.Now().UTC()
+		return m.store.SaveVM(vm)
+	})
 	if err != nil {
-		return nil, false, err
-	}
-	vm.Network.SSHPort = port
-	vm.UpdatedAt = time.Now().UTC()
-	if err := m.store.SaveVM(vm); err != nil {
 		return nil, false, err
 	}
 	return vm, true, nil

@@ -110,7 +110,7 @@ type NixOSSwitch struct {
 
 // Store is the entry point for reading and mutating voom's on-disk state.
 // The in-memory index is guarded by mu; the on-disk view is guarded by the
-// cross-process flocks acquired via LockGlobal/LockVM.
+// cross-process flocks acquired by the store.
 type Store struct {
 	paths             host.Paths
 	mu                sync.Mutex

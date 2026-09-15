@@ -97,11 +97,6 @@ func imageImportCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			unlock, err := deps.store.LockGlobalAndReload()
-			if err != nil {
-				return err
-			}
-			defer unlock()
 			im, err := deps.store.ImportImage(cmd.Context(), state.ImportOptions{
 				Name:                args[0],
 				Src:                 args[1],
@@ -140,11 +135,6 @@ func imageRmCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			unlock, err := deps.store.LockGlobalAndReload()
-			if err != nil {
-				return err
-			}
-			defer unlock()
 			refs, err := deps.store.RemoveImage(args[0], force)
 			if err != nil {
 				if len(refs) > 0 {

@@ -53,7 +53,7 @@ func configCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			vmRec, changed, err := deps.vm.SetSSHPort(args[0], port)
+			vmRec, changed, err := deps.vm.SetSSHPort(cmd.Context(), args[0], port)
 			if err != nil {
 				return err
 			}

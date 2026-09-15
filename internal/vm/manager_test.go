@@ -50,21 +50,21 @@ func TestSetResourcesUpdatesStoppedVM(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	updated, changed, err := mgr.SetCPUs("scratch", 4)
+	updated, changed, err := mgr.SetCPUs(context.Background(), "scratch", 4)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !changed || updated.Resources.CPUs != 4 {
 		t.Fatalf("SetCPUs changed=%t resources=%#v", changed, updated.Resources)
 	}
-	updated, changed, err = mgr.SetMemory("scratch", 1024)
+	updated, changed, err = mgr.SetMemory(context.Background(), "scratch", 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !changed || updated.Resources.MemoryMiB != 1024 {
 		t.Fatalf("SetMemory changed=%t resources=%#v", changed, updated.Resources)
 	}
-	updated, changed, err = mgr.SetMemory("scratch", 1024)
+	updated, changed, err = mgr.SetMemory(context.Background(), "scratch", 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,10 +78,10 @@ func TestSetResourcesUpdatesStoppedVM(t *testing.T) {
 	if reloaded.Resources.CPUs != 4 || reloaded.Resources.MemoryMiB != 1024 {
 		t.Fatalf("persisted resources = %#v", reloaded.Resources)
 	}
-	if _, _, err := mgr.SetCPUs("scratch", 0); err == nil || !strings.Contains(err.Error(), "at least 1") {
+	if _, _, err := mgr.SetCPUs(context.Background(), "scratch", 0); err == nil || !strings.Contains(err.Error(), "at least 1") {
 		t.Fatalf("expected CPU validation error, got %v", err)
 	}
-	if _, _, err := mgr.SetMemory("scratch", 0); err == nil || !strings.Contains(err.Error(), "at least 1MiB") {
+	if _, _, err := mgr.SetMemory(context.Background(), "scratch", 0); err == nil || !strings.Contains(err.Error(), "at least 1MiB") {
 		t.Fatalf("expected memory validation error, got %v", err)
 	}
 }
@@ -110,14 +110,14 @@ func TestSetSSHPortUpdatesStoppedVM(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	updated, changed, err := mgr.SetSSHPort("scratch", 2250)
+	updated, changed, err := mgr.SetSSHPort(context.Background(), "scratch", 2250)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !changed || updated.Network.SSHPort != 2250 {
 		t.Fatalf("SetSSHPort changed=%t network=%#v", changed, updated.Network)
 	}
-	updated, changed, err = mgr.SetSSHPort("scratch", 2250)
+	updated, changed, err = mgr.SetSSHPort(context.Background(), "scratch", 2250)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,10 +143,10 @@ func TestSetSSHPortUpdatesStoppedVM(t *testing.T) {
 	if err := st.RegisterVM(other.Name, other.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := mgr.SetSSHPort("scratch", 2260); err == nil || !strings.Contains(err.Error(), "already used by another voom VM") {
+	if _, _, err := mgr.SetSSHPort(context.Background(), "scratch", 2260); err == nil || !strings.Contains(err.Error(), "already used by another voom VM") {
 		t.Fatalf("expected reserved-port error, got %v", err)
 	}
-	if _, _, err := mgr.SetSSHPort("scratch", 2400); err == nil || !strings.Contains(err.Error(), "already in use") {
+	if _, _, err := mgr.SetSSHPort(context.Background(), "scratch", 2400); err == nil || !strings.Contains(err.Error(), "already in use") {
 		t.Fatalf("expected host-busy error, got %v", err)
 	}
 	reloaded, err := st.LoadVM("scratch")
@@ -156,7 +156,7 @@ func TestSetSSHPortUpdatesStoppedVM(t *testing.T) {
 	if reloaded.Network.SSHPort != 2250 {
 		t.Fatalf("failed SSH-port updates persisted port %d, want 2250", reloaded.Network.SSHPort)
 	}
-	updated, changed, err = mgr.SetSSHPort("scratch", 0)
+	updated, changed, err = mgr.SetSSHPort(context.Background(), "scratch", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,13 +201,13 @@ func TestSetResourcesRejectsRunningVM(t *testing.T) {
 	}
 	writeProcessRecord(t, recordPath, cmd)
 
-	if _, _, err := mgr.SetCPUs("scratch", 4); err == nil || !strings.Contains(err.Error(), "running") {
+	if _, _, err := mgr.SetCPUs(context.Background(), "scratch", 4); err == nil || !strings.Contains(err.Error(), "running") {
 		t.Fatalf("expected running CPU mutation rejection, got %v", err)
 	}
-	if _, _, err := mgr.SetMemory("scratch", 1024); err == nil || !strings.Contains(err.Error(), "running") {
+	if _, _, err := mgr.SetMemory(context.Background(), "scratch", 1024); err == nil || !strings.Contains(err.Error(), "running") {
 		t.Fatalf("expected running memory mutation rejection, got %v", err)
 	}
-	if _, _, err := mgr.SetSSHPort("scratch", 2250); err == nil || !strings.Contains(err.Error(), "running") {
+	if _, _, err := mgr.SetSSHPort(context.Background(), "scratch", 2250); err == nil || !strings.Contains(err.Error(), "running") {
 		t.Fatalf("expected running SSH-port mutation rejection, got %v", err)
 	}
 	reloaded, err := st.LoadVM("scratch")
@@ -245,6 +245,17 @@ func TestQEMUArgsIncludeSeedDiskAndVirtioFS(t *testing.T) {
 func fakeNamedVMProcess(t *testing.T, name string, args ...string) *exec.Cmd {
 	t.Helper()
 	payload := "exec -a " + name + " bash -c 'trap \"exit 0\" TERM; while true; do sleep 1; done' " + stringsForShell(args)
+	return startFakeNamedVMProcess(t, name, payload)
+}
+
+func fakeNamedVMProcessIgnoringTERM(t *testing.T, name, signalPath string) *exec.Cmd {
+	t.Helper()
+	payload := "exec -a " + name + " bash -c 'trap \"touch \\\"$1\\\"\" TERM; while true; do sleep .05; done' _" + stringsForShell([]string{signalPath})
+	return startFakeNamedVMProcess(t, name, payload)
+}
+
+func startFakeNamedVMProcess(t *testing.T, name, payload string) *exec.Cmd {
+	t.Helper()
 	cmd := exec.Command("bash", "-c", payload)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -653,9 +664,12 @@ func TestCloneWaitsForSourceLock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	unlock, err := st.LockVM(src.ID)
+	unlock, err := st.TryLockVM(src.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if unlock == nil {
+		t.Fatal("source VM lock was unavailable")
 	}
 	cloneDone := make(chan error, 1)
 	go func() {

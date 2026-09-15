@@ -92,14 +92,13 @@ func (m *Manager) validateEgress(ctx context.Context, vm *state.VMRecord, runnin
 	return ca, nil
 }
 
-// SetEgress attaches a unique backend to a stopped VM. Callers must not hold state locks.
+// SetEgress attaches a unique backend to a stopped VM.
 func (m *Manager) SetEgress(ctx context.Context, name, socket, ca string, opts EgressOptions) (result EgressResult, retErr error) {
-	lock, err := m.lockVMState(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return result, err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	result = newEgressResult(vm)
 	defer func() { m.finishEgressResult("set", vm, &result, retErr) }()
 	if err := checkExpectedVMID(vm, opts.ExpectedID); err != nil {
@@ -119,24 +118,20 @@ func (m *Manager) SetEgress(ctx context.Context, name, socket, ca string, opts E
 	}
 	nextDecl.Enabled = !opts.Disabled
 	candidateVM := copyVMWithEgress(vm, &nextDecl)
-	if err := m.CheckEgressAssignment(candidateVM, nextDecl); err != nil {
-		return result, err
-	}
 	if _, err := m.validateEgress(ctx, candidateVM, false); err != nil {
 		return result, err
 	}
-	result.Changed, err = m.saveEgressDecl(vm, &nextDecl)
+	result.Changed, err = m.saveReservedEgressDecl(vm, &nextDecl)
 	return result, err
 }
 
 // ClearEgress releases a stopped VM's attachment after runtime cleanup.
 func (m *Manager) ClearEgress(ctx context.Context, name string, opts EgressOptions) (result EgressResult, retErr error) {
-	lock, err := m.lockVMState(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return result, err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	result = newEgressResult(vm)
 	defer func() { m.finishEgressResult("clear", vm, &result, retErr) }()
 	if err := checkExpectedVMID(vm, opts.ExpectedID); err != nil {
@@ -156,12 +151,11 @@ func (m *Manager) ClearEgress(ctx context.Context, name string, opts EgressOptio
 
 // EnableEgress validates and reconciles the attachment without restarting healthy runtime.
 func (m *Manager) EnableEgress(ctx context.Context, name string, opts EgressOptions) (result EgressResult, retErr error) {
-	lock, err := m.lockVMState(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return result, err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	result = newEgressResult(vm)
 	defer func() { m.finishEgressResult("enable", vm, &result, retErr) }()
 	if err := checkExpectedVMID(vm, opts.ExpectedID); err != nil {
@@ -181,18 +175,12 @@ func (m *Manager) EnableEgress(ctx context.Context, name string, opts EgressOpti
 			return result, stopErr
 		}
 	}
-	if err := m.CheckEgressAssignment(candidateVM, nextDecl); err != nil {
-		return result, err
-	}
-	if running {
-		lock.ReleaseGlobal()
-	}
 	validatedCA, err := m.validateEgress(ctx, candidateVM, running)
 	if err != nil {
 		return result, err
 	}
 	if !running {
-		result.Changed, err = m.saveEgressDecl(vm, &nextDecl)
+		result.Changed, err = m.saveReservedEgressDecl(vm, &nextDecl)
 		return result, err
 	}
 	return m.enableLiveEgress(ctx, vm, &nextDecl, validatedCA, result)
@@ -200,12 +188,11 @@ func (m *Manager) EnableEgress(ctx context.Context, name string, opts EgressOpti
 
 // DisableEgress revokes attachment access; direct networking remains available.
 func (m *Manager) DisableEgress(ctx context.Context, name string, opts EgressOptions) (result EgressResult, retErr error) {
-	lock, err := m.lockVM(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return result, err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	result = newEgressResult(vm)
 	defer func() { m.finishEgressResult("disable", vm, &result, retErr) }()
 	if err := checkExpectedVMID(vm, opts.ExpectedID); err != nil {
@@ -260,13 +247,29 @@ func copyVMWithEgress(vm *state.VMRecord, nextDecl *egress.Decl) *state.VMRecord
 }
 
 func (m *Manager) saveEgressDecl(vm *state.VMRecord, nextDecl *egress.Decl) (bool, error) {
+	return m.saveEgressDeclChecked(vm, nextDecl, false)
+}
+
+func (m *Manager) saveReservedEgressDecl(vm *state.VMRecord, nextDecl *egress.Decl) (bool, error) {
+	return m.saveEgressDeclChecked(vm, nextDecl, true)
+}
+
+func (m *Manager) saveEgressDeclChecked(vm *state.VMRecord, nextDecl *egress.Decl, checkReservation bool) (bool, error) {
 	current := vm.Network.Egress
 	if (current == nil && nextDecl == nil) || (current != nil && nextDecl != nil && *current == *nextDecl) {
 		return false, nil
 	}
 	candidateVM := copyVMWithEgress(vm, nextDecl)
 	candidateVM.UpdatedAt = time.Now().UTC()
-	if err := m.store.SaveVM(candidateVM); err != nil {
+	err := m.store.WithGlobalVM(vm.Name, vm.ID, func() error {
+		if checkReservation {
+			if err := m.CheckEgressAssignment(candidateVM, *nextDecl); err != nil {
+				return err
+			}
+		}
+		return m.store.SaveVM(candidateVM)
+	})
+	if err != nil {
 		return false, err
 	}
 	*vm = *candidateVM
@@ -302,7 +305,7 @@ func (m *Manager) enableLiveEgress(ctx context.Context, vm *state.VMRecord, next
 			exists = true
 		}
 	}
-	changed, err := m.saveEgressDecl(vm, nextDecl)
+	changed, err := m.saveReservedEgressDecl(vm, nextDecl)
 	if err != nil {
 		return result, err
 	}

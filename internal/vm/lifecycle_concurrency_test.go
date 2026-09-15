@@ -127,35 +127,49 @@ func TestCleanupRetainsVirtiofsArtifactsWithoutProcessRecord(t *testing.T) {
 }
 
 func TestWaitingForVMLockDoesNotHoldGlobal(t *testing.T) {
-	st := lifecycleTestStore(t)
-	local, err := st.LockVM("a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer local()
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	waiting := make(chan error, 1)
-	go func() { err := New(st).Remove(ctx, "a"); waiting <- err }()
-	// Give the blocked command an opportunity to acquire the global lock.
-	time.Sleep(50 * time.Millisecond)
-	other := make(chan error, 1)
-	go func() { err := New(st).Remove(context.Background(), "b"); other <- err }()
-	select {
-	case err := <-other:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("unrelated VM blocked by per-VM lock")
-	}
-	select {
-	case err := <-waiting:
-		if err == nil {
-			t.Fatal("ignored cancellation while waiting for VM")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("VM lock wait ignored cancellation")
+	for _, action := range []string{"remove", "rename"} {
+		t.Run(action, func(t *testing.T) {
+			st := lifecycleTestStore(t)
+			local, err := st.TryLockVM("a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if local == nil {
+				t.Fatal("VM lock was unavailable")
+			}
+			defer local()
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancel()
+			waiting := make(chan error, 1)
+			go func() {
+				if action == "remove" {
+					waiting <- New(st).Remove(ctx, "a")
+					return
+				}
+				_, err := st.RenameVM(ctx, "a", "renamed")
+				waiting <- err
+			}()
+			// Let the operation enter its VM-lock wait before checking the global lock.
+			time.Sleep(50 * time.Millisecond)
+			other := make(chan error, 1)
+			go func() { other <- New(st).Remove(context.Background(), "b") }()
+			select {
+			case err := <-other:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("unrelated VM blocked by per-VM lock")
+			}
+			select {
+			case err := <-waiting:
+				if err == nil {
+					t.Fatal("ignored cancellation while waiting for VM")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("VM lock wait ignored cancellation")
+			}
+		})
 	}
 }
 
@@ -195,9 +209,10 @@ func TestCleanupReleasesGlobal(t *testing.T) {
 			done := make(chan error, 1)
 			manager := New(st)
 			go func() {
-				if action == "remove" {
+				switch action {
+				case "remove":
 					done <- manager.Remove(ctx, "a")
-				} else {
+				case "reset":
 					done <- manager.ResetDisk(ctx, "a", "missing-image")
 				}
 			}()
@@ -219,11 +234,109 @@ func TestCleanupReleasesGlobal(t *testing.T) {
 			cancel()
 			select {
 			case err := <-done:
-				if err == nil {
-					t.Fatal("expected cancelled removal or missing reset image")
+				if action != "remove" && err == nil {
+					t.Fatal("expected operation to fail after cancellation")
 				}
 			case <-time.After(5 * time.Second):
 				t.Fatal("cleanup did not finish")
+			}
+		})
+	}
+}
+
+func TestSetEgressCleanupDoesNotHoldGlobal(t *testing.T) {
+	st := lifecycleTestStore(t)
+	vm, err := st.LoadVM("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := st.Runtime(vm)
+	if err := os.MkdirAll(rt.Dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	signaled := filepath.Join(t.TempDir(), "term-received")
+	backendSocket := filepath.Join(t.TempDir(), "backend.sock")
+	gvproxy := fakeNamedVMProcessIgnoringTERM(t, "gvproxy", signaled)
+	writeProcessRecord(t, rt.GVProxyProcessRecord(), gvproxy)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := New(st).SetEgress(context.Background(), "a", backendSocket, "", EgressOptions{})
+		done <- err
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(signaled); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("egress cleanup did not signal gvproxy")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	acquired := make(chan error, 1)
+	go func() { acquired <- st.WithGlobal(func() error { return nil }) }()
+	select {
+	case err := <-acquired:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("egress cleanup blocked the global lock")
+	}
+	if err := gvproxy.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("SetEgress succeeded with a missing backend socket")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("SetEgress did not finish")
+	}
+}
+
+func TestConcurrentPortReservationsCommitOnce(t *testing.T) {
+	for _, action := range []string{"ssh", "forward"} {
+		t.Run(action, func(t *testing.T) {
+			st := lifecycleTestStore(t)
+			manager := New(st)
+			for i, name := range []string{"a", "b"} {
+				vm, err := st.LoadVM(name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				vm.Network.SSHBind = "127.0.0.1"
+				vm.Network.SSHPort = 22000 + i
+				if err := st.SaveVM(vm); err != nil {
+					t.Fatal(err)
+				}
+			}
+			port := freeLoopbackPort(t)
+			results := make(chan error, 2)
+			for _, name := range []string{"a", "b"} {
+				go func() {
+					if action == "ssh" {
+						_, _, err := manager.SetSSHPort(context.Background(), name, port)
+						results <- err
+						return
+					}
+					_, err := manager.AddForward(context.Background(), name, 8080, port, "127.0.0.1", false)
+					results <- err
+				}()
+			}
+			successes := 0
+			for range 2 {
+				if err := <-results; err == nil {
+					successes++
+				}
+			}
+			if successes != 1 {
+				t.Fatalf("successful reservations = %d, want 1", successes)
 			}
 		})
 	}

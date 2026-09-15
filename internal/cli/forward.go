@@ -84,7 +84,7 @@ func forwardRmCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err := deps.vm.RemoveForward(args[0], port, bind); err != nil {
+		if err := deps.vm.RemoveForward(cmd.Context(), args[0], port, bind); err != nil {
 			return err
 		}
 		if outputFormat(cmd) == "json" {

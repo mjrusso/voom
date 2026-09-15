@@ -42,12 +42,7 @@ func createCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			unlock, err := deps.store.LockGlobalAndReload()
-			if err != nil {
-				return err
-			}
 			vmRec, err := deps.vm.Create(cmd.Context(), args[0], imageName, driver, cpus, mem, sshPort)
-			unlock()
 			if err != nil {
 				return err
 			}
@@ -391,12 +386,7 @@ func renameCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		unlock, err := deps.store.LockGlobalAndReload()
-		if err != nil {
-			return err
-		}
-		defer unlock()
-		vmRec, err := deps.store.RenameVM(args[0], args[1])
+		vmRec, err := deps.store.RenameVM(cmd.Context(), args[0], args[1])
 		if err != nil {
 			return err
 		}
@@ -484,7 +474,7 @@ func resourcesCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		vmRec, changed, err := deps.vm.SetCPUs(args[0], cpus)
+		vmRec, changed, err := deps.vm.SetCPUs(cmd.Context(), args[0], cpus)
 		if err != nil {
 			return err
 		}
@@ -507,7 +497,7 @@ func resourcesCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		vmRec, changed, err := deps.vm.SetMemory(args[0], memoryMiB)
+		vmRec, changed, err := deps.vm.SetMemory(cmd.Context(), args[0], memoryMiB)
 		if err != nil {
 			return err
 		}

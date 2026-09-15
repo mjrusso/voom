@@ -16,40 +16,46 @@ func (m *Manager) AddForward(ctx context.Context, name string, guestPort, hostPo
 	if err != nil {
 		return forward.Decl{}, err
 	}
-	lock, err := m.lockVMState(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return forward.Decl{}, err
 	}
-	defer lock.Release()
-	vm := lock.VM
-	if auto {
-		hostPort, err = m.allocateAutoPort(bind)
-		if err != nil {
-			return forward.Decl{}, err
+	defer unlock()
+	var f forward.Decl
+	err = m.store.WithGlobalVM(name, vm.ID, func() error {
+		if auto {
+			hostPort, err = m.allocateAutoPort(bind)
+			if err != nil {
+				return err
+			}
+		} else if hostPort == 0 {
+			hostPort = guestPort
 		}
-	} else if hostPort == 0 {
-		hostPort = guestPort
-	}
-	reserved, err := m.store.PortReserved(bind, hostPort)
+		reserved, err := m.store.PortReserved(bind, hostPort)
+		if err != nil {
+			return err
+		}
+		if reserved || portBusy(bind, hostPort) {
+			return fmt.Errorf("host port %s:%d is unavailable", bind, hostPort)
+		}
+		f = forward.Decl{Protocol: "tcp", GuestPort: guestPort, HostPort: hostPort, Bind: bind}
+		vm.Network.Forwards = append(vm.Network.Forwards, f)
+		vm.UpdatedAt = time.Now().UTC()
+		if err := m.store.SaveVM(vm); err != nil {
+			vm.Network.Forwards = vm.Network.Forwards[:len(vm.Network.Forwards)-1]
+			return err
+		}
+		return nil
+	})
 	if err != nil {
 		return forward.Decl{}, err
 	}
-	if reserved || portBusy(bind, hostPort) {
-		return forward.Decl{}, fmt.Errorf("host port %s:%d is unavailable", bind, hostPort)
-	}
-	f := forward.Decl{Protocol: "tcp", GuestPort: guestPort, HostPort: hostPort, Bind: bind}
-	vm.Network.Forwards = append(vm.Network.Forwards, f)
-	vm.UpdatedAt = time.Now().UTC()
-	if err := m.store.SaveVM(vm); err != nil {
-		return forward.Decl{}, err
-	}
-	lock.ReleaseGlobal()
 	if m.IsRunning(vm) {
 		rt := m.store.Runtime(vm)
 		if err := gvproxyExpose(rt.NetworkSock(), fmt.Sprintf("%s:%d", bind, hostPort), fmt.Sprintf("%s:%d", m.GuestTargetIP(vm), guestPort)); err != nil {
 			vm.Network.Forwards = vm.Network.Forwards[:len(vm.Network.Forwards)-1]
 			vm.UpdatedAt = time.Now().UTC()
-			if saveErr := m.store.SaveVM(vm); saveErr != nil {
+			if saveErr := m.store.WithGlobalVM(name, vm.ID, func() error { return m.store.SaveVM(vm) }); saveErr != nil {
 				return forward.Decl{}, fmt.Errorf("could not install forward: %w; additionally failed to roll back VM state: %v", err, saveErr)
 			}
 			return forward.Decl{}, err
@@ -60,17 +66,16 @@ func (m *Manager) AddForward(ctx context.Context, name string, guestPort, hostPo
 
 // RemoveForward removes the declared forward identified by host port and bind
 // and unexposes it from gvproxy if the VM is running.
-func (m *Manager) RemoveForward(name string, port int, bind string) error {
+func (m *Manager) RemoveForward(ctx context.Context, name string, port int, bind string) error {
 	bind, err := forward.NormalizeBind(bind)
 	if err != nil {
 		return err
 	}
-	lock, err := m.lockVM(context.Background(), name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	next := vm.Network.Forwards[:0]
 	found := false
 	for _, f := range vm.Network.Forwards {
@@ -85,7 +90,7 @@ func (m *Manager) RemoveForward(name string, port int, bind string) error {
 	}
 	vm.Network.Forwards = next
 	vm.UpdatedAt = time.Now().UTC()
-	if err := m.store.SaveVM(vm); err != nil {
+	if err := m.store.WithGlobalVM(name, vm.ID, func() error { return m.store.SaveVM(vm) }); err != nil {
 		return err
 	}
 	if m.IsRunning(vm) {

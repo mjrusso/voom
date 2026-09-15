@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -11,53 +12,73 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// LockGlobal acquires an exclusive flock on the store-wide lock file and returns a release func.
-func (s *Store) LockGlobal() (func(), error) {
+func (s *Store) lockGlobal() (func(), error) {
 	return flock(filepath.Join(s.paths.State, "locks", "state.lock"))
 }
 
-// LockGlobalAndReload acquires the store-wide lock and refreshes the in-memory
-// index from disk before returning.
-func (s *Store) LockGlobalAndReload() (func(), error) {
-	unlock, err := s.LockGlobal()
+// WithGlobal runs fn with the current index under the store-wide lock.
+func (s *Store) WithGlobal(fn func() error) error {
+	unlock, err := s.lockGlobal()
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer unlock()
 	if err := s.reloadIndex(); err != nil {
-		unlock()
-		return nil, err
+		return err
 	}
-	return unlock, nil
+	return fn()
 }
 
-// LockVM acquires an exclusive flock on the per-VM lock file and returns a release func.
-func (s *Store) LockVM(id string) (func(), error) {
-	return flock(filepath.Join(s.paths.State, "locks", "vms", id+".lock"))
+// WithGlobalVM runs fn only if name still identifies the VM whose lock the caller holds.
+func (s *Store) WithGlobalVM(name, id string, fn func() error) error {
+	return s.WithGlobal(func() error {
+		s.mu.Lock()
+		current := s.index.VMs[name]
+		s.mu.Unlock()
+		if current != id {
+			return fmt.Errorf("VM %q no longer identifies %s", name, id)
+		}
+		return fn()
+	})
 }
 
 // LockVMRecord locks the VM currently resolved by name and reloads it by ID.
 func (s *Store) LockVMRecord(ctx context.Context, name string) (*VMRecord, func(), error) {
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
-	}
-	vm, err := s.LoadVM(name)
-	if err != nil {
-		return nil, nil, err
-	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		unlock, err := s.TryLockVM(vm.ID)
+		index, err := s.readIndex()
+		if err != nil {
+			return nil, nil, err
+		}
+		id, ok := index.VMs[name]
+		if !ok {
+			return nil, nil, fmt.Errorf("no such VM %q; run 'voom create %s --image <image>' first", name, name)
+		}
+		unlock, err := s.TryLockVM(id)
 		if err != nil {
 			return nil, nil, err
 		}
 		if unlock != nil {
 			unlock = sync.OnceFunc(unlock)
-			vm, err = s.LoadVMByID(vm.ID)
+			index, err = s.readIndex()
 			if err != nil {
 				unlock()
 				return nil, nil, err
+			}
+			if index.VMs[name] != id {
+				unlock()
+				return nil, nil, fmt.Errorf("VM %q changed while waiting for its lock", name)
+			}
+			vm, err := s.LoadVMByID(id)
+			if err != nil {
+				unlock()
+				return nil, nil, err
+			}
+			if vm.Name != name {
+				unlock()
+				return nil, nil, fmt.Errorf("VM index mismatch for %q", name)
 			}
 			return vm, unlock, nil
 		}

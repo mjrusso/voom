@@ -28,13 +28,8 @@ type ImportOptions struct {
 // ImportImage copies the disk at opts.Src into the store, parses optional metadata, and registers a new image by name.
 // The copy honors ctx cancellation; on cancel the partially-written disk is removed and the image is not registered.
 func (s *Store) ImportImage(ctx context.Context, opts ImportOptions) (*ImageRecord, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	name, src, metaPath := opts.Name, opts.Src, opts.MetaPath
 	arch, format, sshUser := opts.Arch, opts.Format, opts.SSHUser
-	if _, ok := s.index.Images[name]; ok {
-		return nil, fmt.Errorf("image %q already exists", name)
-	}
 	if _, err := os.Stat(src); err != nil {
 		return nil, err
 	}
@@ -153,6 +148,12 @@ func (s *Store) ImportImage(ctx context.Context, opts ImportOptions) (*ImageReco
 	if err := os.MkdirAll(s.ImageDir(id), 0o755); err != nil {
 		return nil, err
 	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.RemoveAll(s.ImageDir(id))
+		}
+	}()
 	if err := CopyFile(ctx, src, s.ImageDiskPath(im)); err != nil {
 		return nil, err
 	}
@@ -167,8 +168,23 @@ func (s *Store) ImportImage(ctx context.Context, opts ImportOptions) (*ImageReco
 	if err := WriteJSONAtomic(filepath.Join(s.ImageDir(id), "image.json"), im); err != nil {
 		return nil, err
 	}
-	s.index.Images[name] = id
-	return im, s.saveIndexLocked()
+	if err := s.WithGlobal(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if _, ok := s.index.Images[name]; ok {
+			return fmt.Errorf("image %q already exists", name)
+		}
+		s.index.Images[name] = id
+		if err := s.saveIndexLocked(); err != nil {
+			delete(s.index.Images, name)
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	committed = true
+	return im, nil
 }
 
 // ParseCapabilities extracts ImageCapabilities flags from an image metadata map, checking a nested "capabilities" object when present.
@@ -243,24 +259,36 @@ func (s *Store) ListImages() ([]*ImageRecord, error) {
 // RemoveImage deletes an image from the store; if VMs still reference it, force must be true.
 // It returns the list of referencing VM names regardless of outcome.
 func (s *Store) RemoveImage(name string, force bool) ([]string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	im, err := s.loadImageLocked(name)
-	if err != nil {
-		return nil, err
-	}
+	var im *ImageRecord
 	refs := []string{}
-	vms, _ := s.listVMsLocked()
-	for _, vm := range vms {
-		if vm.Image.ID == im.ID {
-			refs = append(refs, vm.Name)
+	err := s.WithGlobal(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		var err error
+		im, err = s.loadImageLocked(name)
+		if err != nil {
+			return err
 		}
-	}
-	if len(refs) > 0 && !force {
-		return refs, errors.New("image is in use")
-	}
-	delete(s.index.Images, name)
-	if err := s.saveIndexLocked(); err != nil {
+		vms, err := s.listVMsLocked()
+		if err != nil {
+			return err
+		}
+		for _, vm := range vms {
+			if vm.Image.ID == im.ID {
+				refs = append(refs, vm.Name)
+			}
+		}
+		if len(refs) > 0 && !force {
+			return errors.New("image is in use")
+		}
+		delete(s.index.Images, name)
+		if err := s.saveIndexLocked(); err != nil {
+			s.index.Images[name] = im.ID
+			return err
+		}
+		return nil
+	})
+	if err != nil {
 		return refs, err
 	}
 	return refs, os.RemoveAll(s.ImageDir(im.ID))

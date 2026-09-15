@@ -55,18 +55,27 @@ func Open(opts ...Option) (*Store, error) {
 }
 
 func (s *Store) reloadIndex() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	b, err := os.ReadFile(filepath.Join(s.paths.State, "state.json"))
+	index, err := s.readIndex()
 	if err != nil {
 		return err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.index = index
+	return nil
+}
+
+func (s *Store) readIndex() (Index, error) {
+	b, err := os.ReadFile(filepath.Join(s.paths.State, "state.json"))
+	if err != nil {
+		return Index{}, err
+	}
 	var index Index
 	if err := json.Unmarshal(b, &index); err != nil {
-		return err
+		return Index{}, err
 	}
 	if index.SchemaVersion != SchemaVersion {
-		return fmt.Errorf("unsupported state schema version %d", index.SchemaVersion)
+		return Index{}, fmt.Errorf("unsupported state schema version %d", index.SchemaVersion)
 	}
 	if index.VMs == nil {
 		index.VMs = map[string]string{}
@@ -74,8 +83,7 @@ func (s *Store) reloadIndex() error {
 	if index.Images == nil {
 		index.Images = map[string]string{}
 	}
-	s.index = index
-	return nil
+	return index, nil
 }
 
 // Paths returns the resolved host paths backing this store.

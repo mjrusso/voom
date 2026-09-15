@@ -1,6 +1,8 @@
 package state
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,18 +25,22 @@ func (s *Store) portAvailable(bind string, port int) (bool, string) {
 
 // RegisterVM adds a name->ID mapping to the index and persists it.
 func (s *Store) RegisterVM(name, id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.index.VMs[name] = id
-	return s.saveIndexLocked()
+	return s.WithGlobal(func() error { return s.RegisterVMLocked(name, id) })
 }
 
-// UnregisterVM removes the name->ID mapping from the index and persists it.
-func (s *Store) UnregisterVM(name string) error {
+// RegisterVMLocked adds a name->ID mapping while the caller holds the global lock.
+func (s *Store) RegisterVMLocked(name, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.index.VMs, name)
-	return s.saveIndexLocked()
+	if _, exists := s.index.VMs[name]; exists {
+		return fmt.Errorf("VM %q already exists", name)
+	}
+	s.index.VMs[name] = id
+	if err := s.saveIndexLocked(); err != nil {
+		delete(s.index.VMs, name)
+		return err
+	}
+	return nil
 }
 
 // SaveVM atomically writes the VM record to its on-disk vm.json.
@@ -99,48 +105,59 @@ func (s *Store) listVMsLocked() ([]*VMRecord, error) {
 	return out, nil
 }
 
-// RenameVM renames a VM in the index and rewrites its on-disk record under the per-VM lock.
-func (s *Store) RenameVM(oldName, newName string) (*VMRecord, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.index.VMs[newName]; ok {
-		return nil, fmt.Errorf("VM %q already exists", newName)
-	}
-	vm, err := s.loadVMLocked(oldName)
-	if err != nil {
-		return nil, err
-	}
-	unlock, err := s.LockVM(vm.ID)
+// RenameVM renames a VM under its per-VM lock.
+func (s *Store) RenameVM(ctx context.Context, oldName, newName string) (*VMRecord, error) {
+	vm, unlock, err := s.LockVMRecord(ctx, oldName)
 	if err != nil {
 		return nil, err
 	}
 	defer unlock()
-	delete(s.index.VMs, oldName)
-	s.index.VMs[newName] = vm.ID
-	vm.Name = newName
-	vm.UpdatedAt = time.Now().UTC()
-	if err := s.SaveVM(vm); err != nil {
-		return nil, err
-	}
-	return vm, s.saveIndexLocked()
-}
-
-// DeleteVM removes the VM from the index and deletes its state, runtime, and cache directories.
-func (s *Store) DeleteVM(name string) (*VMRecord, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	vm, err := s.loadVMLocked(name)
+	previous := *vm
+	next := *vm
+	next.Name = newName
+	next.UpdatedAt = time.Now().UTC()
+	err = s.WithGlobalVM(oldName, vm.ID, func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if _, ok := s.index.VMs[newName]; ok {
+			return fmt.Errorf("VM %q already exists", newName)
+		}
+		if err := s.SaveVM(&next); err != nil {
+			return err
+		}
+		delete(s.index.VMs, oldName)
+		s.index.VMs[newName] = vm.ID
+		if err := s.saveIndexLocked(); err != nil {
+			delete(s.index.VMs, newName)
+			s.index.VMs[oldName] = vm.ID
+			return errors.Join(err, s.SaveVM(&previous))
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	delete(s.index.VMs, name)
-	if err := s.saveIndexLocked(); err != nil {
-		return nil, err
+	*vm = next
+	return vm, nil
+}
+
+// DeleteVM unregisters a locked VM, then removes its files.
+func (s *Store) DeleteVM(vm *VMRecord) error {
+	if err := s.WithGlobalVM(vm.Name, vm.ID, func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		delete(s.index.VMs, vm.Name)
+		if err := s.saveIndexLocked(); err != nil {
+			s.index.VMs[vm.Name] = vm.ID
+			return err
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
-	// Best-effort cleanup of runtime/cache scratch dirs; the authoritative removal is VMDir.
 	_ = os.RemoveAll(s.RuntimeVMDir(vm))
 	_ = os.RemoveAll(s.CacheVMDir(vm))
-	return vm, os.RemoveAll(s.VMDir(vm.ID))
+	return os.RemoveAll(s.VMDir(vm.ID))
 }
 
 // AllocateSSHPort returns the lowest free port in [SSHLow, SSHHigh] not reserved by another VM or in use on the host.

@@ -61,9 +61,12 @@ func TestNixosSwitchPreservesConfigurationChangedWhileWaiting(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	local, err := st.LockVM(record.ID)
+	local, err := st.TryLockVM(record.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if local == nil {
+		t.Fatal("VM lock was unavailable")
 	}
 	release := sync.OnceFunc(local)
 	defer release()

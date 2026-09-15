@@ -22,12 +22,11 @@ func (m *Manager) AddShare(ctx context.Context, name, tag, hostPath, guestPath s
 	if err != nil {
 		return share.Decl{}, err
 	}
-	lock, err := m.lockVM(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return share.Decl{}, err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	if m.IsRunning(vm) {
 		return share.Decl{}, fmt.Errorf("VM %q is running; stop or restart the VM before changing shares", vm.Name)
 	}
@@ -44,12 +43,11 @@ func (m *Manager) AddShare(ctx context.Context, name, tag, hostPath, guestPath s
 // RemoveShare detaches the share with the given tag from the VM; the VM must
 // be stopped.
 func (m *Manager) RemoveShare(ctx context.Context, name, tag string) error {
-	lock, err := m.lockVM(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return err
 	}
-	defer lock.Release()
-	vm := lock.VM
+	defer unlock()
 	if m.IsRunning(vm) {
 		return fmt.Errorf("VM %q is running; stop or restart the VM before changing shares", vm.Name)
 	}

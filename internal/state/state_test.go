@@ -176,6 +176,39 @@ func TestImportImageRequiresSSHUser(t *testing.T) {
 	}
 }
 
+func TestConcurrentImageImportsCommitOnce(t *testing.T) {
+	store, dir := newTestStore(t)
+	src := filepath.Join(dir, "source.raw")
+	if err := os.WriteFile(src, []byte("raw-image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := store.ImportImage(context.Background(), ImportOptions{
+				Name: "image", Src: src, Arch: host.System(), Format: "raw", SSHUser: "root",
+			})
+			results <- err
+		}()
+	}
+	successes := 0
+	for range 2 {
+		if err := <-results; err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful imports = %d, want 1", successes)
+	}
+	entries, err := os.ReadDir(filepath.Join(store.Paths().State, "images"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("image object directories = %d, want 1", len(entries))
+	}
+}
+
 func TestImportImageFlagOverridesSidecarUser(t *testing.T) {
 	store, dir := newTestStore(t)
 
@@ -293,7 +326,7 @@ func TestAllocateSSHPortErrorsWhenAllPortsUnavailable(t *testing.T) {
 	}
 }
 
-func TestLockGlobalAndReloadRefreshesIndexAfterWaiting(t *testing.T) {
+func TestWithGlobalRefreshesIndexAfterWaiting(t *testing.T) {
 	if readyPath := os.Getenv("VOOM_LOCK_RELOAD_HELPER"); readyPath != "" {
 		store, err := Open(WithHostPortAvailable(func(string, int) (bool, string) {
 			return true, ""
@@ -304,16 +337,13 @@ func TestLockGlobalAndReloadRefreshesIndexAfterWaiting(t *testing.T) {
 		if err := os.WriteFile(readyPath, nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		unlock, err := store.LockGlobalAndReload()
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer unlock()
-		got, err := store.AllocateSSHPort()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(readyPath+".result", []byte(strconv.Itoa(got)), 0o644); err != nil {
+		if err := store.WithGlobal(func() error {
+			got, err := store.AllocateSSHPort()
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(readyPath+".result", []byte(strconv.Itoa(got)), 0o644)
+		}); err != nil {
 			t.Fatal(err)
 		}
 		return
@@ -322,7 +352,7 @@ func TestLockGlobalAndReloadRefreshesIndexAfterWaiting(t *testing.T) {
 	storeA, dir := newTestStore(t, WithHostPortAvailable(func(string, int) (bool, string) {
 		return true, ""
 	}))
-	unlockA, err := storeA.LockGlobal()
+	unlockA, err := storeA.lockGlobal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +363,7 @@ func TestLockGlobalAndReloadRefreshesIndexAfterWaiting(t *testing.T) {
 		}
 	})
 	readyPath := filepath.Join(dir, "lock-reload-helper-ready")
-	cmd := exec.Command(os.Args[0], "-test.run=^TestLockGlobalAndReloadRefreshesIndexAfterWaiting$")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestWithGlobalRefreshesIndexAfterWaiting$")
 	cmd.Env = append(os.Environ(), "VOOM_LOCK_RELOAD_HELPER="+readyPath)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
