@@ -1,10 +1,22 @@
 package state
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"sort"
+	"strings"
+)
 
 // RuntimeLayout resolves per-VM process record and socket paths under one base directory.
 type RuntimeLayout struct {
 	dir string
+}
+
+// VirtiofsdPaths contains the runtime paths for one virtiofsd instance.
+type VirtiofsdPaths struct {
+	Tag           string
+	ProcessRecord string
+	Socket        string
+	LockFile      string
 }
 
 // Runtime returns the RuntimeLayout rooted at the VM's runtime directory.
@@ -75,19 +87,40 @@ func (r RuntimeLayout) AutoForwardsJSON() string {
 	return filepath.Join(r.dir, "auto-forwards.json")
 }
 
-// VirtiofsProcessRecordGlob returns a glob pattern matching virtiofsd process records.
-func (r RuntimeLayout) VirtiofsProcessRecordGlob() string {
-	return filepath.Join(r.dir, "virtiofs-*.process.json")
+// Virtiofsd returns the runtime paths for a share tag.
+func (r RuntimeLayout) Virtiofsd(tag string) VirtiofsdPaths {
+	base := filepath.Join(r.dir, "virtiofs-"+tag)
+	return VirtiofsdPaths{
+		Tag:           tag,
+		ProcessRecord: base + ".process.json",
+		Socket:        base + ".sock",
+		LockFile:      base + ".sock.pid",
+	}
 }
 
-// VirtiofsSockGlob returns a glob pattern matching virtiofs daemon sockets.
-func (r RuntimeLayout) VirtiofsSockGlob() string {
-	return filepath.Join(r.dir, "virtiofs-*.sock")
-}
-
-// VirtiofsdLockFileGlob returns a glob for lock files owned by virtiofsd.
-func (r RuntimeLayout) VirtiofsdLockFileGlob() string {
-	return filepath.Join(r.dir, "virtiofs-*.sock.pid")
+// FindVirtiofsd discovers virtiofsd instances from their runtime artifacts.
+func (r RuntimeLayout) FindVirtiofsd() []VirtiofsdPaths {
+	tags := map[string]struct{}{}
+	for _, suffix := range []string{".process.json", ".sock", ".sock.pid"} {
+		matches, _ := filepath.Glob(filepath.Join(r.dir, "virtiofs-*"+suffix))
+		for _, path := range matches {
+			name := filepath.Base(path)
+			tag := strings.TrimSuffix(strings.TrimPrefix(name, "virtiofs-"), suffix)
+			if tag != "" {
+				tags[tag] = struct{}{}
+			}
+		}
+	}
+	ordered := make([]string, 0, len(tags))
+	for tag := range tags {
+		ordered = append(ordered, tag)
+	}
+	sort.Strings(ordered)
+	paths := make([]VirtiofsdPaths, 0, len(ordered))
+	for _, tag := range ordered {
+		paths = append(paths, r.Virtiofsd(tag))
+	}
+	return paths
 }
 
 // DriverSockets returns the union of driver and network socket paths used by both drivers.

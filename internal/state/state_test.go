@@ -122,20 +122,21 @@ func TestRuntimeLayoutPaths(t *testing.T) {
 	if rt.Dir() != wantDir {
 		t.Fatalf("Runtime.Dir() = %q, want %q", rt.Dir(), wantDir)
 	}
+	virtiofs := rt.Virtiofsd("repo")
 	checks := map[string]string{
-		rt.VMProcessRecord():           filepath.Join(wantDir, "vm.process.json"),
-		rt.GVProxyProcessRecord():      filepath.Join(wantDir, "gvproxy.process.json"),
-		rt.NetworkSock():               filepath.Join(wantDir, "network.sock"),
-		rt.QEMUNetSock():               filepath.Join(wantDir, "qemu-net.sock"),
-		rt.VFKitNetSock():              filepath.Join(wantDir, "vfkit-net.sock"),
-		rt.QEMUMonitor():               filepath.Join(wantDir, "qemu.mon"),
-		rt.VFKitRestSock():             filepath.Join(wantDir, "vfkit.sock"),
-		rt.EFIStore():                  filepath.Join(wantDir, "efi-variable-store"),
-		rt.AutoForwardProcessRecord():  filepath.Join(wantDir, "auto-forward.process.json"),
-		rt.AutoForwardsJSON():          filepath.Join(wantDir, "auto-forwards.json"),
-		rt.VirtiofsProcessRecordGlob(): filepath.Join(wantDir, "virtiofs-*.process.json"),
-		rt.VirtiofsSockGlob():          filepath.Join(wantDir, "virtiofs-*.sock"),
-		rt.VirtiofsdLockFileGlob():     filepath.Join(wantDir, "virtiofs-*.sock.pid"),
+		rt.VMProcessRecord():          filepath.Join(wantDir, "vm.process.json"),
+		rt.GVProxyProcessRecord():     filepath.Join(wantDir, "gvproxy.process.json"),
+		rt.NetworkSock():              filepath.Join(wantDir, "network.sock"),
+		rt.QEMUNetSock():              filepath.Join(wantDir, "qemu-net.sock"),
+		rt.VFKitNetSock():             filepath.Join(wantDir, "vfkit-net.sock"),
+		rt.QEMUMonitor():              filepath.Join(wantDir, "qemu.mon"),
+		rt.VFKitRestSock():            filepath.Join(wantDir, "vfkit.sock"),
+		rt.EFIStore():                 filepath.Join(wantDir, "efi-variable-store"),
+		rt.AutoForwardProcessRecord(): filepath.Join(wantDir, "auto-forward.process.json"),
+		rt.AutoForwardsJSON():         filepath.Join(wantDir, "auto-forwards.json"),
+		virtiofs.ProcessRecord:        filepath.Join(wantDir, "virtiofs-repo.process.json"),
+		virtiofs.Socket:               filepath.Join(wantDir, "virtiofs-repo.sock"),
+		virtiofs.LockFile:             filepath.Join(wantDir, "virtiofs-repo.sock.pid"),
 	}
 	for got, want := range checks {
 		if got != want {
@@ -147,6 +148,25 @@ func TestRuntimeLayoutPaths(t *testing.T) {
 	}
 	if rt.DriverNetSock("vfkit") != rt.VFKitNetSock() {
 		t.Fatalf("vfkit driver socket = %q, want %q", rt.DriverNetSock("vfkit"), rt.VFKitNetSock())
+	}
+}
+
+func TestRuntimeLayoutFindsVirtiofsdArtifacts(t *testing.T) {
+	st, _ := newTestStore(t)
+	rt := st.Runtime(&VMRecord{ID: "vm1"})
+	if err := os.MkdirAll(rt.Dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	first := rt.Virtiofsd("first")
+	second := rt.Virtiofsd("second")
+	for _, path := range []string{first.ProcessRecord, first.Socket, first.LockFile, second.Socket} {
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	found := rt.FindVirtiofsd()
+	if len(found) != 2 || found[0] != first || found[1] != second {
+		t.Fatalf("virtiofsd paths = %#v", found)
 	}
 }
 

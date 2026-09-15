@@ -15,7 +15,7 @@ import (
 func TestStartRecordedWritesValidRecord(t *testing.T) {
 	dir := t.TempDir()
 	recordPath := filepath.Join(dir, "helper.process.json")
-	if err := StartRecorded("bash", []string{"-c", "exec -a gvproxy bash -c \"trap 'exit 0' TERM; while true; do sleep 1; done\""}, filepath.Join(dir, "helper.log"), recordPath, exec.LookPath); err != nil {
+	if err := StartRecorded(testExecutable(t, "bash"), []string{"-c", "exec -a gvproxy bash -c \"trap 'exit 0' TERM; while true; do sleep 1; done\""}, filepath.Join(dir, "helper.log"), recordPath); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = StopRecorded(recordPath, "gvproxy", time.Second) })
@@ -35,11 +35,10 @@ func TestStartRecordedStopsChildWhenRecordWriteFails(t *testing.T) {
 	}
 	token := "voom-record-failure-" + filepath.Base(dir)
 	err := StartRecorded(
-		"bash",
+		testExecutable(t, "bash"),
 		[]string{"-c", "trap '' TERM; while true; do sleep 1; done", token},
 		filepath.Join(dir, "helper.log"),
 		filepath.Join(badParent, "helper.process.json"),
-		exec.LookPath,
 	)
 	if err == nil || !strings.Contains(err.Error(), "record process identity") {
 		t.Fatalf("StartRecorded error = %v", err)
@@ -61,7 +60,7 @@ func TestStartRecordedAppendsAfterConcurrentLogWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	recordPath := filepath.Join(dir, "helper.process.json")
-	if err := StartRecorded("bash", []string{"-c", `printf first; while [ ! -e "$1" ]; do sleep 0.1; done; printf second`, "bash", flag, "forward", "auto", "watch", "test"}, path, recordPath, exec.LookPath); err != nil {
+	if err := StartRecorded(testExecutable(t, "bash"), []string{"-c", `printf first; while [ ! -e "$1" ]; do sleep 0.1; done; printf second`, "bash", flag, "forward", "auto", "watch", "test"}, path, recordPath); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = StopRecorded(recordPath, "auto-forward", time.Second) })
@@ -92,6 +91,15 @@ func TestStartRecordedAppendsAfterConcurrentLogWriter(t *testing.T) {
 		b, _ := os.ReadFile(path)
 		t.Fatalf("log = %q", b)
 	}
+}
+
+func testExecutable(t *testing.T, name string) string {
+	t.Helper()
+	path, err := exec.LookPath(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestValidRecordMatchesExpectedProcessKinds(t *testing.T) {

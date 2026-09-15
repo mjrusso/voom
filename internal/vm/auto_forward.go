@@ -20,6 +20,13 @@ type AutoForwardUpdate struct {
 	Bind    *string
 }
 
+type autoForwardRemovalMode uint8
+
+const (
+	forgetAutoForwards autoForwardRemovalMode = iota
+	unexposeAutoForwards
+)
+
 // UpdateAutoForward updates the selected auto-forward settings for a VM.
 func (m *Manager) UpdateAutoForward(ctx context.Context, name string, update AutoForwardUpdate) (*state.VMRecord, error) {
 	if update.Offset != nil && *update.Offset < 0 {
@@ -67,7 +74,7 @@ func (m *Manager) UpdateAutoForward(ctx context.Context, name string, update Aut
 				return vm, err
 			}
 		} else {
-			if err := m.cleanupAutoForwardsLocked(vm); err != nil {
+			if err := m.cleanupAutoForwardsLocked(vm, unexposeAutoForwards); err != nil {
 				return vm, err
 			}
 			if err := m.StopAutoForwardWatcher(vm); err != nil {
@@ -179,35 +186,37 @@ func (m *Manager) watchAutoForwardsOnce(id string) (autoForwardWatchOutcome, err
 		return autoForwardWatchContinue, err
 	}
 	if !m.IsRunning(vm) || !vm.Network.AutoForward {
-		if err := m.cleanupAutoForwardsLocked(vm); err != nil {
-			return autoForwardWatchContinue, err
+		mode := forgetAutoForwards
+		if m.gvproxyMayBeRunning(vm) {
+			mode = unexposeAutoForwards
 		}
-		return autoForwardWatchDone, nil
+		return m.finishAutoForwardWatch(vm, mode)
 	}
 	im, err := m.store.LoadImageByID(vm.Image.ID)
 	if err != nil {
 		return autoForwardWatchContinue, err
 	}
 	if !im.Capabilities.GuestPortReport || !im.Capabilities.ControlShare {
-		if err := m.cleanupAutoForwardsLocked(vm); err != nil {
-			return autoForwardWatchContinue, err
-		}
-		return autoForwardWatchDone, nil
+		return m.finishAutoForwardWatch(vm, unexposeAutoForwards)
 	}
 	_, err = m.reconcileAutoForwardsLocked(vm)
 	return autoForwardWatchContinue, err
 }
 
+func (m *Manager) finishAutoForwardWatch(vm *state.VMRecord, mode autoForwardRemovalMode) (autoForwardWatchOutcome, error) {
+	if err := m.cleanupAutoForwardsLocked(vm, mode); err != nil {
+		return autoForwardWatchContinue, err
+	}
+	return autoForwardWatchDone, nil
+}
+
 // The caller must hold the VM lock.
-func (m *Manager) cleanupAutoForwardsLocked(vm *state.VMRecord) error {
+func (m *Manager) cleanupAutoForwardsLocked(vm *state.VMRecord, mode autoForwardRemovalMode) error {
 	oldRows, err := m.ReadRuntimeAutoForwards(vm)
 	if err != nil {
 		return err
 	}
-	if len(oldRows) == 0 {
-		return m.saveRuntimeAutoForwards(vm, nil)
-	}
-	_, err = m.removeAutoForwardRowsLocked(vm, oldRows, func(RuntimeAutoForward) bool { return true })
+	_, err = m.removeAllAutoForwardRowsLocked(vm, oldRows, mode)
 	return err
 }
 
@@ -241,7 +250,7 @@ func (m *Manager) reconcileAutoForwardsLocked(vm *state.VMRecord) ([]RuntimeAuto
 		return oldRows, err
 	}
 	if !vm.Network.AutoForward {
-		remaining, err := m.removeAutoForwardRowsLocked(vm, oldRows, func(RuntimeAutoForward) bool { return true })
+		remaining, err := m.removeAllAutoForwardRowsLocked(vm, oldRows, unexposeAutoForwards)
 		return remaining, err
 	}
 	report, err := m.ReadGuestPorts(vm)
@@ -262,7 +271,7 @@ func (m *Manager) reconcileAutoForwardsLocked(vm *state.VMRecord) ([]RuntimeAuto
 	oldRows, err = m.removeAutoForwardRowsLocked(vm, oldRows, func(row RuntimeAutoForward) bool {
 		_, keep := desiredKeys[forward.Key(row)]
 		return row.Installed && !keep
-	})
+	}, unexposeAutoForwards)
 	if err != nil {
 		return oldRows, err
 	}
@@ -306,6 +315,13 @@ func (m *Manager) reconcileAutoForwardsLocked(vm *state.VMRecord) ([]RuntimeAuto
 	return desired, nil
 }
 
+func (m *Manager) removeAllAutoForwardRowsLocked(vm *state.VMRecord, oldRows []RuntimeAutoForward, mode autoForwardRemovalMode) ([]RuntimeAutoForward, error) {
+	if len(oldRows) == 0 {
+		return nil, m.saveRuntimeAutoForwards(vm, nil)
+	}
+	return m.removeAutoForwardRowsLocked(vm, oldRows, func(RuntimeAutoForward) bool { return true }, mode)
+}
+
 // The caller must hold the VM lock.
 func (m *Manager) removeMismatchedAutoForwardsLocked(vm *state.VMRecord) ([]RuntimeAutoForward, error) {
 	oldRows, err := m.ReadRuntimeAutoForwards(vm)
@@ -316,13 +332,12 @@ func (m *Manager) removeMismatchedAutoForwardsLocked(vm *state.VMRecord) ([]Runt
 	offset := vm.Network.AutoForwardHostOffset
 	return m.removeAutoForwardRowsLocked(vm, oldRows, func(row RuntimeAutoForward) bool {
 		return row.Bind != bind || row.Offset != offset
-	})
+	}, unexposeAutoForwards)
 }
 
 // The caller must hold the VM lock.
-func (m *Manager) removeAutoForwardRowsLocked(vm *state.VMRecord, oldRows []RuntimeAutoForward, remove func(RuntimeAutoForward) bool) ([]RuntimeAutoForward, error) {
+func (m *Manager) removeAutoForwardRowsLocked(vm *state.VMRecord, oldRows []RuntimeAutoForward, remove func(RuntimeAutoForward) bool, mode autoForwardRemovalMode) ([]RuntimeAutoForward, error) {
 	rt := m.store.Runtime(vm)
-	gvproxyMayBeRunning := m.runtimeGVProxyPID(vm) != 0 || process.HasRecord(rt.GVProxyProcessRecord()) || socketExists(rt.NetworkSock())
 	remaining := make([]RuntimeAutoForward, 0, len(oldRows))
 	unexposed := []RuntimeAutoForward{}
 	removed := false
@@ -332,7 +347,7 @@ func (m *Manager) removeAutoForwardRowsLocked(vm *state.VMRecord, oldRows []Runt
 			remaining = append(remaining, row)
 			continue
 		}
-		if row.Installed && gvproxyMayBeRunning {
+		if row.Installed && mode == unexposeAutoForwards {
 			if err := gvproxyUnexpose(rt.NetworkSock(), fmt.Sprintf("%s:%d", row.Bind, row.HostPort)); err != nil {
 				remaining = append(remaining, row)
 				failures = append(failures, fmt.Errorf("unexpose auto-forward %s:%d: %w", row.Bind, row.HostPort, err))
@@ -358,6 +373,11 @@ func (m *Manager) removeAutoForwardRowsLocked(vm *state.VMRecord, oldRows []Runt
 	}
 	m.emitAutoForwardTransitions(vm, oldRows, remaining)
 	return remaining, errors.Join(failures...)
+}
+
+func (m *Manager) gvproxyMayBeRunning(vm *state.VMRecord) bool {
+	rt := m.store.Runtime(vm)
+	return m.runtimeGVProxyPID(vm) != 0 || process.HasRecord(rt.GVProxyProcessRecord()) || socketExists(rt.NetworkSock())
 }
 
 func (m *Manager) emitAutoForwardTransitions(vm *state.VMRecord, oldRows, newRows []RuntimeAutoForward) {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/mjrusso/voom/internal/egress"
@@ -109,7 +108,11 @@ func (m *Manager) StartControlShare(ctx context.Context, vm *state.VMRecord) (sh
 			LogKind:  "virtiofs-" + state.ControlShareTag,
 		}, nil
 	}
-	rt, err := share.ControlRuntime(m.store.Runtime(vm).Dir(), m.store.ControlShareDir(vm), state.ControlShareTag)
+	rt, err := m.virtiofsRuntime(vm, share.Runtime{
+		Tag:      state.ControlShareTag,
+		HostPath: m.store.ControlShareDir(vm),
+		LogKind:  "virtiofs-" + state.ControlShareTag,
+	})
 	if err != nil {
 		return share.Runtime{}, err
 	}
@@ -148,7 +151,23 @@ func (m *Manager) userShareRuntime(vm *state.VMRecord, sh share.Decl) (share.Run
 			LogKind:   "virtiofs-" + sh.Tag,
 		}, nil
 	}
-	return share.RuntimeForVM(m.store.Runtime(vm).Dir(), sh)
+	return m.virtiofsRuntime(vm, share.Runtime{
+		Tag:       sh.Tag,
+		HostPath:  sh.HostPath,
+		GuestPath: sh.GuestPath,
+		Readonly:  sh.Readonly,
+		LogKind:   "virtiofs-" + sh.Tag,
+	})
+}
+
+func (m *Manager) virtiofsRuntime(vm *state.VMRecord, runtime share.Runtime) (share.Runtime, error) {
+	paths := m.store.Runtime(vm).Virtiofsd(runtime.Tag)
+	if err := share.ValidateUnixSocketPath("share "+runtime.Tag, paths.Socket); err != nil {
+		return share.Runtime{}, err
+	}
+	runtime.Sock = paths.Socket
+	runtime.ProcessRecord = paths.ProcessRecord
+	return runtime, nil
 }
 
 func (m *Manager) startVirtiofsd(ctx context.Context, vm *state.VMRecord, sh share.Runtime) (share.Runtime, error) {
@@ -166,21 +185,16 @@ func (m *Manager) startVirtiofsd(ctx context.Context, vm *state.VMRecord, sh sha
 
 func (m *Manager) stopVirtiofsd(rt state.RuntimeLayout) error {
 	var failures []error
-	for _, path := range globFiles(rt.VirtiofsSockGlob()) {
-		recordPath := strings.TrimSuffix(path, ".sock") + ".process.json"
-		if socketExists(path) && !process.HasRecord(recordPath) {
-			failures = append(failures, fmt.Errorf("virtiofsd termination unconfirmed: %s has no process identity", path))
+	for _, paths := range rt.FindVirtiofsd() {
+		service := runtimeService{
+			label:     "virtiofsd",
+			kind:      "virtiofsd",
+			record:    paths.ProcessRecord,
+			artifacts: []string{paths.Socket, paths.LockFile},
+			timeout:   virtiofsdShutdownTimeout,
 		}
-	}
-	for _, path := range process.FindRecords(rt.VirtiofsProcessRecordGlob()) {
-		if err := process.StopRecorded(path, "virtiofsd", virtiofsdShutdownTimeout); err != nil {
+		if _, err := stopService(service); err != nil {
 			failures = append(failures, err)
-		}
-	}
-	if len(failures) == 0 {
-		paths := append(globFiles(rt.VirtiofsSockGlob()), globFiles(rt.VirtiofsdLockFileGlob())...)
-		for _, path := range paths {
-			_ = os.Remove(path)
 		}
 	}
 	return errors.Join(failures...)

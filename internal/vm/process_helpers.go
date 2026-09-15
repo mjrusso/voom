@@ -3,7 +3,6 @@ package vm
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/mjrusso/voom/internal/forward"
@@ -13,7 +12,11 @@ import (
 )
 
 func (m *Manager) startRecorded(bin string, args []string, logPath, recordPath string) error {
-	return process.StartRecorded(bin, args, logPath, recordPath, host.ExePath)
+	executable, err := host.ExePath(bin)
+	if err != nil {
+		return err
+	}
+	return process.StartRecorded(executable, args, logPath, recordPath)
 }
 
 func waitFor(ctx context.Context, ok func() bool, d time.Duration) error {
@@ -28,11 +31,6 @@ func fileExists(path string) bool {
 func socketExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode()&os.ModeSocket != 0
-}
-
-func globFiles(pattern string) []string {
-	out, _ := filepath.Glob(pattern)
-	return out
 }
 
 func portBusy(bind string, port int) bool {

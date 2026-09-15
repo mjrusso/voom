@@ -491,6 +491,41 @@ type runtimeStopResult struct {
 	gatewayTerminationConfirmed bool
 }
 
+type runtimeService struct {
+	label     string
+	kind      string
+	record    string
+	artifacts []string
+	timeout   time.Duration
+	logPath   string
+}
+
+func stopService(service runtimeService) (bool, error) {
+	var failures []error
+	if !process.HasRecord(service.record) {
+		for _, path := range service.artifacts {
+			if socketExists(path) {
+				failures = append(failures, fmt.Errorf("%s termination unconfirmed: socket %s has no process identity", service.label, path))
+			}
+		}
+	}
+	if len(failures) == 0 {
+		if err := process.StopRecorded(service.record, service.kind, service.timeout); err != nil {
+			failures = append(failures, err)
+		}
+	}
+	if err := errors.Join(failures...); err != nil {
+		if service.logPath != "" {
+			err = fmt.Errorf("%w; log: %s", err, service.logPath)
+		}
+		return false, err
+	}
+	for _, path := range service.artifacts {
+		_ = os.Remove(path)
+	}
+	return true, nil
+}
+
 // stopRuntime requires the VM lock. It attempts every helper and retains records
 // when termination cannot be confirmed. Gateway confirmation is independent of
 // other cleanup errors because live egress rollback depends on it.
@@ -499,26 +534,9 @@ func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeS
 	rt := m.store.Runtime(vm)
 	changed := hasRuntimeState(vm, rt)
 	var failures []error
-	var driverErr error
-	var gatewayErr error
-	if !process.HasRecord(rt.GVProxyProcessRecord()) {
-		for _, path := range rt.NetworkArtifacts() {
-			if socketExists(path) {
-				gatewayErr = fmt.Errorf("gvproxy termination unconfirmed: socket %s has no process identity; inspect %s", path, m.store.LogPath(vm, "gvproxy"))
-			}
-		}
-	}
-	if !process.HasRecord(rt.VMProcessRecord()) {
-		for _, path := range rt.DriverArtifacts(vm.Driver) {
-			if socketExists(path) {
-				driverErr = fmt.Errorf("VM termination unconfirmed: socket %s has no process identity", path)
-			}
-		}
-	}
 	if err := process.StopRecorded(rt.AutoForwardProcessRecord(), "auto-forward", processStopTimeout); err != nil {
 		failures = append(failures, err)
 	}
-	cleanupErr := m.cleanupAutoForwardsLocked(vm)
 	if pid, ok := process.ValidRecord(rt.VMProcessRecord(), state.VMProcessKind(vm.Driver)); ok {
 		switch vm.Driver {
 		case "qemu":
@@ -532,38 +550,41 @@ func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeS
 			_ = waitFor(ctx, func() bool { return !process.Alive(pid) }, driverStopTimeout)
 		}
 	}
-	if driverErr == nil {
-		driverErr = process.StopRecorded(rt.VMProcessRecord(), state.VMProcessKind(vm.Driver), processStopTimeout)
-	}
+	_, driverErr := stopService(runtimeService{
+		label:     "VM",
+		kind:      state.VMProcessKind(vm.Driver),
+		record:    rt.VMProcessRecord(),
+		artifacts: rt.DriverArtifacts(vm.Driver),
+		timeout:   processStopTimeout,
+	})
 	if driverErr != nil {
 		failures = append(failures, driverErr)
-	} else {
-		for _, path := range rt.DriverArtifacts(vm.Driver) {
-			_ = os.Remove(path)
-		}
 	}
-	if gatewayErr == nil {
-		gatewayErr = process.StopRecorded(rt.GVProxyProcessRecord(), "gvproxy", processStopTimeout)
-	}
+	gatewayConfirmed, gatewayErr := stopService(runtimeService{
+		label:     "gvproxy",
+		kind:      "gvproxy",
+		record:    rt.GVProxyProcessRecord(),
+		artifacts: rt.NetworkArtifacts(),
+		timeout:   processStopTimeout,
+		logPath:   m.store.LogPath(vm, "gvproxy"),
+	})
 	if gatewayErr != nil {
-		failures = append(failures, fmt.Errorf("%w; log: %s", gatewayErr, m.store.LogPath(vm, "gvproxy")))
+		failures = append(failures, gatewayErr)
+	}
+	cleanupMode := unexposeAutoForwards
+	if gatewayConfirmed {
+		cleanupMode = forgetAutoForwards
+	}
+	if err := m.cleanupAutoForwardsLocked(vm, cleanupMode); err != nil {
+		failures = append(failures, err)
 	}
 	if err := m.stopVirtiofsd(rt); err != nil {
 		failures = append(failures, err)
 	}
-	if gatewayErr == nil {
-		for _, p := range rt.NetworkArtifacts() {
-			_ = os.Remove(p)
-		}
-		cleanupErr = m.cleanupAutoForwardsLocked(vm)
-	}
-	if cleanupErr != nil {
-		failures = append(failures, cleanupErr)
-	}
 	filesChanged, err := removeEgressFiles(rt)
 	return runtimeStopResult{
 		changed:                     changed || filesChanged,
-		gatewayTerminationConfirmed: gatewayErr == nil,
+		gatewayTerminationConfirmed: gatewayConfirmed,
 	}, errors.Join(append(failures, err)...)
 }
 
@@ -571,7 +592,7 @@ func hasRuntimeState(vm *state.VMRecord, rt state.RuntimeLayout) bool {
 	if process.HasRecord(rt.VMProcessRecord()) ||
 		process.HasRecord(rt.GVProxyProcessRecord()) ||
 		process.HasRecord(rt.AutoForwardProcessRecord()) ||
-		len(process.FindRecords(rt.VirtiofsProcessRecordGlob())) > 0 {
+		len(rt.FindVirtiofsd()) > 0 {
 		return true
 	}
 	paths := []string{rt.AutoForwardsJSON(), rt.EgressManifest(), rt.EgressCA()}
@@ -582,7 +603,7 @@ func hasRuntimeState(vm *state.VMRecord, rt state.RuntimeLayout) bool {
 			return true
 		}
 	}
-	return len(globFiles(rt.VirtiofsSockGlob())) > 0 || len(globFiles(rt.VirtiofsdLockFileGlob())) > 0
+	return false
 }
 
 // IsRunning reports whether the VM's driver process is alive.

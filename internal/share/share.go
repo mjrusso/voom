@@ -46,38 +46,6 @@ func NewDecl(tag, hostPath, guestPath, reservedTag string, readonly bool) (Decl,
 	return Decl{Tag: tag, HostPath: hostPath, GuestPath: guestPath, Readonly: readonly}, nil
 }
 
-// RuntimeForVM builds a Runtime for the given share.
-func RuntimeForVM(runtimeVMDir string, sh Decl) (Runtime, error) {
-	sock := filepath.Join(runtimeVMDir, "virtiofs-"+sh.Tag+".sock")
-	if err := ValidateUnixSocketPath("share "+sh.Tag, sock); err != nil {
-		return Runtime{}, err
-	}
-	return Runtime{
-		Tag:           sh.Tag,
-		Sock:          sock,
-		ProcessRecord: filepath.Join(runtimeVMDir, "virtiofs-"+sh.Tag+".process.json"),
-		HostPath:      sh.HostPath,
-		GuestPath:     sh.GuestPath,
-		Readonly:      sh.Readonly,
-		LogKind:       "virtiofs-" + sh.Tag,
-	}, nil
-}
-
-// ControlRuntime builds a Runtime for the reserved control share that exposes controlDir under the given tag.
-func ControlRuntime(runtimeVMDir, controlDir, tag string) (Runtime, error) {
-	sock := filepath.Join(runtimeVMDir, "virtiofs-"+tag+".sock")
-	if err := ValidateUnixSocketPath("control share", sock); err != nil {
-		return Runtime{}, err
-	}
-	return Runtime{
-		Tag:           tag,
-		Sock:          sock,
-		ProcessRecord: filepath.Join(runtimeVMDir, "virtiofs-"+tag+".process.json"),
-		HostPath:      controlDir,
-		LogKind:       "virtiofs-" + tag,
-	}, nil
-}
-
 // VirtiofsdArgs returns the command-line arguments for launching virtiofsd for the given Runtime.
 func VirtiofsdArgs(sh Runtime) []string {
 	args := []string{

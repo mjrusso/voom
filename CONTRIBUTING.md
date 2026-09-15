@@ -103,8 +103,8 @@ handlers.
   shutdown, virtiofs wiring.
 - `internal/driver/vfkit` — Darwin/vfkit launch args, REST control socket,
   graceful shutdown, native virtio-fs wiring.
-- `internal/share` — share validation, QEMU virtiofsd lifecycle, share
-  declaration helpers.
+- `internal/share` — share declarations, validation, guest mount scripts, and
+  virtiofsd argument construction.
 - `internal/forward` — manual forward declarations, auto-forward state and
   reconciliation, bind-address normalization, gvproxy expose/unexpose plans.
 

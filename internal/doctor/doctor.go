@@ -157,10 +157,13 @@ func StateDiagnostics(st *state.Store) []Check {
 				}
 			}
 		}
-		for _, path := range process.FindRecords(rt.VirtiofsProcessRecordGlob()) {
-			if _, ok := process.ValidRecord(path, "virtiofsd"); !ok {
-				recordName := filepath.Base(path)
-				out = append(out, Check{"stale-process-record-" + name + "-" + recordName, "warn", false, "stale or mismatched process record at " + path})
+		for _, paths := range rt.FindVirtiofsd() {
+			if !process.HasRecord(paths.ProcessRecord) {
+				continue
+			}
+			if _, ok := process.ValidRecord(paths.ProcessRecord, "virtiofsd"); !ok {
+				recordName := filepath.Base(paths.ProcessRecord)
+				out = append(out, Check{"stale-process-record-" + name + "-" + recordName, "warn", false, "stale or mismatched process record at " + paths.ProcessRecord})
 			}
 		}
 	}

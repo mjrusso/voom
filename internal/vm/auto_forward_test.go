@@ -410,6 +410,55 @@ func TestReconcileRetainsRowWhenRemovalFails(t *testing.T) {
 	}
 }
 
+func TestStopRuntimeForgetsAutoForwardsAfterConfirmedGatewayStop(t *testing.T) {
+	st, manager, vm, proxy := newAutoForwardFixture(t)
+	row := RuntimeAutoForward{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 8080, GuestPort: 8080, Status: "active", Installed: true}
+	proxy.install("127.0.0.1:8080")
+	if err := manager.saveRuntimeAutoForwards(vm, []RuntimeAutoForward{row}); err != nil {
+		t.Fatal(err)
+	}
+	gateway := fakeNamedVMProcess(t, "gvproxy")
+	writeProcessRecord(t, st.Runtime(vm).GVProxyProcessRecord(), gateway)
+	stop, err := manager.stopRuntime(context.Background(), vm)
+	if err != nil || !stop.gatewayTerminationConfirmed {
+		t.Fatalf("stopRuntime result=%+v error=%v", stop, err)
+	}
+	_, _ = gateway.Process.Wait()
+	rows, err := manager.ReadRuntimeAutoForwards(vm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("rows = %#v", rows)
+	}
+	if _, unexposes := proxy.counts(); unexposes != 0 {
+		t.Fatalf("unexpose calls = %d, want 0", unexposes)
+	}
+}
+
+func TestStopRuntimeUnexposesAutoForwardsWhenGatewayStopIsUnconfirmed(t *testing.T) {
+	_, manager, vm, proxy := newAutoForwardFixture(t)
+	row := RuntimeAutoForward{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 8080, GuestPort: 8080, Status: "active", Installed: true}
+	proxy.install("127.0.0.1:8080")
+	if err := manager.saveRuntimeAutoForwards(vm, []RuntimeAutoForward{row}); err != nil {
+		t.Fatal(err)
+	}
+	stop, err := manager.stopRuntime(context.Background(), vm)
+	if err == nil || stop.gatewayTerminationConfirmed {
+		t.Fatalf("stopRuntime result=%+v error=%v", stop, err)
+	}
+	rows, readErr := manager.ReadRuntimeAutoForwards(vm)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("rows = %#v", rows)
+	}
+	if _, unexposes := proxy.counts(); unexposes != 1 {
+		t.Fatalf("unexpose calls = %d, want 1", unexposes)
+	}
+}
+
 func TestUpdateAutoForwardRemovesMismatchedRows(t *testing.T) {
 	enabled := true
 	newBind := "127.0.0.1"

@@ -66,18 +66,16 @@ func TestCleanupFindsVirtiofsProcessRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := fakeNamedVMProcess(t, "virtiofsd")
-	recordPath := filepath.Join(rt.Dir(), "virtiofs-test.process.json")
-	if err := process.Record(recordPath, cmd.Process.Pid); err != nil {
+	paths := rt.Virtiofsd("test")
+	if err := process.Record(paths.ProcessRecord, cmd.Process.Pid); err != nil {
 		t.Fatal(err)
 	}
-	socketPath := filepath.Join(rt.Dir(), "virtiofs-test.sock")
-	listener, err := net.Listen("unix", socketPath)
+	listener, err := net.Listen("unix", paths.Socket)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = listener.Close() }()
-	lockPath := socketPath + ".pid"
-	if err := os.WriteFile(lockPath, []byte("123\n"), 0600); err != nil {
+	if err := os.WriteFile(paths.LockFile, []byte("123\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	stop, err := New(st).stopRuntime(context.Background(), record)
@@ -88,10 +86,10 @@ func TestCleanupFindsVirtiofsProcessRecord(t *testing.T) {
 	if process.Alive(cmd.Process.Pid) {
 		t.Fatal("virtiofsd process remains")
 	}
-	if process.HasRecord(recordPath) {
+	if process.HasRecord(paths.ProcessRecord) {
 		t.Fatal("virtiofsd process record remains")
 	}
-	for _, path := range []string{socketPath, lockPath} {
+	for _, path := range []string{paths.Socket, paths.LockFile} {
 		if _, err := os.Lstat(path); !os.IsNotExist(err) {
 			t.Fatalf("virtiofsd artifact remains at %s: %v", path, err)
 		}
@@ -105,24 +103,61 @@ func TestCleanupRetainsVirtiofsArtifactsWithoutProcessRecord(t *testing.T) {
 	if err := os.MkdirAll(rt.Dir(), 0700); err != nil {
 		t.Fatal(err)
 	}
-	socketPath := filepath.Join(rt.Dir(), "virtiofs-test.sock")
-	listener, err := net.Listen("unix", socketPath)
+	paths := rt.Virtiofsd("test")
+	listener, err := net.Listen("unix", paths.Socket)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = listener.Close() }()
-	lockPath := socketPath + ".pid"
-	if err := os.WriteFile(lockPath, []byte("123\n"), 0600); err != nil {
+	if err := os.WriteFile(paths.LockFile, []byte("123\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	stop, err := New(st).stopRuntime(context.Background(), record)
 	if err == nil || !strings.Contains(err.Error(), "virtiofsd termination unconfirmed") || !stop.changed {
 		t.Fatalf("stopRuntime result=%+v error=%v", stop, err)
 	}
-	for _, path := range []string{socketPath, lockPath} {
+	for _, path := range []string{paths.Socket, paths.LockFile} {
 		if _, err := os.Lstat(path); err != nil {
 			t.Fatalf("virtiofsd artifact was removed from %s: %v", path, err)
 		}
+	}
+}
+
+func TestCleanupStopsVirtiofsServicesIndependently(t *testing.T) {
+	st, _ := newTestStore(t)
+	record := &state.VMRecord{ID: "cleanup", Name: "cleanup", Driver: "qemu"}
+	rt := st.Runtime(record)
+	if err := os.MkdirAll(rt.Dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	confirmed := rt.Virtiofsd("confirmed")
+	cmd := fakeNamedVMProcess(t, "virtiofsd")
+	if err := process.Record(confirmed.ProcessRecord, cmd.Process.Pid); err != nil {
+		t.Fatal(err)
+	}
+	confirmedListener, err := net.Listen("unix", confirmed.Socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = confirmedListener.Close() }()
+	unconfirmed := rt.Virtiofsd("unconfirmed")
+	unconfirmedListener, err := net.Listen("unix", unconfirmed.Socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unconfirmedListener.Close() }()
+	stop, err := New(st).stopRuntime(context.Background(), record)
+	if err == nil || !strings.Contains(err.Error(), "virtiofsd termination unconfirmed") || !stop.changed {
+		t.Fatalf("stopRuntime result=%+v error=%v", stop, err)
+	}
+	_, _ = cmd.Process.Wait()
+	for _, path := range []string{confirmed.ProcessRecord, confirmed.Socket} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("confirmed virtiofsd artifact remains at %s: %v", path, err)
+		}
+	}
+	if _, err := os.Lstat(unconfirmed.Socket); err != nil {
+		t.Fatalf("unconfirmed virtiofsd socket was removed: %v", err)
 	}
 }
 

@@ -27,33 +27,13 @@ func TestNewDeclValidatesAndAbsolutizes(t *testing.T) {
 	}
 }
 
-func TestRuntimeAndVirtiofsdArgs(t *testing.T) {
-	rtDir := t.TempDir()
-	decl := Decl{Tag: "repo", HostPath: "/work/repo", GuestPath: "/mnt/repo", Readonly: true}
-	rt, err := RuntimeForVM(rtDir, decl)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rt.Sock != filepath.Join(rtDir, "virtiofs-repo.sock") || rt.ProcessRecord != filepath.Join(rtDir, "virtiofs-repo.process.json") || rt.LogKind != "virtiofs-repo" {
-		t.Fatalf("unexpected runtime: %#v", rt)
-	}
+func TestVirtiofsdArgs(t *testing.T) {
+	rt := Runtime{Tag: "repo", Sock: "/run/virtiofs-repo.sock", HostPath: "/work/repo", GuestPath: "/mnt/repo", Readonly: true}
 	args := VirtiofsdArgs(rt)
 	for _, want := range []string{"--shared-dir", "/work/repo", "--socket-path", rt.Sock, "--readonly"} {
 		if !hasArg(args, want) {
 			t.Fatalf("args missing %q: %#v", want, args)
 		}
-	}
-}
-
-func TestControlRuntime(t *testing.T) {
-	rtDir := t.TempDir()
-	controlDir := filepath.Join(rtDir, "control")
-	rt, err := ControlRuntime(rtDir, controlDir, "voom-control")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rt.Tag != "voom-control" || rt.HostPath != controlDir || rt.LogKind != "virtiofs-voom-control" {
-		t.Fatalf("unexpected control runtime: %#v", rt)
 	}
 }
 

@@ -15,15 +15,8 @@ import (
 	"time"
 )
 
-// ExeResolver resolves a logical binary name to an absolute path on disk.
-type ExeResolver func(string) (string, error)
-
-// StartRecorded launches a detached process and records its identity before releasing it.
-func StartRecorded(bin string, args []string, logPath, recordPath string, resolve ExeResolver) error {
-	exe, err := resolve(bin)
-	if err != nil {
-		return err
-	}
+// StartRecorded launches an executable path and records its identity before releasing it.
+func StartRecorded(exe string, args []string, logPath, recordPath string) error {
 	return startRecordedExe(exe, args, logPath, recordPath)
 }
 

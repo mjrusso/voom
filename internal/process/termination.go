@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -54,10 +53,33 @@ func HasRecord(path string) bool {
 	return !errors.Is(err, os.ErrNotExist)
 }
 
-// FindRecords returns process records matching pattern.
-func FindRecords(pattern string) []string {
-	paths, _ := filepath.Glob(pattern)
-	return paths
+type recordStatus uint8
+
+const (
+	recordGone recordStatus = iota
+	recordMatches
+	recordWrongKind
+)
+
+func inspectRecord(recorded processRecord, kind string) (recordStatus, error) {
+	matched, commandErr := matchesKind(recorded.PID, kind)
+	current, err := birth(recorded.PID)
+	if errors.Is(err, os.ErrNotExist) {
+		return recordGone, nil
+	}
+	if err != nil {
+		return recordGone, fmt.Errorf("cannot verify PID %d identity: %w", recorded.PID, err)
+	}
+	if current != recorded.Birth {
+		return recordGone, nil
+	}
+	if commandErr != nil {
+		return recordGone, fmt.Errorf("cannot verify PID %d command: %w", recorded.PID, commandErr)
+	}
+	if !matched {
+		return recordWrongKind, nil
+	}
+	return recordMatches, nil
 }
 
 // ValidRecord confirms that a recorded process is alive, unchanged, and of the expected kind.
@@ -66,12 +88,11 @@ func ValidRecord(path, kind string) (int, bool) {
 	if err != nil {
 		return 0, false
 	}
-	current, err := birth(recorded.PID)
-	if err != nil || current != recorded.Birth {
+	status, err := inspectRecord(recorded, kind)
+	if err != nil || status != recordMatches {
 		return 0, false
 	}
-	matched, err := matchesKind(recorded.PID, kind)
-	return recorded.PID, err == nil && matched
+	return recorded.PID, true
 }
 
 // StopRecorded validates a process record before signaling the process.
@@ -84,53 +105,39 @@ func StopRecorded(path, kind string, timeout time.Duration) error {
 		return err
 	}
 	pid := recorded.PID
-	if err = syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
-		return RemoveRecord(path)
-	} else if err != nil {
-		return fmt.Errorf("cannot inspect PID %d: %w", pid, err)
-	}
-	original, err := birth(pid)
-	if errors.Is(err, os.ErrNotExist) {
-		return RemoveRecord(path)
-	}
-	if err != nil {
-		return fmt.Errorf("cannot verify PID %d identity: %w", pid, err)
-	}
-	if original != recorded.Birth {
-		return RemoveRecord(path)
-	}
-	matched, err := matchesKind(pid, kind)
-	if err != nil {
-		if _, birthErr := birth(pid); errors.Is(birthErr, os.ErrNotExist) {
-			return RemoveRecord(path)
+	inspect := func() (bool, error) {
+		status, err := inspectRecord(recorded, kind)
+		if err != nil {
+			return false, err
 		}
-		return fmt.Errorf("cannot verify PID %d command: %w", pid, err)
-	}
-	if !matched {
-		return fmt.Errorf("cannot verify %s PID %d executable; retained %s", kind, pid, path)
-	}
-	exited := func() bool {
-		if errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
-			return true
+		switch status {
+		case recordGone:
+			return true, nil
+		case recordWrongKind:
+			return false, fmt.Errorf("cannot verify %s PID %d executable; retained %s", kind, pid, path)
+		default:
+			return false, nil
 		}
-		current, err := birth(pid)
-		return errors.Is(err, os.ErrNotExist) || (err == nil && current != original)
 	}
 	for _, signal := range []syscall.Signal{syscall.SIGTERM, syscall.SIGKILL} {
-		if exited() {
-			return RemoveRecord(path)
-		}
-		current, err := birth(pid)
-		if errors.Is(err, os.ErrNotExist) || (err == nil && current != original) {
-			return RemoveRecord(path)
-		}
+		gone, err := inspect()
 		if err != nil {
-			return fmt.Errorf("cannot confirm PID %d identity before signal: %w", pid, err)
+			return err
+		}
+		if gone {
+			return RemoveRecord(path)
 		}
 		if err = syscall.Kill(pid, signal); err != nil && !errors.Is(err, syscall.ESRCH) {
 			return err
 		}
-		if WaitFor(exited, timeout) == nil {
+		var inspectErr error
+		if WaitFor(func() bool {
+			gone, inspectErr = inspect()
+			return gone || inspectErr != nil
+		}, timeout) == nil {
+			if inspectErr != nil {
+				return inspectErr
+			}
 			return RemoveRecord(path)
 		}
 	}
