@@ -11,7 +11,6 @@ import (
 	"github.com/mjrusso/voom/internal/egress"
 	"github.com/mjrusso/voom/internal/events"
 	"github.com/mjrusso/voom/internal/gvproxy"
-	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 )
@@ -25,10 +24,9 @@ type EgressResult struct {
 	Egress         *egress.Decl `json:"egress"`
 }
 
-// EgressOptions guards the target identity and controls the state of a new declaration.
+// EgressOptions guards the target identity during an update.
 type EgressOptions struct {
 	ExpectedID string
-	Disabled   bool
 }
 
 // CheckEgressAssignment checks reservations; mutations must hold the global state lock.
@@ -56,12 +54,8 @@ func (m *Manager) validateEgressTarget(ctx context.Context, vm *state.VMRecord) 
 	if err := egress.Syntax(*d); err != nil {
 		return nil, err
 	}
-	im, err := m.store.LoadImageByID(vm.Image.ID)
-	if err != nil {
+	if err := m.CheckEgressImage(vm); err != nil {
 		return nil, err
-	}
-	if !im.Capabilities.ControlShare {
-		return nil, errors.New("egress requires an image with controlShare capability")
 	}
 	if err := egress.ProbeSocket(ctx, d.BackendSocket); err != nil {
 		return nil, err
@@ -69,152 +63,134 @@ func (m *Manager) validateEgressTarget(ctx context.Context, vm *state.VMRecord) 
 	return egress.ReadCA(d.CACertPath)
 }
 
-func (m *Manager) validateEgress(ctx context.Context, vm *state.VMRecord, running bool) ([]byte, error) {
+// CheckEgressImage verifies that the VM image can publish egress metadata.
+func (m *Manager) CheckEgressImage(vm *state.VMRecord) error {
+	im, err := m.store.LoadImageByID(vm.Image.ID)
+	if err != nil {
+		return err
+	}
+	if !im.Capabilities.ControlShare {
+		return errors.New("egress requires an image with controlShare capability")
+	}
+	return nil
+}
+
+// CheckEgressCapabilities verifies the required gvproxy APIs for the VM's current state.
+func (m *Manager) CheckEgressCapabilities(ctx context.Context, vm *state.VMRecord) error {
+	if m.IsRunning(vm) {
+		rt := m.store.Runtime(vm)
+		if _, ok := process.ValidRecord(rt.GVProxyProcessRecord(), "gvproxy"); !ok {
+			return errors.New("VM gvproxy process identity is unavailable")
+		}
+		return gvproxy.CheckProcess(ctx, rt.NetworkSock(), gvproxy.GuestIsolationCapability, gvproxy.GatewayCapability)
+	}
+	_, err := gvproxy.ResolveCompatible(ctx, gvproxy.GuestIsolationCapability, gvproxy.GatewayCapability)
+	return err
+}
+
+func (m *Manager) validateEgress(ctx context.Context, vm *state.VMRecord) ([]byte, error) {
 	ca, err := m.validateEgressTarget(ctx, vm)
 	if err != nil {
 		return nil, err
 	}
-	if running {
-		if _, ok := process.ValidRecord(m.store.Runtime(vm).GVProxyProcessRecord(), "gvproxy"); !ok {
-			return nil, errors.New("VM gvproxy process identity is unavailable")
-		}
-		err = gvproxy.CheckProcess(ctx, m.store.Runtime(vm).NetworkSock(), gvproxy.GuestIsolationCapability, gvproxy.GatewayCapability)
-	} else {
-		executable, resolveErr := host.ExePath("gvproxy")
-		err = resolveErr
-		if err == nil {
-			err = gvproxy.CheckExecutable(ctx, executable, gvproxy.GuestIsolationCapability, gvproxy.GatewayCapability)
-		}
-	}
-	if err != nil {
+	if err := m.CheckEgressCapabilities(ctx, vm); err != nil {
 		return nil, err
 	}
 	return ca, nil
 }
 
-// SetEgress attaches a unique backend to a stopped VM.
-func (m *Manager) SetEgress(ctx context.Context, name, socket, ca string, opts EgressOptions) (result EgressResult, retErr error) {
-	vm, unlock, err := m.store.LockVMRecord(ctx, name)
-	if err != nil {
-		return result, err
-	}
-	defer unlock()
-	result = newEgressResult(vm)
-	defer func() { m.finishEgressResult("set", vm, &result, retErr) }()
-	if err := checkExpectedVMID(vm, opts.ExpectedID); err != nil {
-		return result, err
-	}
-	if m.IsRunning(vm) {
-		return result, errors.New("stop the VM before setting or clearing egress")
-	}
-	stop, err := m.stopRuntime(ctx, vm)
-	result.RuntimeChanged = stop.changed
-	if err != nil {
-		return result, err
-	}
-	nextDecl, err := egress.Normalize(socket, ca)
-	if err != nil {
-		return result, err
-	}
-	nextDecl.Enabled = !opts.Disabled
-	candidateVM := copyVMWithEgress(vm, &nextDecl)
-	if _, err := m.validateEgress(ctx, candidateVM, false); err != nil {
-		return result, err
-	}
-	result.Changed, err = m.saveReservedEgressDecl(vm, &nextDecl)
-	return result, err
+// SetEgress replaces an attachment; a running VM may only change its enabled state.
+func (m *Manager) SetEgress(ctx context.Context, name string, decl egress.Decl, opts EgressOptions) (EgressResult, error) {
+	return m.updateEgress(ctx, name, "set", opts.ExpectedID, func(*egress.Decl) (*egress.Decl, error) {
+		return &decl, nil
+	})
 }
 
 // ClearEgress releases a stopped VM's attachment after runtime cleanup.
-func (m *Manager) ClearEgress(ctx context.Context, name string, opts EgressOptions) (result EgressResult, retErr error) {
-	vm, unlock, err := m.store.LockVMRecord(ctx, name)
-	if err != nil {
-		return result, err
-	}
-	defer unlock()
-	result = newEgressResult(vm)
-	defer func() { m.finishEgressResult("clear", vm, &result, retErr) }()
-	if err := checkExpectedVMID(vm, opts.ExpectedID); err != nil {
-		return result, err
-	}
-	if m.IsRunning(vm) {
-		return result, errors.New("stop the VM before setting or clearing egress")
-	}
-	stop, err := m.stopRuntime(ctx, vm)
-	result.RuntimeChanged = stop.changed
-	if err != nil {
-		return result, err
-	}
-	result.Changed, err = m.saveEgressDecl(vm, nil)
-	return result, err
+func (m *Manager) ClearEgress(ctx context.Context, name string, opts EgressOptions) (EgressResult, error) {
+	return m.updateEgress(ctx, name, "clear", opts.ExpectedID, func(*egress.Decl) (*egress.Decl, error) {
+		return nil, nil
+	})
 }
 
 // EnableEgress validates and reconciles the attachment without restarting healthy runtime.
-func (m *Manager) EnableEgress(ctx context.Context, name string, opts EgressOptions) (result EgressResult, retErr error) {
-	vm, unlock, err := m.store.LockVMRecord(ctx, name)
-	if err != nil {
-		return result, err
-	}
-	defer unlock()
-	result = newEgressResult(vm)
-	defer func() { m.finishEgressResult("enable", vm, &result, retErr) }()
-	if err := checkExpectedVMID(vm, opts.ExpectedID); err != nil {
-		return result, err
-	}
-	if vm.Network.Egress == nil {
-		return result, errors.New("egress is not configured")
-	}
-	nextDecl := *vm.Network.Egress
-	nextDecl.Enabled = true
-	candidateVM := copyVMWithEgress(vm, &nextDecl)
-	running := m.IsRunning(vm)
-	if !running {
-		stop, stopErr := m.stopRuntime(ctx, vm)
-		result.RuntimeChanged = stop.changed
-		if stopErr != nil {
-			return result, stopErr
+func (m *Manager) EnableEgress(ctx context.Context, name string, opts EgressOptions) (EgressResult, error) {
+	return m.updateEgress(ctx, name, "enable", opts.ExpectedID, func(current *egress.Decl) (*egress.Decl, error) {
+		if current == nil {
+			return nil, errors.New("egress is not configured")
 		}
-	}
-	validatedCA, err := m.validateEgress(ctx, candidateVM, running)
-	if err != nil {
-		return result, err
-	}
-	if !running {
-		result.Changed, err = m.saveReservedEgressDecl(vm, &nextDecl)
-		return result, err
-	}
-	return m.enableLiveEgress(ctx, vm, &nextDecl, validatedCA, result)
+		current.Enabled = true
+		return current, nil
+	})
 }
 
 // DisableEgress revokes attachment access; direct networking remains available.
-func (m *Manager) DisableEgress(ctx context.Context, name string, opts EgressOptions) (result EgressResult, retErr error) {
+func (m *Manager) DisableEgress(ctx context.Context, name string, opts EgressOptions) (EgressResult, error) {
+	return m.updateEgress(ctx, name, "disable", opts.ExpectedID, func(current *egress.Decl) (*egress.Decl, error) {
+		if current == nil {
+			return nil, errors.New("egress is not configured")
+		}
+		current.Enabled = false
+		return current, nil
+	})
+}
+
+func (m *Manager) updateEgress(ctx context.Context, name, action, expectedID string, next func(*egress.Decl) (*egress.Decl, error)) (result EgressResult, retErr error) {
 	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return result, err
 	}
 	defer unlock()
 	result = newEgressResult(vm)
-	defer func() { m.finishEgressResult("disable", vm, &result, retErr) }()
-	if err := checkExpectedVMID(vm, opts.ExpectedID); err != nil {
+	defer func() { m.finishEgressResult(action, vm, &result, retErr) }()
+	if err := checkExpectedVMID(vm, expectedID); err != nil {
 		return result, err
 	}
-	if vm.Network.Egress == nil {
-		return result, errors.New("egress is not configured")
+	current := copyEgressDecl(vm.Network.Egress)
+	nextDecl, err := next(copyEgressDecl(current))
+	if err != nil {
+		return result, err
 	}
-	nextDecl := *vm.Network.Egress
-	nextDecl.Enabled = false
-	if !m.IsRunning(vm) {
-		stop, stopErr := m.stopRuntime(ctx, vm)
+	running := m.IsRunning(vm)
+	if running && !sameEgressTarget(current, nextDecl) {
+		return result, errors.New("stop the VM before setting or clearing egress")
+	}
+	if !running {
+		stop, err := m.stopRuntime(ctx, vm)
 		result.RuntimeChanged = stop.changed
-		if stopErr != nil {
-			return result, stopErr
+		if err != nil {
+			return result, err
 		}
-		result.Changed, err = m.saveEgressDecl(vm, &nextDecl)
+	}
+	if nextDecl == nil {
+		result.Changed, err = m.saveEgressDecl(vm, nil)
 		return result, err
 	}
-	removal, removeErr := m.removeLiveEgress(ctx, vm)
-	result.RuntimeChanged = result.RuntimeChanged || removal.changed
-	result.Changed, err = m.saveEgressDecl(vm, &nextDecl)
+	if nextDecl.Enabled {
+		candidateVM := copyVMWithEgress(vm, nextDecl)
+		validatedCA, err := m.validateEgress(ctx, candidateVM)
+		if err != nil {
+			return result, err
+		}
+		if running {
+			return m.enableLiveEgress(ctx, vm, nextDecl, validatedCA, result)
+		}
+		result.Changed, err = m.saveReservedEgressDecl(vm, nextDecl)
+		return result, err
+	}
+	if !running {
+		if !sameEgressTarget(current, nextDecl) {
+			candidateVM := copyVMWithEgress(vm, nextDecl)
+			if _, err := m.validateEgress(ctx, candidateVM); err != nil {
+				return result, err
+			}
+		}
+		result.Changed, err = m.saveReservedEgressDecl(vm, nextDecl)
+		return result, err
+	}
+	removed, removeErr := m.removeLiveEgress(ctx, vm)
+	result.RuntimeChanged = result.RuntimeChanged || removed
+	result.Changed, err = m.saveEgressDecl(vm, nextDecl)
 	if err != nil {
 		err = fmt.Errorf("disabled state was not saved; a restart may restore proxy access: %w", err)
 	}
@@ -238,6 +214,16 @@ func copyEgressDecl(decl *egress.Decl) *egress.Decl {
 	}
 	cloned := *decl
 	return &cloned
+}
+
+func sameEgressTarget(a, b *egress.Decl) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	left, right := *a, *b
+	left.Enabled = false
+	right.Enabled = false
+	return left == right
 }
 
 func copyVMWithEgress(vm *state.VMRecord, nextDecl *egress.Decl) *state.VMRecord {
@@ -285,12 +271,11 @@ func (m *Manager) finishEgressResult(action string, vm *state.VMRecord, result *
 	if err != nil {
 		outcome = "failed"
 	}
-	enabled := result.Egress != nil && result.Egress.Enabled
+	enabled := result.Egress.IsEnabled()
 	m.events.Emit(events.Event{Type: "egress", Action: action, Actor: events.Actor{ID: vm.ID, Attributes: map[string]string{"name": vm.Name, "changed": strconv.FormatBool(result.Changed), "runtimeChanged": strconv.FormatBool(result.RuntimeChanged), "outcome": outcome, "enabled": strconv.FormatBool(enabled)}}})
 }
 
 func (m *Manager) enableLiveEgress(ctx context.Context, vm *state.VMRecord, nextDecl *egress.Decl, validatedCA []byte, result EgressResult) (EgressResult, error) {
-	original := copyEgressDecl(vm.Network.Egress)
 	rt := m.store.Runtime(vm)
 	routes, err := gvproxy.GatewayRoutes(ctx, rt.NetworkSock())
 	if err != nil {
@@ -305,73 +290,57 @@ func (m *Manager) enableLiveEgress(ctx context.Context, vm *state.VMRecord, next
 			exists = true
 		}
 	}
-	changed, err := m.saveReservedEgressDecl(vm, nextDecl)
-	if err != nil {
-		return result, err
-	}
-	result.Changed = result.Changed || changed
-	uncertainExpose, rejectedExpose := false, false
 	if !exists {
 		err = gvproxy.ExposeGateway(ctx, rt.NetworkSock(), gvproxy.GatewayRoute{Local: egress.Listener, Target: nextDecl.BackendSocket})
-		rejectedExpose = gvproxy.GatewayRejected(err)
-		uncertainExpose = err != nil && !rejectedExpose
-		result.RuntimeChanged = result.RuntimeChanged || !rejectedExpose
+		if err != nil {
+			if gvproxy.GatewayRejected(err) {
+				return result, err
+			}
+			result.RuntimeChanged = true
+			// An uncertain expose can finish after unexpose; stopping gvproxy fences the request.
+			recovery, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			stop, stopErr := m.stopRuntime(recovery, vm)
+			result.RuntimeChanged = result.RuntimeChanged || stop.changed
+			return result, errors.Join(err, stopErr)
+		}
+		result.RuntimeChanged = true
 	}
-	if err == nil {
-		var changed bool
-		changed, err = publishEgress(rt, true, validatedCA)
-		result.RuntimeChanged = result.RuntimeChanged || changed
+	changed, err := publishEgress(rt, validatedCA)
+	result.RuntimeChanged = result.RuntimeChanged || changed
+	if err != nil {
+		return m.rollbackLiveEgress(vm, result, err)
 	}
-	if err == nil && (result.Changed || result.RuntimeChanged) {
-		_, err = m.observeEgress(ctx, vm, validatedCA)
+	candidateVM := copyVMWithEgress(vm, nextDecl)
+	declarationChanged := *vm.Network.Egress != *nextDecl
+	if declarationChanged || result.RuntimeChanged {
+		if _, err := m.observeEgress(ctx, candidateVM, validatedCA); err != nil {
+			return m.rollbackLiveEgress(vm, result, err)
+		}
 	}
-	if err == nil {
-		return result, nil
+	changed, err = m.saveReservedEgressDecl(vm, nextDecl)
+	if err != nil {
+		return m.rollbackLiveEgress(vm, result, err)
 	}
+	result.Changed = changed
+	return result, nil
+}
+
+func (m *Manager) rollbackLiveEgress(vm *state.VMRecord, result EgressResult, cause error) (EgressResult, error) {
 	recovery, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	var rollback error
-	removalConfirmed := true
-	if uncertainExpose {
-		// A timed-out expose can execute after unexpose; only process exit fences that request.
-		stop, stopErr := m.stopRuntime(recovery, vm)
-		result.RuntimeChanged = result.RuntimeChanged || stop.changed
-		removalConfirmed = stop.gatewayTerminationConfirmed
-		rollback = stopErr
-	} else if !rejectedExpose {
-		var removal egressRemovalResult
-		removal, rollback = m.removeLiveEgress(recovery, vm)
-		result.RuntimeChanged = result.RuntimeChanged || removal.changed
-		removalConfirmed = removal.confirmed
-	}
-	filesChanged, filesErr := removeEgressFiles(rt)
-	result.RuntimeChanged = result.RuntimeChanged || filesChanged
-	rollback = errors.Join(rollback, filesErr)
-	if !removalConfirmed && original != nil {
-		original.Enabled = false
-	}
-	if result.Changed || rollback != nil {
-		_, saveErr := m.saveEgressDecl(vm, original)
-		rollback = errors.Join(rollback, saveErr)
-	}
-	if vm.Network.Egress != nil && vm.Network.Egress.Enabled && rollback == nil {
-		err = fmt.Errorf("%w; desired egress remains enabled but runtime is not synchronized; run voom config egress enable %s after recovery", err, vm.Name)
-	}
-	return result, errors.Join(err, rollback)
+	removed, rollbackErr := m.removeLiveEgress(recovery, vm)
+	result.RuntimeChanged = result.RuntimeChanged || removed
+	return result, errors.Join(cause, rollbackErr)
 }
 
-type egressRemovalResult struct {
-	changed   bool
-	confirmed bool
-}
-
-func (m *Manager) removeLiveEgress(ctx context.Context, vm *state.VMRecord) (egressRemovalResult, error) {
+func (m *Manager) removeLiveEgress(ctx context.Context, vm *state.VMRecord) (bool, error) {
 	rt := m.store.Runtime(vm)
 	routes, observeErr := gvproxy.GatewayRoutes(ctx, rt.NetworkSock())
-	result := egressRemovalResult{changed: observeErr != nil}
+	changed := observeErr != nil
 	for _, r := range routes {
 		if r.Local == egress.Listener {
-			result.changed = true
+			changed = true
 		}
 	}
 	err := gvproxy.UnexposeGateway(ctx, rt.NetworkSock(), egress.Listener)
@@ -379,18 +348,14 @@ func (m *Manager) removeLiveEgress(ctx context.Context, vm *state.VMRecord) (egr
 		recovery, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		stop, stopErr := m.stopRuntime(recovery, vm)
-		result.changed = true
-		result.confirmed = stop.gatewayTerminationConfirmed
+		changed = true
 		if stopErr != nil {
-			if !result.confirmed {
+			if !stop.gatewayTerminationConfirmed {
 				err = fmt.Errorf("proxy disable not confirmed; inspect %s and %s: %w", rt.GVProxyProcessRecord(), m.store.LogPath(vm, "gvproxy"), err)
 			}
-			return result, errors.Join(err, stopErr)
+			return changed, errors.Join(err, stopErr)
 		}
-	} else {
-		result.confirmed = true
 	}
 	filesChanged, filesErr := removeEgressFiles(rt)
-	result.changed = result.changed || filesChanged
-	return result, filesErr
+	return changed || filesChanged, filesErr
 }

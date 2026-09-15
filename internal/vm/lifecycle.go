@@ -292,10 +292,6 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	if err := host.ValidateHostImage(vm.Arch, state.ImageFormatFromDisk(m.store.VMDiskPath(vm)), vm.Driver); err != nil {
 		return nil, err
 	}
-	gvproxyExe, err := host.ExePath("gvproxy")
-	if err != nil {
-		return nil, err
-	}
 	requiredCapabilities := []string{gvproxy.GuestIsolationCapability}
 	var egressCA []byte
 	if d := vm.Network.Egress; d != nil {
@@ -306,9 +302,10 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 			err = egress.Syntax(*d)
 		}
 	}
-	if err == nil {
-		err = gvproxy.CheckExecutable(ctx, gvproxyExe, requiredCapabilities...)
+	if err != nil {
+		return nil, err
 	}
+	gvproxyExe, err := gvproxy.ResolveCompatible(ctx, requiredCapabilities...)
 	if err != nil {
 		return nil, err
 	}
@@ -379,8 +376,10 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	if err := m.WriteControlFiles(vm); err != nil {
 		return nil, err
 	}
-	if _, err := publishEgress(rt, vm.Network.Egress != nil && vm.Network.Egress.Enabled, egressCA); err != nil {
-		return nil, err
+	if vm.Network.Egress.IsEnabled() {
+		if _, err := publishEgress(rt, egressCA); err != nil {
+			return nil, err
+		}
 	}
 	// From here on, any error must tear down whatever partial runtime state
 	// was allocated. A single deferred cleanup keeps the error paths terse
@@ -414,10 +413,10 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	case "vfkit":
 		gvproxyArgs = append(gvproxyArgs, "-listen-vfkit", "unixgram://"+rt.VFKitNetSock())
 	}
-	if vm.Network.Egress != nil && vm.Network.Egress.Enabled {
+	if vm.Network.Egress.IsEnabled() {
 		gvproxyArgs = append(gvproxyArgs, "-gateway-forward", gvproxy.GatewayArgument(gvproxy.GatewayRoute{Local: egress.Listener, Target: vm.Network.Egress.BackendSocket}))
 	}
-	if err = m.startRecorded(gvproxyExe, gvproxyArgs, m.store.LogPath(vm, "gvproxy"), rt.GVProxyProcessRecord()); err != nil {
+	if err = process.StartRecorded(gvproxyExe, gvproxyArgs, m.store.LogPath(vm, "gvproxy"), rt.GVProxyProcessRecord()); err != nil {
 		return nil, err
 	}
 	if err := waitFor(ctx, func() bool {

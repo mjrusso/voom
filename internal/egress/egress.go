@@ -35,6 +35,11 @@ type Decl struct {
 	CACertPath    string `json:"caCertPath,omitempty"`
 }
 
+// IsEnabled reports whether the declaration exists and is enabled.
+func (d *Decl) IsEnabled() bool {
+	return d != nil && d.Enabled
+}
+
 type manifest struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	Mode          string `json:"mode"`

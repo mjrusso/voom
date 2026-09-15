@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os/exec"
 	"time"
+
+	"github.com/mjrusso/voom/internal/host"
 )
 
 // GatewayCapability and GuestIsolationCapability identify gvproxy APIs required by Voom.
@@ -23,6 +25,18 @@ type GatewayRoute struct {
 	Local             string `json:"local"`
 	Target            string `json:"target"`
 	ActiveConnections int    `json:"activeConnections,omitempty"`
+}
+
+// ResolveCompatible returns the selected gvproxy executable after checking its required capabilities.
+func ResolveCompatible(ctx context.Context, required ...string) (string, error) {
+	executable, err := host.ExePath("gvproxy")
+	if err != nil {
+		return "", err
+	}
+	if err := CheckExecutable(ctx, executable, required...); err != nil {
+		return "", err
+	}
+	return executable, nil
 }
 
 // CheckExecutable verifies capabilities reported by the selected gvproxy binary.

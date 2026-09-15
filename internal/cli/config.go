@@ -26,7 +26,11 @@ func configCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cmds := replayCommands(vmRec, vmRec.Name, true)
+			cmds := []string{}
+			if egressCommand := egressReplayCommand(vmRec); egressCommand != "" {
+				cmds = append(cmds, egressCommand)
+			}
+			cmds = append(cmds, replayCommands(vmRec, vmRec.Name)...)
 			if outputFormat(cmd) == "json" {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": vmRec.Name, "commands": cmds})
 			}
@@ -72,21 +76,8 @@ func configCommand() *cobra.Command {
 	return cmd
 }
 
-// replayCommands emits post-create settings in apply order. Clone carries the
-// create-time settings and allocates its own SSH port. Its hints exclude egress
-// because backend sockets belong to one VM ID; config show includes the attachment.
-func replayCommands(vm *state.VMRecord, target string, includeEgress bool) []string {
+func replayCommands(vm *state.VMRecord, target string) []string {
 	cmds := []string{}
-	if d := vm.Network.Egress; d != nil && includeEgress {
-		line := "voom config egress set " + shellQuote(target) + " --backend-socket " + shellQuote(d.BackendSocket)
-		if d.CACertPath != "" {
-			line += " --ca-cert " + shellQuote(d.CACertPath)
-		}
-		if !d.Enabled {
-			line += " --disabled"
-		}
-		cmds = append(cmds, line)
-	}
 	for _, s := range vm.Shares {
 		line := fmt.Sprintf("voom share add %s %s %s %s", shellQuote(target), shellQuote(s.Tag), shellQuote(s.HostPath), shellQuote(s.GuestPath))
 		if s.Readonly {

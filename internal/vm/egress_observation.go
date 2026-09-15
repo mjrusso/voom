@@ -24,7 +24,7 @@ type EgressRuntime struct {
 func (m *Manager) ObserveEgress(ctx context.Context, vm *state.VMRecord) (EgressRuntime, error) {
 	var ca []byte
 	var sourceErr error
-	if d := vm.Network.Egress; d != nil && d.Enabled {
+	if d := vm.Network.Egress; d.IsEnabled() {
 		ca, sourceErr = egress.ReadCA(d.CACertPath)
 	}
 	result, err := m.observeEgress(ctx, vm, ca)
@@ -63,7 +63,7 @@ func (m *Manager) observeEgress(ctx context.Context, vm *state.VMRecord, ca []by
 			result.ActiveConnections = &count
 		}
 	}
-	enabled := vm.Network.Egress != nil && vm.Network.Egress.Enabled
+	enabled := vm.Network.Egress.IsEnabled()
 	var manifest []byte
 	if enabled {
 		if err = egress.Syntax(*vm.Network.Egress); err != nil {

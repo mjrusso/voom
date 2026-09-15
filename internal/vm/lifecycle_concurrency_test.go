@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mjrusso/voom/internal/egress"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 )
@@ -296,7 +297,8 @@ func TestSetEgressCleanupDoesNotHoldGlobal(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := New(st).SetEgress(context.Background(), "a", backendSocket, "", EgressOptions{})
+		decl := egress.Decl{Mode: egress.ModeExplicit, Enabled: true, BackendSocket: backendSocket}
+		_, err := New(st).SetEgress(context.Background(), "a", decl, EgressOptions{})
 		done <- err
 	}()
 	deadline := time.Now().Add(2 * time.Second)

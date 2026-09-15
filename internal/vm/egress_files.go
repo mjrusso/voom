@@ -54,10 +54,7 @@ func removeEgressFiles(rt state.RuntimeLayout) (bool, error) {
 	return changed, errors.Join(errs...)
 }
 
-func publishEgress(rt state.RuntimeLayout, enabled bool, ca []byte) (changed bool, err error) {
-	if !enabled {
-		return removeEgressFiles(rt)
-	}
+func publishEgress(rt state.RuntimeLayout, ca []byte) (changed bool, err error) {
 	manifest := egress.ManifestBytes(ca)
 	manifestOK, err := egressFileMatches(rt.EgressManifest(), manifest)
 	if err != nil {

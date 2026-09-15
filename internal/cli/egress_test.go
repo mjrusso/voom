@@ -12,13 +12,10 @@ import (
 
 func TestEgressReplayDoesNotRetargetSocket(t *testing.T) {
 	record := &state.VMRecord{Name: "source", Network: state.VMNetwork{Egress: &egress.Decl{Mode: egress.ModeExplicit, BackendSocket: "/tmp/proxy socket", CACertPath: "/tmp/CA's.pem"}}}
-	commands := replayCommands(record, "source", true)
+	command := egressReplayCommand(record)
 	want := "voom config egress set source --backend-socket " + shellQuote(record.Network.Egress.BackendSocket) + " --ca-cert " + shellQuote(record.Network.Egress.CACertPath) + " --disabled"
-	if len(commands) != 1 || commands[0] != want {
-		t.Fatalf("replay: %v", commands)
-	}
-	if commands := replayCommands(record, "clone", false); len(commands) != 0 {
-		t.Fatalf("clone inherited socket: %v", commands)
+	if command != want {
+		t.Fatalf("replay: %s", command)
 	}
 }
 

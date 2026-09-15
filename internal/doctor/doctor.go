@@ -52,10 +52,7 @@ func Run(all bool) []Check {
 	if runtime.GOOS == "darwin" {
 		add("vfkit", true, host.RequireExe("vfkit"), "found")
 	}
-	gvproxyExe, gvproxyErr := host.ExePath("gvproxy")
-	if gvproxyErr == nil {
-		gvproxyErr = gvproxy.CheckExecutable(context.Background(), gvproxyExe, gvproxy.GuestIsolationCapability)
-	}
+	_, gvproxyErr := gvproxy.ResolveCompatible(context.Background(), gvproxy.GuestIsolationCapability)
 	add("gvproxy", true, gvproxyErr, "compatible")
 	add("ssh", true, host.RequireExe("ssh"), "found")
 	add("nix", false, host.RequireExe("nix"), "found")
@@ -120,7 +117,7 @@ func StateDiagnostics(st *state.Store) []Check {
 		if prev := vmSeenIDs[vmRec.ID]; prev != "" {
 			out = append(out, Check{"state-vm-duplicate-id", "warn", false, prev + " and " + name})
 		}
-		out = append(out, egressDiagnostics(st, vmRec)...)
+		out = append(out, egressDiagnostics(st, vmMgr, vmRec)...)
 		vmSeenIDs[vmRec.ID] = name
 		if vmRec.Network.SSHBind == "0.0.0.0" || vmRec.Network.SSHBind == "::" {
 			out = append(out, Check{"lan-ssh-" + name, "warn", false, "VM SSH is exposed beyond loopback"})

@@ -6,6 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/mjrusso/voom/internal/egress"
+	"github.com/mjrusso/voom/internal/state"
 	"github.com/mjrusso/voom/internal/vm"
 )
 
@@ -28,7 +30,12 @@ func egressSetCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := deps.vm.SetEgress(cmd.Context(), args[0], socket, ca, vm.EgressOptions{ExpectedID: expectedID, Disabled: disabled})
+			decl, err := egress.Normalize(socket, ca)
+			if err != nil {
+				return err
+			}
+			decl.Enabled = !disabled
+			result, err := deps.vm.SetEgress(cmd.Context(), args[0], decl, vm.EgressOptions{ExpectedID: expectedID})
 			if err != nil {
 				return err
 			}
@@ -124,4 +131,50 @@ func writeEgressResult(cmd *cobra.Command, action string, result vm.EgressResult
 	}
 	_, err := fmt.Fprintf(cmd.OutOrStdout(), "VM %s egress %s: %s; direct egress remains available\n", result.Name, action, status)
 	return err
+}
+
+func egressReplayCommand(record *state.VMRecord) string {
+	d := record.Network.Egress
+	if d == nil {
+		return ""
+	}
+	line := "voom config egress set " + shellQuote(record.Name) + " --backend-socket " + shellQuote(d.BackendSocket)
+	if d.CACertPath != "" {
+		line += " --ca-cert " + shellQuote(d.CACertPath)
+	}
+	if !d.Enabled {
+		line += " --disabled"
+	}
+	return line
+}
+
+func egressStatus(d *egress.Decl, observed *vm.EgressRuntime) string {
+	status := "not configured"
+	if d != nil {
+		status = "disabled while stopped"
+		if d.Enabled {
+			status = "enabled for next start"
+		}
+	}
+	if observed != nil {
+		status = "running, " + observed.State
+		if observed.ActiveConnections != nil {
+			status += fmt.Sprintf(", %d active connections", *observed.ActiveConnections)
+		}
+		if observed.Error != "" {
+			status += "; " + observed.Error
+		}
+	}
+	return status
+}
+
+func egressConfig(d *egress.Decl) string {
+	switch {
+	case d == nil:
+		return "none"
+	case d.Enabled:
+		return "enabled"
+	default:
+		return "disabled"
+	}
 }

@@ -11,7 +11,7 @@ func TestEgressPublicationRepairAndIdempotence(t *testing.T) {
 	st, _ := newTestStore(t)
 	rt := st.Runtime(&state.VMRecord{ID: "egress-files"})
 	ca := []byte("validated certificate bytes")
-	if changed, err := publishEgress(rt, true, ca); err != nil || !changed {
+	if changed, err := publishEgress(rt, ca); err != nil || !changed {
 		t.Fatalf("publish: %t %v", changed, err)
 	}
 	expected := []byte(`{
@@ -32,7 +32,7 @@ func TestEgressPublicationRepairAndIdempotence(t *testing.T) {
 	if ok, err := egressFileMatches(rt.EgressCA(), ca); err != nil || !ok {
 		t.Fatalf("CA: %v", err)
 	}
-	if changed, err := publishEgress(rt, true, ca); err != nil || changed {
+	if changed, err := publishEgress(rt, ca); err != nil || changed {
 		t.Fatalf("repeat: %t %v", changed, err)
 	}
 	next, err := os.Stat(rt.EgressManifest())
@@ -45,10 +45,10 @@ func TestEgressPublicationRepairAndIdempotence(t *testing.T) {
 	if err := os.Chmod(rt.EgressManifest(), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if changed, err := publishEgress(rt, true, ca); err != nil || !changed {
+	if changed, err := publishEgress(rt, ca); err != nil || !changed {
 		t.Fatalf("repair: %t %v", changed, err)
 	}
-	if changed, err := publishEgress(rt, true, nil); err != nil || !changed {
+	if changed, err := publishEgress(rt, nil); err != nil || !changed {
 		t.Fatalf("remove CA: %t %v", changed, err)
 	}
 	expected = []byte(`{
@@ -64,10 +64,10 @@ func TestEgressPublicationRepairAndIdempotence(t *testing.T) {
 	if _, err := os.Lstat(rt.EgressCA()); !os.IsNotExist(err) {
 		t.Fatal("obsolete CA remains")
 	}
-	if changed, err := publishEgress(rt, false, nil); err != nil || !changed {
+	if changed, err := removeEgressFiles(rt); err != nil || !changed {
 		t.Fatalf("disable: %t %v", changed, err)
 	}
-	if changed, err := publishEgress(rt, false, nil); err != nil || changed {
+	if changed, err := removeEgressFiles(rt); err != nil || changed {
 		t.Fatalf("repeat disable: %t %v", changed, err)
 	}
 }
@@ -75,7 +75,7 @@ func TestEgressPublicationRepairAndIdempotence(t *testing.T) {
 func TestEgressPublicationReplacesGuestSymlink(t *testing.T) {
 	st, _ := newTestStore(t)
 	rt := st.Runtime(&state.VMRecord{ID: "symlink"})
-	if _, err := publishEgress(rt, true, nil); err != nil {
+	if _, err := publishEgress(rt, nil); err != nil {
 		t.Fatal(err)
 	}
 	target := rt.EgressManifest() + ".target"
@@ -88,7 +88,7 @@ func TestEgressPublicationReplacesGuestSymlink(t *testing.T) {
 	if err := os.Symlink(target, rt.EgressManifest()); err != nil {
 		t.Fatal(err)
 	}
-	if changed, err := publishEgress(rt, true, nil); err != nil || !changed {
+	if changed, err := publishEgress(rt, nil); err != nil || !changed {
 		t.Fatalf("symlink repair: %t %v", changed, err)
 	}
 	data, err := os.ReadFile(target)

@@ -9,10 +9,11 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/mjrusso/voom/internal/egress"
 	"github.com/mjrusso/voom/internal/state"
 )
 
-func egressMutationStore(t *testing.T) (*state.Store, string) {
+func egressMutationStore(t *testing.T) (*state.Store, egress.Decl) {
 	t.Helper()
 	st := lifecycleTestStore(t)
 	dir, err := os.MkdirTemp("", "voom-egress-")
@@ -51,18 +52,22 @@ func egressMutationStore(t *testing.T) (*state.Store, string) {
 	if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(image.ID), "image.json"), image); err != nil {
 		t.Fatal(err)
 	}
-	return st, socket
+	decl, err := egress.Normalize(socket, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st, decl
 }
 
 func TestEgressStoppedMutationsAndReservations(t *testing.T) {
-	st, socket := egressMutationStore(t)
+	st, decl := egressMutationStore(t)
 	manager := New(st)
-	result, err := manager.SetEgress(context.Background(), "a", socket, "", EgressOptions{})
+	result, err := manager.SetEgress(context.Background(), "a", decl, EgressOptions{})
 	if err != nil || result.ID == "" || !result.Changed || result.Egress == nil || !result.Egress.Enabled {
 		t.Fatalf("set: %+v %v", result, err)
 	}
 	first, _ := st.LoadVM("a")
-	result, err = manager.SetEgress(context.Background(), "a", socket, "", EgressOptions{})
+	result, err = manager.SetEgress(context.Background(), "a", decl, EgressOptions{})
 	second, _ := st.LoadVM("a")
 	if err != nil || result.Changed || !first.UpdatedAt.Equal(second.UpdatedAt) {
 		t.Fatalf("repeat set: %+v %v", result, err)
@@ -78,7 +83,7 @@ func TestEgressStoppedMutationsAndReservations(t *testing.T) {
 	if err != nil || !result.Changed || !result.RuntimeChanged || result.Egress == nil || result.Egress.Enabled {
 		t.Fatalf("disable: %+v %v", result, err)
 	}
-	if _, err = manager.SetEgress(context.Background(), "b", socket, "", EgressOptions{}); err == nil {
+	if _, err = manager.SetEgress(context.Background(), "b", decl, EgressOptions{}); err == nil {
 		t.Fatal("disabled reservation reused")
 	}
 	t.Setenv("VOOM_GVPROXY", "")
@@ -94,13 +99,14 @@ func TestEgressStoppedMutationsAndReservations(t *testing.T) {
 }
 
 func TestEgressOptions(t *testing.T) {
-	st, socket := egressMutationStore(t)
+	st, decl := egressMutationStore(t)
 	manager := New(st)
 	record, err := st.LoadVM("a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := manager.SetEgress(context.Background(), "a", socket, "", EgressOptions{ExpectedID: record.ID, Disabled: true})
+	decl.Enabled = false
+	result, err := manager.SetEgress(context.Background(), "a", decl, EgressOptions{ExpectedID: record.ID})
 	if err != nil || result.ID != record.ID || !result.Changed || result.Egress == nil || result.Egress.Enabled {
 		t.Fatalf("disabled set: %+v %v", result, err)
 	}
@@ -117,13 +123,13 @@ func TestEgressOptions(t *testing.T) {
 }
 
 func TestEgressConcurrentReservations(t *testing.T) {
-	st, socket := egressMutationStore(t)
+	st, decl := egressMutationStore(t)
 	var wg sync.WaitGroup
 	results := make(chan error, 2)
 	for _, name := range []string{"a", "b"} {
 		wg.Go(func() {
 			manager := New(st)
-			_, err := manager.SetEgress(context.Background(), name, socket, "", EgressOptions{})
+			_, err := manager.SetEgress(context.Background(), name, decl, EgressOptions{})
 			results <- err
 		})
 	}

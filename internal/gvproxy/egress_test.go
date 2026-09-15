@@ -34,6 +34,21 @@ func TestGuestIsolationCapabilityRequiresExactVersion(t *testing.T) {
 	}
 }
 
+func TestResolveCompatibleReturnsCheckedExecutable(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "gvproxy")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf '{\"guest-isolation-v1\":1}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VOOM_GVPROXY", executable)
+	got, err := ResolveCompatible(context.Background(), GuestIsolationCapability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != executable {
+		t.Fatalf("executable = %s, want %s", got, executable)
+	}
+}
+
 func TestGatewayArgumentPreservesSocketPath(t *testing.T) {
 	route := GatewayRoute{Local: "192.168.127.1:3128", Target: "/tmp/a=b 'quote' $variable.sock"}
 	var got GatewayRoute

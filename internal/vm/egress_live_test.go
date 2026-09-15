@@ -125,6 +125,22 @@ func TestEgressLiveReconciliation(t *testing.T) {
 	if err != nil || !result.Changed || !result.RuntimeChanged {
 		t.Fatalf("enable: %+v %v", result, err)
 	}
+	current, err := st.LoadVM("live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = manager.SetEgress(ctx, "live", *current.Network.Egress, EgressOptions{})
+	if err != nil || result.Changed || result.RuntimeChanged {
+		t.Fatalf("identical set: %+v %v", result, err)
+	}
+	changedTarget := *current.Network.Egress
+	changedTarget.BackendSocket += ".other"
+	if _, err := manager.SetEgress(ctx, "live", changedTarget, EgressOptions{}); err == nil {
+		t.Fatal("set changed the attachment of a running VM")
+	}
+	if _, err := manager.ClearEgress(ctx, "live", EgressOptions{}); err == nil {
+		t.Fatal("clear accepted a running VM")
+	}
 	info, err := os.Stat(rt.EgressManifest())
 	if err != nil {
 		t.Fatal(err)
@@ -182,8 +198,30 @@ func TestEgressLiveReconciliation(t *testing.T) {
 		t.Fatalf("repeat disable: %+v %v", result, err)
 	}
 	mu.Lock()
-	rejectExpose = true
 	beforeUnexposes := unexposes
+	mu.Unlock()
+	if err := os.Chmod(st.VMDir(record.ID), 0500); err != nil {
+		t.Fatal(err)
+	}
+	result, err = manager.EnableEgress(ctx, "live", EgressOptions{})
+	if chmodErr := os.Chmod(st.VMDir(record.ID), 0700); chmodErr != nil {
+		t.Fatal(chmodErr)
+	}
+	if err == nil || result.Changed || !result.RuntimeChanged || result.Egress == nil || result.Egress.Enabled {
+		t.Fatalf("enable save failure: %+v %v", result, err)
+	}
+	mu.Lock()
+	rolledBack := route == nil && unexposes == beforeUnexposes+1
+	mu.Unlock()
+	if !rolledBack {
+		t.Fatal("enable save failure left a route")
+	}
+	if _, err := os.Stat(rt.EgressManifest()); !os.IsNotExist(err) {
+		t.Fatal("enable save failure left a manifest")
+	}
+	mu.Lock()
+	rejectExpose = true
+	beforeUnexposes = unexposes
 	mu.Unlock()
 	result, err = manager.EnableEgress(ctx, "live", EgressOptions{})
 	if err == nil || result.Egress == nil || result.Egress.Enabled || result.RuntimeChanged || !manager.IsRunning(record) {
@@ -209,5 +247,69 @@ func TestEgressLiveReconciliation(t *testing.T) {
 	}
 	if _, err := os.Stat(rt.EgressManifest()); !os.IsNotExist(err) {
 		t.Fatal("failed enable left manifest")
+	}
+}
+
+func TestEnableLiveEgressKeepsEnabledDeclarationWhenRollbackIsUnconfirmed(t *testing.T) {
+	st, _ := newTestStore(t)
+	record := &state.VMRecord{
+		SchemaVersion: state.SchemaVersion,
+		ID:            "live",
+		Name:          "live",
+		Driver:        "qemu",
+		Network: state.VMNetwork{Egress: &egress.Decl{
+			Mode:          egress.ModeExplicit,
+			Enabled:       true,
+			BackendSocket: "/tmp/backend.sock",
+		}},
+	}
+	if err := os.MkdirAll(st.VMDir(record.ID), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveVM(record); err != nil {
+		t.Fatal(err)
+	}
+	rt := st.Runtime(record)
+	if err := os.MkdirAll(rt.Dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rt.GVProxyProcessRecord(), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/services/gateway-forward/all", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode([]gvproxy.GatewayRoute{{Local: egress.Listener, Target: record.Network.Egress.BackendSocket}})
+	})
+	mux.HandleFunc("/services/gateway-forward/unexpose", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unexpose failed", http.StatusInternalServerError)
+	})
+	listener, err := net.Listen("unix", rt.NetworkSock())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: time.Second}
+	defer func() { _ = server.Close() }()
+	go func() { _ = server.Serve(listener) }()
+	if err := os.MkdirAll(rt.EgressManifest(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rt.EgressManifest(), "entry"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager := New(st)
+	next := *record.Network.Egress
+	result, err := manager.enableLiveEgress(context.Background(), record, &next, nil, newEgressResult(record))
+	if err == nil || result.Changed || !result.RuntimeChanged || !record.Network.Egress.Enabled {
+		t.Fatalf("enable result=%+v declaration=%+v error=%v", result, record.Network.Egress, err)
+	}
+	reloaded, err := st.LoadVMByID(record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Network.Egress == nil || !reloaded.Network.Egress.Enabled {
+		t.Fatalf("saved declaration = %+v", reloaded.Network.Egress)
+	}
+	if _, err := os.Stat(rt.GVProxyProcessRecord()); err != nil {
+		t.Fatalf("unconfirmed process record was removed: %v", err)
 	}
 }
