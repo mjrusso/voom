@@ -2,12 +2,13 @@
 
 ## Unreleased
 
-- **Upgrading from v1.1.0:** Stop all running VMs with v1.1.0 before you install
-  the new release. Voom now replaces runtime PID files with process identity
-  records and does not trust the old files. The new binary cannot safely stop
-  or restart a VM that remains running during the upgrade. If you already
-  upgraded while a VM was running, stop that VM with the v1.1.0 binary. After
-  the VM stops, use the new binary again.
+> [!IMPORTANT]
+>
+> **Upgrading from any earlier version:** Stop all running VMs before
+> installing the new release. Voom now uses process identity records instead of
+> runtime PID files; the new binary cannot stop or restart a VM that started
+> prior to the upgrade.
+
 - Add optional access to an external HTTP CONNECT proxy for each VM. Voom makes
   the proxy available to guest applications at `192.168.127.1:3128` and connects
   it to a Unix socket assigned to the VM. Applications must opt in to the proxy,

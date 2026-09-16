@@ -17,16 +17,17 @@ Voom is deliberately simple and not magical. In particular, Voom has:
 - all runtime state lives under `$XDG_*` paths
 - explicit VM lifecycle: `import → create → start → stop`
 
-Voom optionally supports automatic host-to-guest port forwarding (with
-configurable per-VM offsets to avoid collisions) and host directory mounting.
+Optional features include:
 
-Voom can also give each VM access to an external HTTP CONNECT proxy. An
-external broker can use the separate connection to apply VM-specific policies
-or supply credentials without storing those credentials in the guest. Guest
-applications choose whether or not to use the proxy. Voom does **not** enforce
-proxy use. Traffic that does not use the proxy still has direct network access,
-but the external broker cannot inject credentials or apply policy to that
-traffic.
+- automatic host-to-guest port forwarding (with configurable per-VM offsets to
+  avoid collisions) and host directory mounts
+- keeping secrets out of the guest using [per-VM explicit HTTP proxy
+  attachments](#explicit-http-proxy-attachments), enabling external brokers
+  such as [Agent Vault](https://docs.agent-vault.dev/)
+  ([source](https://github.com/Infisical/agent-vault)),
+  [iron-proxy](https://docs.iron.sh/)
+  ([source](https://github.com/paradigmxyz/iron-proxy)), etc. to dynamically
+  supply credentials at request time
 
 Note that there are many excellent tools in this space, with differing goals
 and trade-offs. [Kevin Lynagh](https://kevinlynagh.com/)'s
@@ -338,53 +339,89 @@ Notes and considerations:
 
 _For the full command reference, see [docs/commands](docs/commands/)._
 
-## External HTTP proxy access
+## Explicit HTTP proxy attachments
 
-An external proxy or broker can apply VM-specific policy and supply credentials
-without storing those credentials in the guest. Voom records the connection
-between a VM and its proxy as an egress attachment. Each attachment names a
-private Unix socket on the host:
+An explicit HTTP proxy attachment connects one VM to an external proxy or
+broker. The broker can apply VM-specific policy and supply credentials without
+storing them in the guest. Each attachment records a private backend Unix
+socket on the host:
 
 ```text
 Guest application
-├── connects to the published proxy address
+├── uses the explicit proxy
 │   └── 192.168.127.1:3128
-│       └── gvproxy private TCP-to-Unix route
-│           └── Unix socket assigned to this VM
-│               └── external proxy or broker
-│                   └── destination
+│       └── Voom-managed listener on the guest gateway
+│           └── TCP-to-Unix route
+│               └── backend Unix socket assigned to this VM
+│                   └── external proxy or adapter
+│                       └── destination
 │
 └── connects directly
     └── ordinary direct networking
         └── destination
 ```
 
-Voom manages the private listener and the TCP-to-Unix route. It also publishes
-the proxy manifest and an optional CA bundle to the guest. Voom does not run or
-manage the external proxy.
+Voom manages the fixed listener on the guest gateway and the TCP-to-Unix route.
+The external proxy or its adapter creates and listens on the backend Unix
+socket. Voom also publishes `/run/voom/egress.json` and an optional CA bundle at
+`/run/voom/egress-ca.pem`. Guest tooling can read the manifest to configure
+applications. Voom does not run or manage the external proxy.
 
 Guest applications must explicitly use the published proxy address. Voom does
 not set `HTTP_PROXY`, `HTTPS_PROXY`, or application proxy settings. It also does
 not block direct network access. Voom publishes the optional CA bundle but does
-not install it.
+not install it. HTTP and HTTPS clients use the same proxy address. HTTPS clients
+use HTTP CONNECT through that address.
 
-Enabled attachments require an image with `controlShare` capability.
-To set a new attachment or enable one, the external proxy must accept
-connections on the configured Unix socket.
+Attachments require an image with `controlShare` capability. Check the imported
+image before you configure the attachment:
+
+```sh
+voom image inspect <image>
+```
+
+The output must show `capabilities: controlShare=true`. Images imported with
+`--install-guest-helpers` have this capability. For custom images, see the
+[Guest Image Contract](#guest-image-contract). Before you set or enable an
+attachment, start the external proxy so its backend socket accepts connections.
 
 ```sh
 voom config egress set agent-a \
-  --backend-socket /run/credential-proxy/vm-01JXYZ.sock
+  --backend-socket /run/credential-proxy/vm-01JXYZ.sock \
+  --ca-cert /etc/credential-proxy/ca.pem
 voom start agent-a
 ```
 
-The `--ca-cert` option adds a CA bundle. Use `voom config egress disable` and
-`voom config egress enable` to change proxy access while the VM runs. To remove
-the saved attachment, stop the VM and use `voom config egress clear`.
+Inside the guest, an application can use the fixed proxy address directly:
+
+```sh
+curl --proxy http://192.168.127.1:3128 \
+  --cacert /run/voom/egress-ca.pem \
+  https://example.com/
+```
+
+The `--ca-cert` option publishes a CA bundle for proxies that terminate TLS.
+Omit `--ca-cert` and `--cacert` when the proxy does not terminate TLS. Use
+`voom config egress disable` and `voom config egress enable` to change proxy
+access while the VM runs. To remove the saved attachment, stop the VM and use
+`voom config egress clear`.
 
 For attachment states, external-manager integration, guest files, security
 requirements, and recovery behavior, see [Egress proxy
 integration](#egress-proxy-integration).
+
+Example integrations:
+
+- [Agent Vault on
+  NixOS](https://github.com/mjrusso/nixos-config#voom-agent-vault) provides a
+  complete Voom integration with per-VM identity, host-only proxy tokens, CA
+  setup, and guest wrappers.
+- [iron-proxy's CONNECT tunnel
+  guide](https://docs.iron.sh/guides/socks5-connect) and [example
+  configuration](https://github.com/paradigmxyz/iron-proxy/blob/main/iron-proxy.example.yaml)
+  provide a starting point for explicit proxying, credential injection, and CA
+  setup. Bridge its TCP tunnel listener to a private Unix socket before
+  attaching it to Voom.
 
 ## Agent Skill
 
