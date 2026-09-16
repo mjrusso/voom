@@ -587,21 +587,34 @@ new file mode 100644
 index 00000000..26b39071
 --- /dev/null
 +++ b/pkg/services/gatewayforward/gatewayforward_test.go
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,221 @@
 +package gatewayforward
 +
 +import (
 +	"context"
 +	"io"
 +	"net"
++	"os"
 +	"path/filepath"
 +	"sync"
 +	"testing"
 +	"time"
 +)
 +
++// shortTempDir avoids the macOS 104-char Unix-socket path limit that t.TempDir()
++// can exceed when test names are long.
++func shortTempDir(t *testing.T) string {
++	t.Helper()
++	dir, err := os.MkdirTemp("", "gwf")
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = os.RemoveAll(dir) })
++	return dir
++}
++
 +func TestRelayHalfCloseAndRemoval(t *testing.T) {
-+	socket := filepath.Join(t.TempDir(), "backend.sock")
++	socket := filepath.Join(shortTempDir(t), "backend.sock")
 +	backend, err := net.Listen("unix", socket)
 +	if err != nil {
 +		t.Fatal(err)
@@ -697,7 +710,7 @@ index 00000000..26b39071
 +}
 +
 +func TestRemovalDuringConnectionEstablishment(t *testing.T) {
-+	socket := filepath.Join(t.TempDir(), "backend.sock")
++	socket := filepath.Join(shortTempDir(t), "backend.sock")
 +	backend, err := net.Listen("unix", socket)
 +	if err != nil {
 +		t.Fatal(err)
