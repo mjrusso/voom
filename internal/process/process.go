@@ -54,7 +54,7 @@ func startRecordedExe(exe string, args []string, logPath, recordPath string) err
 		_ = log.Close()
 		return errors.Join(fmt.Errorf("record process identity in %s: %w", recordPath, err), killErr)
 	}
-	_ = cmd.Process.Release()
+	go func() { _ = cmd.Wait() }()
 	_ = log.Close()
 	return nil
 }

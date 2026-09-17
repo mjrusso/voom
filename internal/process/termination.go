@@ -105,39 +105,41 @@ func StopRecorded(path, kind string, timeout time.Duration) error {
 		return err
 	}
 	pid := recorded.PID
-	inspect := func() (bool, error) {
-		status, err := inspectRecord(recorded, kind)
+	status, err := inspectRecord(recorded, kind)
+	if err != nil {
+		return err
+	}
+	if status == recordGone {
+		return RemoveRecord(path)
+	}
+	if status == recordWrongKind {
+		return fmt.Errorf("cannot verify %s PID %d executable; retained %s", kind, pid, path)
+	}
+	sameProcess := func() (bool, error) {
+		current, err := birth(pid)
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
 		if err != nil {
 			return false, err
 		}
-		switch status {
-		case recordGone:
-			return true, nil
-		case recordWrongKind:
-			return false, fmt.Errorf("cannot verify %s PID %d executable; retained %s", kind, pid, path)
-		default:
-			return false, nil
-		}
+		return current == recorded.Birth, nil
 	}
 	for _, signal := range []syscall.Signal{syscall.SIGTERM, syscall.SIGKILL} {
-		gone, err := inspect()
+		same, err := sameProcess()
 		if err != nil {
-			return err
+			return fmt.Errorf("cannot verify PID %d identity: %w", pid, err)
 		}
-		if gone {
+		if !same {
 			return RemoveRecord(path)
 		}
 		if err = syscall.Kill(pid, signal); err != nil && !errors.Is(err, syscall.ESRCH) {
 			return err
 		}
-		var inspectErr error
 		if WaitFor(func() bool {
-			gone, inspectErr = inspect()
-			return gone || inspectErr != nil
+			same, err = sameProcess()
+			return err == nil && !same
 		}, timeout) == nil {
-			if inspectErr != nil {
-				return inspectErr
-			}
 			return RemoveRecord(path)
 		}
 	}
