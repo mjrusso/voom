@@ -15,7 +15,11 @@ const darwinZombieState = 5
 
 func birth(pid int) (string, error) {
 	info, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
-	if errors.Is(err, unix.ESRCH) {
+	missing := errors.Is(err, unix.ESRCH)
+	if errors.Is(err, unix.EIO) {
+		missing = errors.Is(unix.Kill(pid, 0), unix.ESRCH)
+	}
+	if missing {
 		return "", os.ErrNotExist
 	}
 	if err != nil {

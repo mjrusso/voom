@@ -61,6 +61,10 @@ func TestSocketNormalizationAndValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	actual := filepath.Join(dir, "actual")
 	if err := os.Mkdir(actual, 0700); err != nil {
 		t.Fatal(err)

@@ -34,6 +34,10 @@ func TestEgressLiveReconciliation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	record.Network.Egress.BackendSocket = filepath.Join(dir, "backend.sock")
 	backend, err := net.Listen("unix", record.Network.Egress.BackendSocket)
 	if err != nil {
