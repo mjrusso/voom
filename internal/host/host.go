@@ -48,13 +48,12 @@ func ResolvePaths() Paths {
 	return p
 }
 
-// EnsureRuntimeDir creates path if needed. The predictable Darwin default is
-// private to the current user because it lives under the shared /tmp directory.
+// EnsureRuntimeDir creates a private runtime directory owned by the current user.
 func EnsureRuntimeDir(path string) error {
-	if runtime.GOOS == "darwin" && path == darwinRuntimeDir(os.Getuid()) {
-		return ensurePrivateRuntimeDir(path, os.Getuid())
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
 	}
-	return os.MkdirAll(path, 0o755)
+	return ensurePrivateRuntimeDir(path, os.Getuid())
 }
 
 func darwinRuntimeDir(uid int) string {

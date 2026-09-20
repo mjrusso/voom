@@ -11,6 +11,8 @@
 - Add Linux/QEMU USB passthrough by stable controller route and port, with host
   discovery, live attach and detach, persisted VM assignments, permission
   checks, and QEMU capability and runtime status diagnostics.
+- Restrict runtime roots and per-VM runtime directories to the current user,
+  and reject runtime directories that are symlinks or owned by another user.
 
 ## v1.2.1 - 2026-09-16
 

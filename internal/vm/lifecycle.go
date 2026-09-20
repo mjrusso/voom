@@ -371,7 +371,7 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	}
 	rt := m.store.Runtime(vm)
 	cache := m.store.CacheVMDir(vm)
-	if err := os.MkdirAll(rt.Dir(), 0o755); err != nil {
+	if err := host.EnsureRuntimeDir(rt.Dir()); err != nil {
 		return nil, err
 	}
 	if err := os.MkdirAll(cache, 0o755); err != nil {
