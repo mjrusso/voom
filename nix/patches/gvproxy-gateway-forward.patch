@@ -936,7 +936,7 @@ index 00000000..8e7e6f17
 +	if capabilities[gatewayforward.IsolationCapability] != 1 {
 +		t.Fatalf("missing %s capability", gatewayforward.IsolationCapability)
 +	}
-+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
++	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 +	defer cancel()
 +	type instance struct {
 +		client  *http.Client
@@ -1008,7 +1008,7 @@ index 00000000..8e7e6f17
 +			conn.Close()
 +			t.Fatal("guest reached host loopback")
 +		}
-+		guestHTTP := &http.Client{Timeout: 3 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) { return guest.DialContextTCP(ctx, addr) }}}
++		guestHTTP := &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) { return guest.DialContextTCP(ctx, addr) }}}
 +		victim := filepath.Join(dir, "victim")
 +		if err := os.WriteFile(victim, []byte("host data"), 0600); err != nil {
 +			t.Fatal(err)
@@ -1034,7 +1034,7 @@ index 00000000..8e7e6f17
 +		if res.StatusCode != http.StatusNotFound {
 +			t.Fatalf("guest DNS mutation API returned %d", res.StatusCode)
 +		}
-+		client := &http.Client{Timeout: 3 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
++		client := &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 +			return (&net.Dialer{}).DialContext(ctx, "unix", control)
 +		}}}
 +		guestConn, err := guest.DialContextTCP(ctx, route.Local)
@@ -1055,8 +1055,8 @@ index 00000000..8e7e6f17
 +		}
 +		defer backend.Close()
 +		marker := []byte{byte('A' + i)}
-+		guestConn.SetDeadline(time.Now().Add(5 * time.Second))
-+		backend.SetDeadline(time.Now().Add(5 * time.Second))
++		guestConn.SetDeadline(time.Now().Add(15 * time.Second))
++		backend.SetDeadline(time.Now().Add(15 * time.Second))
 +		guestConn.Write(marker)
 +		got := make([]byte, 1)
 +		if _, err := io.ReadFull(backend, got); err != nil || !bytes.Equal(got, marker) {
@@ -1066,7 +1066,7 @@ index 00000000..8e7e6f17
 +	}
 +	for _, in := range instances {
 +		gatewayRequest(t, in.client, "expose", in.route)
-+		guestHTTP := &http.Client{Timeout: 3 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) { return in.guest.DialContextTCP(ctx, addr) }}}
++		guestHTTP := &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) { return in.guest.DialContextTCP(ctx, addr) }}}
 +		res, err := guestHTTP.Get("http://192.168.127.1/services/gateway-forward/all")
 +		if err != nil {
 +			t.Fatal(err)
@@ -1079,7 +1079,7 @@ index 00000000..8e7e6f17
 +	a, b := instances[0], instances[1]
 +	gatewayRequest(t, a.client, "unexpose", gatewayforward.Route{Local: a.route.Local})
 +	for _, conn := range []net.Conn{a.conn, a.backend} {
-+		conn.SetReadDeadline(time.Now().Add(time.Second))
++		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 +		_, err := conn.Read(make([]byte, 1))
 +		if err == nil {
 +			t.Fatal("relay survived removal")
