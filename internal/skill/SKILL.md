@@ -1,12 +1,12 @@
 ---
 name: voom
-description: "Create and control local Linux VMs with the Voom CLI on macOS or Linux hosts. Use when the user mentions Voom, asks to operate a VM known to be managed by Voom, or explicitly asks to run work in a disposable local VM. Do not use merely because a task involves Linux, NixOS, testing, or isolation. Treat existing Voom VMs as user-owned state: inspect them freely, but do not disrupt or destroy them without explicit authorization."
+description: "Create and control local Linux VMs with the Voom CLI on MacOS or Linux hosts. Use when the user mentions Voom, asks to operate a VM known to be managed by Voom, or explicitly asks to run work in a disposable local VM. Do not use merely because a task involves Linux, NixOS, testing, or isolation. Treat existing Voom VMs as user-owned state: inspect them freely, but do not disrupt or destroy them without explicit authorization."
 ---
 
 # Voom
 
-Use Voom on macOS or Linux hosts to create and control local Linux virtual
-machines. It uses vfkit on macOS and QEMU/KVM on Linux. Voom has no daemon and
+Use Voom on MacOS or Linux hosts to create and control local Linux virtual
+machines. It uses vfkit on MacOS and QEMU/KVM on Linux. Voom has no daemon and
 follows an explicit image import, VM create, and VM start lifecycle.
 
 ## Check the environment
@@ -79,7 +79,7 @@ After starting, poll `voom ssh <name> -- true` every two seconds with a
 two-minute deadline enforced by the agent's command runner. Retry connection
 failures while the guest boots, but leave SSH errors visible so configuration
 and authentication failures are not hidden. Do not rely on the external
-`timeout` command: it is not installed by default on every macOS host.
+`timeout` command: it is not installed by default on every MacOS host.
 
 `voom events` provides best-effort VM, forwarding, and egress change
 notifications, not guest or SSH readiness. Events are wake-up hints and must

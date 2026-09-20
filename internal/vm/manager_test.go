@@ -465,7 +465,7 @@ func TestReadGuestPortsRejectsMalformedAndStaleReports(t *testing.T) {
 
 func TestCreateUsesVFKitDiskExtension(t *testing.T) {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
-		t.Skip("vfkit driver is supported only on Apple Silicon macOS")
+		t.Skip("vfkit driver is supported only on Apple Silicon MacOS")
 	}
 	st, _ := newTestStore(t)
 

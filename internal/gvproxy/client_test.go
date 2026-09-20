@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-// shortTempDir avoids the macOS 104-char Unix-socket path limit that t.TempDir()
+// shortTempDir avoids the MacOS 104-char Unix-socket path limit that t.TempDir()
 // can exceed when test names are long.
 func shortTempDir(t *testing.T) string {
 	t.Helper()

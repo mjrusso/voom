@@ -16,7 +16,7 @@
 
 ## v1.2.1 - 2026-09-16
 
-- Fix helper shutdown on macOS when an exited process is no longer returned by
+- Fix helper shutdown on MacOS when an exited process is no longer returned by
   the system process query.
 
 ## v1.2.0 - 2026-09-16

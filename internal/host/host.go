@@ -136,7 +136,7 @@ func ValidateHostImage(arch, format, driver string) error {
 	}
 	if driver == "vfkit" {
 		if runtime.GOOS != "darwin" {
-			return errors.New("vfkit driver is supported only on macOS")
+			return errors.New("vfkit driver is supported only on MacOS")
 		}
 		if runtime.GOARCH != "arm64" {
 			return errors.New("vfkit driver currently supports Apple Silicon hosts only")

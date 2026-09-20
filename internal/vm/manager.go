@@ -1,5 +1,5 @@
 // Package vm orchestrates the lifecycle of voom-managed virtual machines,
-// driving QEMU on Linux and vfkit on macOS.
+// driving QEMU on Linux and vfkit on MacOS.
 package vm
 
 import (

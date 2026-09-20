@@ -164,6 +164,6 @@ func TestValidateHostImageRejectsVfkitNonRaw(t *testing.T) {
 		return
 	}
 	if err == nil {
-		t.Fatalf("expected vfkit host validation failure off macOS arm64")
+		t.Fatalf("expected vfkit host validation failure off MacOS arm64")
 	}
 }
