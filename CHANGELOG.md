@@ -11,6 +11,9 @@
 - Add Linux/QEMU USB passthrough by stable controller route and port, with host
   discovery, live attach and detach, persisted VM assignments, permission
   checks, and QEMU capability and runtime status diagnostics.
+- Standardize CLI names: use `list` and `remove` as the canonical commands,
+  retain `ls` and `rm` as aliases, and retain `destroy` as an alias for
+  `voom remove`.
 - Restrict runtime roots and per-VM runtime directories to the current user,
   and reject runtime directories that are symlinks or owned by another user.
 
@@ -37,8 +40,8 @@
 - Add `voom config egress` commands to manage proxy access. External managers
   can use `set --disabled` to save an attachment without enabling it.
   `--expect-id` rejects a change unless the immutable VM ID matches. Enable and
-  disable work while the VM runs. `voom rm` does not remove or stop the external
-  proxy.
+  disable work while the VM runs. `voom remove` does not remove or stop the
+  external proxy.
 - Package gvproxy with private gateway TCP-to-Unix forwarding and a live
   control API available only to the host. The package blocks guest access to
   gvproxy's host APIs and host loopback services, and confirms tunnel shutdown.
@@ -51,7 +54,7 @@
   signals a helper only when both values match the running process. Before
   boot, `voom start` tries to remove stale runtime state. If Voom cannot verify
   a helper's identity or confirm termination, it keeps the recovery records.
-  This rule applies to `voom start`, `voom stop`, `voom rm`, and
+  This rule applies to `voom start`, `voom stop`, `voom remove`, and
   `voom disk reset`.
 - Keep installed automatic forwards when the guest report is missing, stale,
   or malformed. Apply bind and offset changes immediately. Voom serializes

@@ -1,15 +1,15 @@
-## voom usb rm
+## voom share list
 
-Remove a USB assignment from a VM
+List shares
 
 ```
-voom usb rm <vm> <name> [flags]
+voom share list <name> [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for rm
+  -h, --help   help for list
 ```
 
 ### Options inherited from parent commands
@@ -21,4 +21,4 @@ voom usb rm <vm> <name> [flags]
 
 ### SEE ALSO
 
-* [voom usb](voom_usb.md)	 - Manage Linux USB passthrough
+* [voom share](voom_share.md)	 - Manage shares

@@ -1,15 +1,15 @@
-## voom usb ls
+## voom share remove
 
-List a VM's USB assignments
+Remove a share
 
 ```
-voom usb ls <vm> [flags]
+voom share remove <name> <tag> [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for ls
+  -h, --help   help for remove
 ```
 
 ### Options inherited from parent commands
@@ -21,4 +21,4 @@ voom usb ls <vm> [flags]
 
 ### SEE ALSO
 
-* [voom usb](voom_usb.md)	 - Manage Linux USB passthrough
+* [voom share](voom_share.md)	 - Manage shares

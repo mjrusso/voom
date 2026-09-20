@@ -1,16 +1,15 @@
-## voom image rm
+## voom usb remove
 
-Remove an image
+Remove a USB assignment from a VM
 
 ```
-voom image rm <name> [flags]
+voom usb remove <name> <device-name> [flags]
 ```
 
 ### Options
 
 ```
-      --force   remove even if referenced
-  -h, --help    help for rm
+  -h, --help   help for remove
 ```
 
 ### Options inherited from parent commands
@@ -22,4 +21,4 @@ voom image rm <name> [flags]
 
 ### SEE ALSO
 
-* [voom image](voom_image.md)	 - Manage images
+* [voom usb](voom_usb.md)	 - Manage Linux USB passthrough

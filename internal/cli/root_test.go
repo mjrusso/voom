@@ -101,8 +101,10 @@ func TestCommandSurfaceHelpAndArgValidation(t *testing.T) {
 		{"debug", "paths", "--help"},
 		{"guest", "ports", "--help"},
 		{"image", "list", "--help"},
+		{"image", "ls", "--help"},
 		{"image", "inspect", "--help"},
 		{"image", "import", "--help"},
+		{"image", "remove", "--help"},
 		{"image", "rm", "--help"},
 		{"create", "--help"},
 		{"start", "--help"},
@@ -114,8 +116,11 @@ func TestCommandSurfaceHelpAndArgValidation(t *testing.T) {
 		{"logs", "--help"},
 		{"info", "--help"},
 		{"list", "--help"},
+		{"ls", "--help"},
 		{"rename", "--help"},
+		{"remove", "--help"},
 		{"rm", "--help"},
+		{"destroy", "--help"},
 		{"disk", "reset", "--help"},
 		{"resources", "--help"},
 		{"resources", "cpus", "--help"},
@@ -126,18 +131,24 @@ func TestCommandSurfaceHelpAndArgValidation(t *testing.T) {
 		{"config", "show", "--help"},
 		{"config", "ssh-port", "--help"},
 		{"forward", "add", "--help"},
+		{"forward", "remove", "--help"},
 		{"forward", "rm", "--help"},
+		{"forward", "list", "--help"},
 		{"forward", "ls", "--help"},
 		{"forward", "auto", "enable", "--help"},
 		{"forward", "auto", "disable", "--help"},
 		{"forward", "auto", "offset", "--help"},
 		{"forward", "discover", "--help"},
 		{"share", "add", "--help"},
+		{"share", "remove", "--help"},
 		{"share", "rm", "--help"},
+		{"share", "list", "--help"},
 		{"share", "ls", "--help"},
 		{"usb", "discover", "--help"},
 		{"usb", "add", "--help"},
+		{"usb", "remove", "--help"},
 		{"usb", "rm", "--help"},
+		{"usb", "list", "--help"},
 		{"usb", "ls", "--help"},
 		{"nixos", "switch", "--help"},
 		{"doctor", "--help"},
@@ -291,7 +302,7 @@ func TestImageCreateInspectForwardAndGuestGate(t *testing.T) {
 	if err := runCmdErr("forward", "add", "scratch", "8081", "--host-port", "18080"); err == nil || !strings.Contains(err.Error(), "unavailable") {
 		t.Fatalf("expected duplicate forward rejection, got %v", err)
 	}
-	out = runCmd(t, "forward", "ls", "scratch")
+	out = runCmd(t, "forward", "list", "scratch")
 	if !strings.Contains(out, "manual\ttcp\t127.0.0.1:18080") || !strings.Contains(out, "installed=false") {
 		t.Fatalf("missing forward row:\n%s", out)
 	}
@@ -308,13 +319,13 @@ func TestImageCreateInspectForwardAndGuestGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	runCmd(t, "--output", "json", "share", "add", "scratch", "src", hostShare, "/mnt/src", "--readonly")
-	out = runCmd(t, "--output", "json", "share", "ls", "scratch")
+	out = runCmd(t, "--output", "json", "share", "list", "scratch")
 	var shares []share.Decl
 	if err := json.Unmarshal([]byte(out), &shares); err != nil || len(shares) != 1 || !shares[0].Readonly {
 		t.Fatalf("bad share JSON %v: %s", err, out)
 	}
-	runCmd(t, "share", "rm", "scratch", "src")
-	if err := runCmdErr("image", "rm", "nixos"); err == nil || !strings.Contains(err.Error(), "referenced by scratch") {
+	runCmd(t, "share", "remove", "scratch", "src")
+	if err := runCmdErr("image", "remove", "nixos"); err == nil || !strings.Contains(err.Error(), "referenced by scratch") {
 		t.Fatalf("expected image removal reference block, got %v", err)
 	}
 	out = runCmd(t, "--output", "json", "forward", "auto", "enable", "scratch", "--offset", "10000", "--lan")
@@ -338,10 +349,10 @@ func TestImageCreateInspectForwardAndGuestGate(t *testing.T) {
 	}
 	runCmd(t, "--output", "json", "forward", "auto", "offset", "scratch", "9000")
 	runCmd(t, "--output", "json", "forward", "auto", "disable", "scratch")
-	runCmd(t, "--output", "json", "forward", "rm", "scratch", "18080")
+	runCmd(t, "--output", "json", "forward", "remove", "scratch", "18080")
 	runCmd(t, "rename", "scratch", "renamed")
-	runCmd(t, "rm", "renamed", "--force")
-	runCmd(t, "--output", "json", "image", "rm", "nixos", "--force")
+	runCmd(t, "remove", "renamed", "--force")
+	runCmd(t, "--output", "json", "image", "remove", "nixos", "--force")
 }
 
 func TestJSONCommandContractsOnFixture(t *testing.T) {
@@ -360,9 +371,9 @@ func TestJSONCommandContractsOnFixture(t *testing.T) {
 		{"--output", "json", "info", "scratch"},
 		{"--output", "json", "image", "list"},
 		{"--output", "json", "image", "inspect", "nixos"},
-		{"--output", "json", "forward", "ls"},
-		{"--output", "json", "share", "ls", "scratch"},
-		{"--output", "json", "usb", "ls", "scratch"},
+		{"--output", "json", "forward", "list"},
+		{"--output", "json", "share", "list", "scratch"},
+		{"--output", "json", "usb", "list", "scratch"},
 		{"--output", "json", "config", "show", "scratch"},
 	}
 	for _, args := range jsonCommands {
@@ -372,8 +383,8 @@ func TestJSONCommandContractsOnFixture(t *testing.T) {
 			t.Fatalf("voom %s emitted invalid JSON: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
-	if err := runCmdErr("--output", "json", "rm", "scratch"); err == nil || !strings.Contains(err.Error(), "--force") {
-		t.Fatalf("expected JSON rm force requirement, got %v", err)
+	if err := runCmdErr("--output", "json", "remove", "scratch"); err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("expected JSON remove force requirement, got %v", err)
 	}
 	if err := runCmdErr("logs", "scratch", "--kind", "bad"); err == nil || !strings.Contains(err.Error(), "not available") {
 		t.Fatalf("expected unavailable log error, got %v", err)
@@ -383,7 +394,7 @@ func TestJSONCommandContractsOnFixture(t *testing.T) {
 	}
 }
 
-func TestRMConfirmationAndForceBehavior(t *testing.T) {
+func TestRemoveConfirmationAndForceBehavior(t *testing.T) {
 	dir := t.TempDir()
 	root := copyFixtureState(t, dir)
 	t.Setenv("VOOM_STATE_DIR", root)
@@ -408,7 +419,7 @@ func TestRMConfirmationAndForceBehavior(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Stdin = f
-	if err := runCmdErr("rm", "scratch"); err == nil || !strings.Contains(err.Error(), "cancelled") {
+	if err := runCmdErr("remove", "scratch"); err == nil || !strings.Contains(err.Error(), "cancelled") {
 		t.Fatalf("expected cancelled remove, got %v", err)
 	}
 	_ = f.Close()
@@ -425,9 +436,9 @@ func TestRMConfirmationAndForceBehavior(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Stdin = f
-	out := runCmd(t, "rm", "scratch")
+	out := runCmd(t, "remove", "scratch")
 	if !strings.Contains(out, "removed VM scratch") {
-		t.Fatalf("unexpected rm output: %s", out)
+		t.Fatalf("unexpected remove output: %s", out)
 	}
 	_ = f.Close()
 	if err := runCmdErr("info", "scratch"); err == nil || !strings.Contains(err.Error(), "no such VM") {
@@ -508,7 +519,7 @@ func TestFixtureCommands(t *testing.T) {
 	}
 }
 
-func TestRMForceWarnsAboutExternalEgress(t *testing.T) {
+func TestRemoveForceWarnsAboutExternalEgress(t *testing.T) {
 	dir := t.TempDir()
 	root := copyFixtureState(t, dir)
 	t.Setenv("VOOM_STATE_DIR", root)
@@ -533,7 +544,7 @@ func TestRMForceWarnsAboutExternalEgress(t *testing.T) {
 	cmd := NewRootCommand()
 	cmd.SetOut(&out)
 	cmd.SetErr(&errb)
-	cmd.SetArgs([]string{"rm", "scratch", "--force"})
+	cmd.SetArgs([]string{"remove", "scratch", "--force"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("forced remove failed: %v\nstderr:%s", err, errb.String())
 	}

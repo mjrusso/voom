@@ -1,15 +1,15 @@
-## voom share rm
+## voom forward list
 
-Remove a share
+List effective forwards
 
 ```
-voom share rm <name> <tag> [flags]
+voom forward list [name] [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for rm
+  -h, --help   help for list
 ```
 
 ### Options inherited from parent commands
@@ -21,4 +21,4 @@ voom share rm <name> <tag> [flags]
 
 ### SEE ALSO
 
-* [voom share](voom_share.md)	 - Manage shares
+* [voom forward](voom_forward.md)	 - Manage guest port forwards

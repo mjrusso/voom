@@ -1,15 +1,16 @@
-## voom forward ls
+## voom remove
 
-List effective forwards
+Remove a VM
 
 ```
-voom forward ls [name] [flags]
+voom remove <name> [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for ls
+      --force   remove without prompting
+  -h, --help    help for remove
 ```
 
 ### Options inherited from parent commands
@@ -21,4 +22,4 @@ voom forward ls [name] [flags]
 
 ### SEE ALSO
 
-* [voom forward](voom_forward.md)	 - Manage guest port forwards
+* [voom](voom.md)	 - Magic-free local VMs

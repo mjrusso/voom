@@ -14,15 +14,16 @@ import (
 
 func imageCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "image", Short: "Manage images"}
-	cmd.AddCommand(imageListCommand(), imageInspectCommand(), imageImportCommand(), imageRmCommand())
+	cmd.AddCommand(imageListCommand(), imageInspectCommand(), imageImportCommand(), imageRemoveCommand())
 	return cmd
 }
 
 func imageListCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
-		Short: "List images",
-		Args:  cobra.NoArgs,
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List images",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {
@@ -124,12 +125,13 @@ func imageImportCommand() *cobra.Command {
 	return cmd
 }
 
-func imageRmCommand() *cobra.Command {
+func imageRemoveCommand() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
-		Use:   "rm <name>",
-		Short: "Remove an image",
-		Args:  cobra.ExactArgs(1),
+		Use:     "remove <name>",
+		Aliases: []string{"rm"},
+		Short:   "Remove an image",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {

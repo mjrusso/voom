@@ -99,7 +99,7 @@ func addCommands(root *cobra.Command) {
 	root.AddCommand(newVersionCommand(), newSkillCommand(), doctorCommand(), debugCommand(), guestCommand())
 	root.AddCommand(imageCommand(), createCommand(), cloneCommand(), startCommand(), stopCommand(), restartCommand())
 	root.AddCommand(sshCommand(), sshConfigCommand(), consoleCommand(), logsCommand(), infoCommand())
-	root.AddCommand(listCommand(), renameCommand(), rmCommand(), diskCommand(), resourcesCommand(), forwardCommand(), shareCommand(), usbCommand(), nixosCommand())
+	root.AddCommand(listCommand(), renameCommand(), removeCommand(), diskCommand(), resourcesCommand(), forwardCommand(), shareCommand(), usbCommand(), nixosCommand())
 	root.AddCommand(configCommand())
 	root.AddCommand(eventsCommand())
 }

@@ -1,16 +1,16 @@
-## voom forward rm
+## voom forward remove
 
 Remove a manual forward
 
 ```
-voom forward rm <name> <host-port> [flags]
+voom forward remove <name> <host-port> [flags]
 ```
 
 ### Options
 
 ```
       --bind string   host bind address (default "127.0.0.1")
-  -h, --help          help for rm
+  -h, --help          help for remove
 ```
 
 ### Options inherited from parent commands

@@ -20,5 +20,5 @@ Manage Linux USB passthrough
 * [voom](voom.md)	 - Magic-free local VMs
 * [voom usb add](voom_usb_add.md)	 - Assign a host USB topology route to a VM
 * [voom usb discover](voom_usb_discover.md)	 - List host USB devices available for passthrough
-* [voom usb ls](voom_usb_ls.md)	 - List a VM's USB assignments
-* [voom usb rm](voom_usb_rm.md)	 - Remove a USB assignment from a VM
+* [voom usb list](voom_usb_list.md)	 - List a VM's USB assignments
+* [voom usb remove](voom_usb_remove.md)	 - Remove a USB assignment from a VM

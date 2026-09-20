@@ -45,8 +45,8 @@ To clean up disposable test state:
 
 ```sh
 ./bin/voom stop deb
-./bin/voom rm deb --force
-./bin/voom image rm debian13 --force
+./bin/voom remove deb --force
+./bin/voom image remove debian13 --force
 rm -rf .voom-test
 ```
 
@@ -138,9 +138,9 @@ Areas that should stay covered by unit tests:
 - persisted port reservations across stopped VMs;
 - guest `ports.json` parsing and stale-file handling;
 - auto-forward enable/disable state changes and fake gvproxy reconciliation;
-- all-VM `forward ls` output;
+- all-VM `forward list` output;
 - process-record validation by process kind and PID reuse;
-- `rm` confirmation and `--force`;
+- `remove` confirmation and `--force`;
 - gvproxy request/response parsing.
 
 Fixture tests live under `testdata/state/` and mirror the v1 state layout

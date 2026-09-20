@@ -37,7 +37,7 @@ func TestUSBCommands(t *testing.T) {
 	if err := runCmdErr("usb", "add", "scratch", "other", "usb-test-controller@2-255"); err == nil || !strings.Contains(err.Error(), "already assigned") {
 		t.Fatalf("duplicate USB location error = %v", err)
 	}
-	out := runCmd(t, "usb", "ls", "scratch")
+	out := runCmd(t, "usb", "list", "scratch")
 	if !strings.Contains(out, "board  usb-test-controller@2-255") {
 		t.Fatalf("USB list output:\n%s", out)
 	}
@@ -83,7 +83,7 @@ func TestUSBCommands(t *testing.T) {
 	if status.Name != "board" || status.Location != "usb-test-controller@2-255" || status.Host.State != "unknown" || !strings.Contains(status.Host.Error, "controller route") || status.Runtime.State != "stopped" || status.Runtime.Error != "" {
 		t.Fatalf("info USB status: %#v", status)
 	}
-	runCmd(t, "usb", "rm", "scratch", "board")
+	runCmd(t, "usb", "remove", "scratch", "board")
 	out = runCmd(t, "--output", "json", "usb", "ls", "scratch")
 	var devices []usb.Decl
 	if err := json.Unmarshal([]byte(out), &devices); err != nil || len(devices) != 0 {

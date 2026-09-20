@@ -37,7 +37,7 @@ func usbCommand() *cobra.Command {
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
-		Use:   "add <vm> <name> <location>",
+		Use:   "add <name> <device-name> <location>",
 		Short: "Assign a host USB topology route to a VM",
 		Long:  "Assign a stable USB topology location reported by 'voom usb discover', such as usb-0000:00:14.0@2-3.2, to a QEMU VM. A running VM receives the device immediately. Any device occupying that route while the VM runs is exposed to the guest.",
 		Args:  cobra.ExactArgs(3),
@@ -58,9 +58,10 @@ func usbCommand() *cobra.Command {
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
-		Use:   "rm <vm> <name>",
-		Short: "Remove a USB assignment from a VM",
-		Args:  cobra.ExactArgs(2),
+		Use:     "remove <name> <device-name>",
+		Aliases: []string{"rm"},
+		Short:   "Remove a USB assignment from a VM",
+		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {
@@ -77,9 +78,10 @@ func usbCommand() *cobra.Command {
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
-		Use:   "ls <vm>",
-		Short: "List a VM's USB assignments",
-		Args:  cobra.ExactArgs(1),
+		Use:     "list <name>",
+		Aliases: []string{"ls"},
+		Short:   "List a VM's USB assignments",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {

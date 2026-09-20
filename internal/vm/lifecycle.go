@@ -359,7 +359,7 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	}
 	for _, f := range vm.Network.Forwards {
 		if portBusy(f.Bind, f.HostPort) {
-			return nil, fmt.Errorf("declared forward %s:%d is in use; remove the conflict or 'voom forward rm %s %d'", f.Bind, f.HostPort, vm.Name, f.HostPort)
+			return nil, fmt.Errorf("declared forward %s:%d is in use; remove the conflict or 'voom forward remove %s %d'", f.Bind, f.HostPort, vm.Name, f.HostPort)
 		}
 	}
 	uefi := ""

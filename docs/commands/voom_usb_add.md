@@ -7,7 +7,7 @@ Assign a host USB topology route to a VM
 Assign a stable USB topology location reported by 'voom usb discover', such as usb-0000:00:14.0@2-3.2, to a QEMU VM. A running VM receives the device immediately. Any device occupying that route while the VM runs is exposed to the guest.
 
 ```
-voom usb add <vm> <name> <location> [flags]
+voom usb add <name> <device-name> <location> [flags]
 ```
 
 ### Options

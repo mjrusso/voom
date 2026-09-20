@@ -1,16 +1,15 @@
-## voom rm
+## voom usb list
 
-Remove a VM
+List a VM's USB assignments
 
 ```
-voom rm <name> [flags]
+voom usb list <name> [flags]
 ```
 
 ### Options
 
 ```
-      --force   remove without prompting
-  -h, --help    help for rm
+  -h, --help   help for list
 ```
 
 ### Options inherited from parent commands
@@ -22,4 +21,4 @@ voom rm <name> [flags]
 
 ### SEE ALSO
 
-* [voom](voom.md)	 - Magic-free local VMs
+* [voom usb](voom_usb.md)	 - Manage Linux USB passthrough

@@ -19,5 +19,5 @@ Manage shares
 
 * [voom](voom.md)	 - Magic-free local VMs
 * [voom share add](voom_share_add.md)	 - Add a share
-* [voom share ls](voom_share_ls.md)	 - List shares
-* [voom share rm](voom_share_rm.md)	 - Remove a share
+* [voom share list](voom_share_list.md)	 - List shares
+* [voom share remove](voom_share_remove.md)	 - Remove a share

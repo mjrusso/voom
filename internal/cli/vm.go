@@ -399,9 +399,9 @@ func renameCommand() *cobra.Command {
 	}}
 }
 
-func rmCommand() *cobra.Command {
+func removeCommand() *cobra.Command {
 	var force bool
-	cmd := &cobra.Command{Use: "rm <name>", Aliases: []string{"remove", "destroy"}, Short: "Remove a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "remove <name>", Aliases: []string{"rm", "destroy"}, Short: "Remove a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err

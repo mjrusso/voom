@@ -157,7 +157,7 @@ available at `127.0.0.1` on the host by default:
 voom forward auto enable deb
 voom ssh deb -- 'nohup python3 -m http.server 8080 >/dev/null 2>&1 &'
 sleep 3
-voom forward ls deb
+voom forward list deb
 curl http://127.0.0.1:8080
 ```
 
@@ -316,17 +316,20 @@ image or a bootable disk image.
 
 | Area      | Commands                                                                                                |
 |-----------|---------------------------------------------------------------------------------------------------------|
-| Lifecycle | `create`, `start`, `stop`, `restart`, `rm`, `clone`, `rename`                                           |
-| Images    | `image import`, `image inspect`, `image list`, `image rm`                                               |
+| Lifecycle | `create`, `start`, `stop`, `restart`, `remove`, `clone`, `rename`                                       |
+| Images    | `image import`, `image inspect`, `image list`, `image remove`                                           |
 | Compute   | `resources cpus`, `resources memory`                                                                    |
 | Disk      | `resources disk grow`, `disk reset`                                                                     |
 | Access    | `ssh`, `console`, `ssh-config`, `config show`, `config ssh-port`                                        |
-| Forwards  | `forward add`, `forward rm`, `forward ls`, `forward discover`, `forward auto enable`/`disable`/`offset` |
+| Forwards  | `forward add`, `forward remove`, `forward list`, `forward discover`, `forward auto enable`/`disable`/`offset` |
 | Egress    | `config egress set`, `config egress clear`, `config egress enable`, `config egress disable`             |
-| Shares    | `share add`, `share rm`, `share ls`                                                                     |
-| USB       | `usb discover`, `usb add`, `usb rm`, `usb ls`                                                           |
+| Shares    | `share add`, `share remove`, `share list`                                                               |
+| USB       | `usb discover`, `usb add`, `usb remove`, `usb list`                                                     |
 | NixOS     | `nixos switch`                                                                                          |
 | Inspect   | `list`, `info`, `logs`, `events`, `doctor`, `guest ports`, `debug paths`, `version`, `skill`            |
+
+Every `list` command accepts `ls` as an alias. Every `remove` command accepts
+`rm`; `voom remove` also accepts `destroy`.
 
 Notes and considerations:
 
@@ -382,7 +385,7 @@ Attachments require an image with `controlShare` capability. Check the imported
 image before you configure the attachment:
 
 ```sh
-voom image inspect <image>
+voom image inspect <name>
 ```
 
 The output must show `capabilities: controlShare=true`. Images imported with
@@ -456,7 +459,7 @@ For manual recovery, prefer command-level cleanup:
 ```sh
 voom stop <name>
 voom doctor
-voom rm <name> --force
+voom remove <name> --force
 ```
 
 If a VM is already stopped and only runtime debris remains, it is safe to
@@ -557,7 +560,7 @@ testing, scratch work, or locally developing Voom (as per details in
 Voom uses for internal bookkeeping.
 
 **Disks.** Each VM disk is an independent copy of the image disk. `voom image
-rm` blocks while any VM references the image, unless `--force` is used; a
+remove` blocks while any VM references the image, unless `--force` is used; a
 forced removal leaves existing VM disks in place with their historical
 metadata.
 
@@ -712,7 +715,7 @@ plans host forwards from fresh reports and records installed/skipped rows in
   match immediately, without waiting for a guest report; forwards for the new
   bind or offset appear after the next valid report.
 
-`voom forward discover <name>` is an audit/preview command; `voom forward ls`
+`voom forward discover <name>` is an audit/preview command; `voom forward list`
 shows effective rows including skipped auto-forwards with an explanation.
 
 ### Egress proxy integration
@@ -837,8 +840,8 @@ Use these commands to discover, assign, list, and remove USB devices:
 ```sh
 voom usb discover
 voom usb add dev board usb-0000:00:14.0@2-3.2
-voom usb ls dev
-voom usb rm dev board
+voom usb list dev
+voom usb remove dev board
 ```
 
 `voom list` reports the configured assignment count as `usb=N`. `voom info dev`
@@ -930,7 +933,7 @@ voom events --output json --filter type=forward
 ```
 
 Events are wake-up hints, not a state replica. A consumer must reconcile with
-`voom list` or `voom forward ls` when it starts and whenever it receives an
+`voom list` or `voom forward list` when it starts and whenever it receives an
 event. Delivery is not guaranteed, duplicates are possible, and concurrent
 writers do not provide causal ordering. An event-ID cursor that has aged out
 of the retained log produces a non-zero exit instead of silently replaying an
@@ -959,18 +962,18 @@ Common command effects:
 | Command | Reads | Writes or removes |
 | --- | --- | --- |
 | `voom image import` | source disk, optional sidecar metadata | `<state>/state.json`, `<state>/images/<image-id>/image.json`, imported image disk |
-| `voom image rm` | `state.json`, `image.json`, VM references | image record and disk; `state.json` entry |
+| `voom image remove` | `state.json`, `image.json`, VM references | image record and disk; `state.json` entry |
 | `voom create` | `state.json`, `image.json`, image disk | `state.json`, `vm.json`, VM disk copy, event log |
 | `voom clone` | `state.json`, source `vm.json`, source VM disk | `state.json`, new `vm.json`, VM disk copy (no shares/forwards), event log |
 | `voom start` | `state.json`, `vm.json`, `image.json`, VM disk | runtime directory, `seed.img`, control share files, sockets, process records, helper logs, runtime auto-forward state, event log |
 | `voom stop` | `state.json`, `vm.json`, runtime process records | stops runtime helper processes; removes sockets, process records, and the runtime auto-forward state file; writes event log |
-| `voom rm` | `state.json`, `vm.json`, runtime process records | removes VM state, VM disk, runtime directory, cache logs, and `state.json` entry; writes event log |
+| `voom remove` | `state.json`, `vm.json`, runtime process records | removes VM state, VM disk, runtime directory, cache logs, and `state.json` entry; writes event log |
 | `voom resources cpus` / `memory` | `state.json`, `vm.json`, runtime process record | updates stopped-VM CPU or memory allocation in `vm.json` |
 | `voom resources disk grow` | `state.json`, `vm.json`, VM disk | grows the stopped VM disk |
 | `voom disk reset` | `state.json`, `vm.json`, `image.json`, image disk | replaces the VM disk and updates the VM image/access metadata |
-| `voom forward add` / `rm` | `state.json`, `vm.json`, runtime socket when running | updates declared forwards in `vm.json`; exposes or unexposes gvproxy forwards for running VMs |
+| `voom forward add` / `remove` | `state.json`, `vm.json`, runtime socket when running | updates declared forwards in `vm.json`; exposes or unexposes gvproxy forwards for running VMs |
 | `voom forward auto enable` / `disable` / `offset` | `state.json`, `vm.json`, image capabilities, runtime report when running | updates auto-forward settings in `vm.json`; for running VMs, removes runtime auto-forwards that no longer match the bind or offset and starts or stops the watcher, which reconciles from guest reports; writes the event log on transitions |
-| `voom share add` / `rm` | `state.json`, `vm.json`, host path | updates share declarations in `vm.json`; running VMs must be stopped first |
+| `voom share add` / `remove` | `state.json`, `vm.json`, host path | updates share declarations in `vm.json`; running VMs must be stopped first |
 | `voom nixos switch` | `state.json`, `vm.json`, image capabilities, flake metadata | runs `nixos-rebuild` over SSH and records switch metadata in `vm.json` |
 | `voom config show` | `state.json`, `vm.json` | no state changes |
 | `voom config ssh-port` | `state.json`, `vm.json`, runtime process record, host port availability | updates the stopped VM's SSH management port in `vm.json` |

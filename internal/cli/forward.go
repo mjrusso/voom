@@ -15,7 +15,7 @@ import (
 
 func forwardCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "forward", Short: "Manage guest port forwards"}
-	cmd.AddCommand(forwardAddCommand(), forwardRmCommand(), forwardLsCommand(), forwardDiscoverCommand(), forwardAutoCommand())
+	cmd.AddCommand(forwardAddCommand(), forwardRemoveCommand(), forwardListCommand(), forwardDiscoverCommand(), forwardAutoCommand())
 	return cmd
 }
 
@@ -70,9 +70,9 @@ func forwardAddCommand() *cobra.Command {
 	return cmd
 }
 
-func forwardRmCommand() *cobra.Command {
+func forwardRemoveCommand() *cobra.Command {
 	var bind string
-	cmd := &cobra.Command{Use: "rm <name> <host-port>", Short: "Remove a manual forward", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "remove <name> <host-port>", Aliases: []string{"rm"}, Short: "Remove a manual forward", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		port, err := state.ParsePort(args[1])
 		if err != nil {
 			return err
@@ -97,8 +97,8 @@ func forwardRmCommand() *cobra.Command {
 	return cmd
 }
 
-func forwardLsCommand() *cobra.Command {
-	return &cobra.Command{Use: "ls [name]", Short: "List effective forwards", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+func forwardListCommand() *cobra.Command {
+	return &cobra.Command{Use: "list [name]", Aliases: []string{"ls"}, Short: "List effective forwards", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err

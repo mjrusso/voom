@@ -33,10 +33,10 @@ voom [flags]
 * [voom list](voom_list.md)	 - List VMs
 * [voom logs](voom_logs.md)	 - Print VM logs
 * [voom nixos](voom_nixos.md)	 - NixOS integrations
+* [voom remove](voom_remove.md)	 - Remove a VM
 * [voom rename](voom_rename.md)	 - Rename a VM
 * [voom resources](voom_resources.md)	 - Manage VM resource allocations
 * [voom restart](voom_restart.md)	 - Restart a VM
-* [voom rm](voom_rm.md)	 - Remove a VM
 * [voom share](voom_share.md)	 - Manage shares
 * [voom skill](voom_skill.md)	 - Print the Voom agent skill
 * [voom ssh](voom_ssh.md)	 - SSH into a VM, or run a one-shot command

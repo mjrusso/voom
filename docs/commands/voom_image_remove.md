@@ -1,15 +1,16 @@
-## voom share ls
+## voom image remove
 
-List shares
+Remove an image
 
 ```
-voom share ls <name> [flags]
+voom image remove <name> [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for ls
+      --force   remove even if referenced
+  -h, --help    help for remove
 ```
 
 ### Options inherited from parent commands
@@ -21,4 +22,4 @@ voom share ls <name> [flags]
 
 ### SEE ALSO
 
-* [voom share](voom_share.md)	 - Manage shares
+* [voom image](voom_image.md)	 - Manage images

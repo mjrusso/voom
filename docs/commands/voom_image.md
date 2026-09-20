@@ -21,4 +21,4 @@ Manage images
 * [voom image import](voom_image_import.md)	 - Import an image
 * [voom image inspect](voom_image_inspect.md)	 - Inspect an image
 * [voom image list](voom_image_list.md)	 - List images
-* [voom image rm](voom_image_rm.md)	 - Remove an image
+* [voom image remove](voom_image_remove.md)	 - Remove an image

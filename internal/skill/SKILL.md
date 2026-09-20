@@ -40,9 +40,9 @@ programmatically. In particular, do not parse Voom's human-readable tables:
 voom list --output json
 voom info <name> --output json
 voom image list --output json
-voom image inspect <image> --output json
-voom forward ls --output json
-voom usb ls <name> --output json
+voom image inspect <name> --output json
+voom forward list --output json
+voom usb list <name> --output json
 ```
 
 Human- and subprocess-oriented commands such as `ssh`, `console`, and `logs`
@@ -85,7 +85,7 @@ and authentication failures are not hidden. Do not rely on the external
 notifications, not guest or SSH readiness. Events are wake-up hints and must
 be reconciled with current state.
 
-An empty `voom forward ls` immediately after start may mean "not yet."
+An empty `voom forward list` immediately after start may mean "not yet."
 Automatic forwards appear only after the guest reports listeners and the host
 reconciles them.
 
@@ -101,7 +101,7 @@ voom create <scratch-name> --image <image> --output json
 voom start <scratch-name> --output json
 voom ssh <scratch-name> -- <command>
 voom stop <scratch-name> --output json
-voom rm <scratch-name> --force --output json
+voom remove <scratch-name> --force --output json
 ```
 
 Wait for SSH after `start`. Clean up only the scratch VM created for the task,
@@ -128,14 +128,14 @@ the effective forwarding state:
 
 ```bash
 voom forward auto enable <name> --output json
-voom forward ls <name> --output json
+voom forward list <name> --output json
 ```
 
 Read `voom forward auto enable --help` before selecting bind or LAN exposure.
 Exposing a service beyond loopback requires explicit user intent.
 
 Enabling automatic forwarding starts the watcher but does not wait for its
-first reconciliation. Repeat `voom forward ls <name> --output json` until the
+first reconciliation. Repeat `voom forward list <name> --output json` until the
 expected installed row appears or the operation reaches its deadline.
 
 ### Configure an explicit proxy attachment
@@ -171,7 +171,7 @@ Verify `nixosSwitch`, inspect the installed syntax, and then run the rebuild:
 
 ```bash
 voom nixos switch --help
-voom nixos switch <name> --flake <flake-reference>
+voom nixos switch <name> --flake <flake-ref>
 ```
 
 ### Attach a USB device on Linux
@@ -183,9 +183,9 @@ devices and command syntax before making the assignment:
 ```bash
 voom usb discover --output json
 voom usb add <name> <device-name> <location> --output json
-voom usb ls <name> --output json
+voom usb list <name> --output json
 voom info <name> --output json
-voom usb rm <name> <device-name> --output json
+voom usb remove <name> <device-name> --output json
 ```
 
 Voom applies assignment changes immediately when the QEMU VM is running. If an
@@ -209,7 +209,7 @@ voom console <name>
 
 - Track which VMs were created during the current task. Existing VMs may hold
   active user work.
-- Inspect existing VMs freely. Before `stop`, `rm`, `disk reset`, `rename`,
+- Inspect existing VMs freely. Before `stop`, `remove`, `disk reset`, `rename`,
   resource changes, USB assignment changes, or egress configuration changes on
   one, require explicit authorization for that operation.
 - A user request such as "stop my Voom VM named build" is authorization to

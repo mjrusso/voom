@@ -21,5 +21,5 @@ Manage guest port forwards
 * [voom forward add](voom_forward_add.md)	 - Add a manual forward
 * [voom forward auto](voom_forward_auto.md)	 - Configure auto-forwarding
 * [voom forward discover](voom_forward_discover.md)	 - Preview forwarding state
-* [voom forward ls](voom_forward_ls.md)	 - List effective forwards
-* [voom forward rm](voom_forward_rm.md)	 - Remove a manual forward
+* [voom forward list](voom_forward_list.md)	 - List effective forwards
+* [voom forward remove](voom_forward_remove.md)	 - Remove a manual forward
