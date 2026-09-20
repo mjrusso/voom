@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+> [!IMPORTANT]
+>
+> **Upgrading from any earlier version:** Stop all running VMs before
+> installing the new release. Voom now uses QMP instead of HMP for the QEMU
+> monitor; the new binary cannot manage a VM that started prior to the upgrade.
+
+- Add Linux/QEMU USB passthrough by stable controller route and port, with host
+  discovery, live attach and detach, persisted VM assignments, permission
+  checks, and QEMU capability and runtime status diagnostics.
+
 ## v1.2.1 - 2026-09-16
 
 - Fix helper shutdown on macOS when an exited process is no longer returned by

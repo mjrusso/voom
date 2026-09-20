@@ -7,6 +7,7 @@ import (
 	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
+	"github.com/mjrusso/voom/internal/usb"
 )
 
 // Manager coordinates VM lifecycle, networking, shares, and guest interaction
@@ -15,6 +16,12 @@ type Manager struct {
 	store             *state.Store
 	events            EventEmitter
 	startSelfRecorded func([]string, string, string) error
+	scanUSB           func() (usbInventory, error)
+}
+
+type usbInventory interface {
+	Inspect(usb.Decl) (usb.Device, bool, error)
+	Resolve(usb.Decl) (usb.Binding, error)
 }
 
 // EventEmitter accepts best-effort change notifications.
@@ -56,6 +63,9 @@ func New(store *state.Store, opts ...Option) *Manager {
 		store:             store,
 		events:            noopEmitter{},
 		startSelfRecorded: process.StartSelfRecorded,
+		scanUSB: func() (usbInventory, error) {
+			return usb.Scan()
+		},
 	}
 	for _, opt := range opts {
 		opt(m)

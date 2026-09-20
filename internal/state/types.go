@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/share"
+	"github.com/mjrusso/voom/internal/usb"
 )
 
 // Index is the top-level state.json document mapping VM and image names to their IDs.
@@ -68,7 +70,15 @@ type VMRecord struct {
 	Access        VMAccess     `json:"access"`
 	Network       VMNetwork    `json:"network"`
 	Shares        []share.Decl `json:"shares"`
+	USBDevices    []usb.Decl   `json:"usbDevices,omitempty"`
 	Nixos         *NixOSSwitch `json:"nixos,omitempty"`
+}
+
+func (vm *VMRecord) validate() error {
+	if err := usb.ValidateAssignments(vm.USBDevices); err != nil {
+		return fmt.Errorf("VM %q: %w", vm.Name, err)
+	}
+	return nil
 }
 
 // VMImageRef captures the image a VM was created from (ID is authoritative; Name is a hint).

@@ -2,10 +2,12 @@ package state
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -99,6 +101,59 @@ func (s *Store) TryLockVM(id string) (func(), error) {
 		return nil, nil
 	}
 	return unlock, err
+}
+
+// LockResources locks opaque resource keys in stable order until the returned function is called.
+func (s *Store) LockResources(ctx context.Context, resources []string) (func(), error) {
+	unique := make(map[string]struct{}, len(resources))
+	for _, resource := range resources {
+		unique[resource] = struct{}{}
+	}
+	ordered := make([]string, 0, len(unique))
+	for resource := range unique {
+		ordered = append(ordered, resource)
+	}
+	sort.Strings(ordered)
+
+	unlocks := make([]func(), 0, len(ordered))
+	for _, resource := range ordered {
+		digest := sha256.Sum256([]byte(resource))
+		unlock, err := flockContext(ctx, filepath.Join(s.paths.State, "locks", "resources", fmt.Sprintf("%x.lock", digest)))
+		if err != nil {
+			for i := len(unlocks) - 1; i >= 0; i-- {
+				unlocks[i]()
+			}
+			return nil, err
+		}
+		unlocks = append(unlocks, unlock)
+	}
+	return sync.OnceFunc(func() {
+		for i := len(unlocks) - 1; i >= 0; i-- {
+			unlocks[i]()
+		}
+	}), nil
+}
+
+func flockContext(ctx context.Context, path string) (func(), error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		unlock, err := flockMode(path, unix.LOCK_EX|unix.LOCK_NB)
+		if err == nil {
+			return unlock, nil
+		}
+		if !errors.Is(err, unix.EWOULDBLOCK) {
+			return nil, err
+		}
+		timer := time.NewTimer(20 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func flock(path string) (func(), error) { return flockMode(path, unix.LOCK_EX) }

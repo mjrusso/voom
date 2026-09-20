@@ -15,7 +15,7 @@ func configCommand() *cobra.Command {
 	show := &cobra.Command{
 		Use:   "show <name>",
 		Short: "Print the commands to reproduce a VM's configuration",
-		Long:  "Print the shell commands that recreate a VM's post-create configuration: its shares, manual forwards, auto-forward settings, and explicit egress attachment. The output is empty for a VM with none of these. ('voom clone' retargets share and forward commands, but omits egress because the clone needs its own backend socket.)",
+		Long:  "Print the shell commands that recreate a VM's post-create configuration: its shares, USB assignments, manual forwards, auto-forward settings, and explicit egress attachment. The output is empty for a VM with none of these. ('voom clone' retargets commands, but omits egress because the clone needs its own backend socket.)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
@@ -84,6 +84,9 @@ func replayCommands(vm *state.VMRecord, target string) []string {
 			line += " --ro"
 		}
 		cmds = append(cmds, line)
+	}
+	for _, device := range vm.USBDevices {
+		cmds = append(cmds, fmt.Sprintf("voom usb add %s %s %s", shellQuote(target), shellQuote(device.Name), shellQuote(device.Location())))
 	}
 	for _, f := range vm.Network.Forwards {
 		line := fmt.Sprintf("voom forward add %s %d --host-port %d", shellQuote(target), f.GuestPort, f.HostPort)

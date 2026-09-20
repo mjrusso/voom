@@ -42,6 +42,7 @@ voom info <name> --output json
 voom image list --output json
 voom image inspect <image> --output json
 voom forward ls --output json
+voom usb ls <name> --output json
 ```
 
 Human- and subprocess-oriented commands such as `ssh`, `console`, and `logs`
@@ -173,6 +174,26 @@ voom nixos switch --help
 voom nixos switch <name> --flake <flake-reference>
 ```
 
+### Attach a USB device on Linux
+
+USB passthrough changes the VM configuration and gives the guest direct control
+of any device connected to the assigned topology route. Inspect the host
+devices and command syntax before making the assignment:
+
+```bash
+voom usb discover --output json
+voom usb add <name> <device-name> <location> --output json
+voom usb ls <name> --output json
+voom info <name> --output json
+voom usb rm <name> <device-name> --output json
+```
+
+Voom applies assignment changes immediately when the QEMU VM is running. If an
+operation reports that the `/dev/bus/usb` node is inaccessible, report the
+required host udev or ACL change. Do not weaken permissions for all USB devices.
+The `usbStatus` rows from `info` separate host connectivity from QEMU runtime
+state. Voom does not install guest flashing tools or host udev rules.
+
 ### Diagnose a VM
 
 Start with state and host checks, then inspect logs or the console as needed:
@@ -189,8 +210,8 @@ voom console <name>
 - Track which VMs were created during the current task. Existing VMs may hold
   active user work.
 - Inspect existing VMs freely. Before `stop`, `rm`, `disk reset`, `rename`,
-  resource changes, or egress configuration changes on one, require explicit
-  authorization for that operation.
+  resource changes, USB assignment changes, or egress configuration changes on
+  one, require explicit authorization for that operation.
 - A user request such as "stop my Voom VM named build" is authorization to
   stop that VM, but not to remove or reset it.
 - Use `--force` only when removing a VM created during the current task or when

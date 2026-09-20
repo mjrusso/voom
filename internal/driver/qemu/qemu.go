@@ -1,6 +1,10 @@
 package qemu
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/mjrusso/voom/internal/usb"
+)
 
 // Share describes one virtio-fs share to attach via virtiofsd (tag + Unix socket path).
 type Share struct {
@@ -20,10 +24,11 @@ type ArgsConfig struct {
 	SerialLog   string
 	MonitorSock string
 	Shares      []Share
+	USBDevices  []usb.Binding
 }
 
 // Args returns the qemu-system command-line arguments for the supplied configuration.
-func Args(c ArgsConfig) []string {
+func Args(c ArgsConfig) ([]string, error) {
 	args := []string{"-enable-kvm", "-cpu", "host", "-smp", strconv.Itoa(c.CPUs), "-m", strconv.Itoa(c.MemoryMiB)}
 	diskDrive := "file=" + c.DiskPath + ",if=virtio"
 	if c.DiskFormat != "" {
@@ -39,7 +44,7 @@ func Args(c ArgsConfig) []string {
 		"-device", "virtio-net-pci,netdev=net0,mac="+c.MAC,
 		"-display", "none",
 		"-serial", "file:"+c.SerialLog,
-		"-monitor", "unix:"+c.MonitorSock+",server,nowait",
+		"-qmp", "unix:"+c.MonitorSock+",server=on,wait=off",
 	)
 	if c.SeedImage != "" {
 		args = append(args, "-drive", "file="+c.SeedImage+",if=virtio,format=raw,readonly=on")
@@ -54,7 +59,24 @@ func Args(c ArgsConfig) []string {
 			"-device", "vhost-user-fs-pci,chardev="+id+",tag="+sh.Tag+",queue-size=1024",
 		)
 	}
-	return args
+	if len(c.USBDevices) > 0 {
+		args = append(args, "-device", "qemu-xhci,id=voom-xhci")
+	}
+	for _, device := range c.USBDevices {
+		argument, err := usbDeviceArgument(device)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, "-device", argument)
+	}
+	return args, nil
+}
+
+func usbDeviceArgument(device usb.Binding) (string, error) {
+	if err := device.Validate(); err != nil {
+		return "", err
+	}
+	return "usb-host,bus=voom-xhci.0,hostbus=" + strconv.Itoa(device.Bus) + ",hostport=" + device.Port + ",id=" + device.QEMUDeviceID(), nil
 }
 
 func hasShare(shares []Share) bool {

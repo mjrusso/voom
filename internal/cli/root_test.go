@@ -135,6 +135,10 @@ func TestCommandSurfaceHelpAndArgValidation(t *testing.T) {
 		{"share", "add", "--help"},
 		{"share", "rm", "--help"},
 		{"share", "ls", "--help"},
+		{"usb", "discover", "--help"},
+		{"usb", "add", "--help"},
+		{"usb", "rm", "--help"},
+		{"usb", "ls", "--help"},
 		{"nixos", "switch", "--help"},
 		{"doctor", "--help"},
 		{"skill", "--help"},
@@ -358,6 +362,7 @@ func TestJSONCommandContractsOnFixture(t *testing.T) {
 		{"--output", "json", "image", "inspect", "nixos"},
 		{"--output", "json", "forward", "ls"},
 		{"--output", "json", "share", "ls", "scratch"},
+		{"--output", "json", "usb", "ls", "scratch"},
 		{"--output", "json", "config", "show", "scratch"},
 	}
 	for _, args := range jsonCommands {

@@ -9,9 +9,10 @@ import (
 	"github.com/mjrusso/voom/internal/driver/vfkit"
 	"github.com/mjrusso/voom/internal/share"
 	"github.com/mjrusso/voom/internal/state"
+	"github.com/mjrusso/voom/internal/usb"
 )
 
-func (m *Manager) qemuArgs(vm *state.VMRecord, shares []share.Runtime) []string {
+func (m *Manager) qemuArgs(vm *state.VMRecord, shares []share.Runtime, usbBindings []usb.Binding) ([]string, error) {
 	qshares := make([]qemu.Share, 0, len(shares))
 	for _, sh := range shares {
 		qshares = append(qshares, qemu.Share{Tag: sh.Tag, Sock: sh.Sock})
@@ -27,6 +28,7 @@ func (m *Manager) qemuArgs(vm *state.VMRecord, shares []share.Runtime) []string 
 		SerialLog:   m.store.LogPath(vm, "serial"),
 		MonitorSock: m.store.Runtime(vm).QEMUMonitor(),
 		Shares:      qshares,
+		USBDevices:  usbBindings,
 	})
 }
 

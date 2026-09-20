@@ -19,6 +19,7 @@ import (
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/share"
 	"github.com/mjrusso/voom/internal/state"
+	"github.com/mjrusso/voom/internal/usb"
 )
 
 func TestRequireGuestPortReportNeedsControlShare(t *testing.T) {
@@ -233,7 +234,10 @@ func TestQEMUArgsIncludeSeedDiskAndVirtioFS(t *testing.T) {
 		Resources: state.VMResources{CPUs: 2, MemoryMiB: 512},
 	}
 	shares := []share.Runtime{{Tag: state.ControlShareTag, Sock: filepath.Join(st.Runtime(vmRec).Dir(), "virtiofs-"+state.ControlShareTag+".sock")}}
-	args := mgr.qemuArgs(vmRec, shares)
+	args, err := mgr.qemuArgs(vmRec, shares, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !hasArgPair(args, "-drive", "file="+st.SeedImagePath(vmRec)+",if=virtio,format=raw,readonly=on") {
 		t.Fatalf("missing seed drive: %#v", args)
 	}
@@ -502,7 +506,7 @@ func TestCreateUsesVFKitDiskExtension(t *testing.T) {
 	}
 }
 
-func TestCloneCopiesDiskAndResourcesButNotNetworkConfig(t *testing.T) {
+func TestCloneCopiesDiskAndResourcesButNotHostConfig(t *testing.T) {
 	st, _ := newTestStore(t)
 	recorder := &recordingEmitter{}
 	mgr := New(st, WithEventEmitter(recorder))
@@ -525,7 +529,8 @@ func TestCloneCopiesDiskAndResourcesButNotNetworkConfig(t *testing.T) {
 			AutoForwardHostOffset: 10000,
 			AutoForwardBind:       "0.0.0.0",
 		},
-		Shares: []share.Decl{{Tag: "code", HostPath: "/host/code", GuestPath: "/mnt/code", Readonly: true}},
+		Shares:     []share.Decl{{Tag: "code", HostPath: "/host/code", GuestPath: "/mnt/code", Readonly: true}},
+		USBDevices: []usb.Decl{{Name: "probe", Route: usb.Route{Controller: "0000:00:14.0", Protocol: 2, Port: "3"}}},
 	}
 	if err := os.MkdirAll(st.VMDir(src.ID), 0o755); err != nil {
 		t.Fatal(err)
@@ -553,7 +558,6 @@ func TestCloneCopiesDiskAndResourcesButNotNetworkConfig(t *testing.T) {
 	if clone.Network.SSHPort == src.Network.SSHPort {
 		t.Fatalf("clone reused source SSH port %d", clone.Network.SSHPort)
 	}
-	// Disk, resources, and access are carried; network config is not.
 	if clone.Resources != src.Resources || clone.Access != src.Access {
 		t.Fatalf("clone did not carry resources/access: %#v %#v", clone.Resources, clone.Access)
 	}
@@ -565,6 +569,9 @@ func TestCloneCopiesDiskAndResourcesButNotNetworkConfig(t *testing.T) {
 	}
 	if len(clone.Shares) != 0 {
 		t.Fatalf("clone should not carry shares: %#v", clone.Shares)
+	}
+	if len(clone.USBDevices) != 0 {
+		t.Fatalf("clone should not carry USB devices: %#v", clone.USBDevices)
 	}
 	disk, err := os.ReadFile(st.VMDiskPath(clone))
 	if err != nil {
@@ -589,7 +596,7 @@ func TestCloneCopiesDiskAndResourcesButNotNetworkConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(srcReloaded.Shares) != 1 || len(srcReloaded.Network.Forwards) != 1 || !srcReloaded.Network.AutoForward {
+	if len(srcReloaded.Shares) != 1 || len(srcReloaded.USBDevices) != 1 || len(srcReloaded.Network.Forwards) != 1 || !srcReloaded.Network.AutoForward {
 		t.Fatalf("source config mutated by clone: %#v", srcReloaded)
 	}
 

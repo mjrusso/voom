@@ -28,6 +28,8 @@ Optional features include:
   [iron-proxy](https://docs.iron.sh/)
   ([source](https://github.com/paradigmxyz/iron-proxy)), etc. to dynamically
   supply credentials at request time
+- [USB passthrough for QEMU VMs on Linux](#usb-passthrough), including live
+  attach and detach
 
 Note that there are many excellent tools in this space, with differing goals
 and trade-offs. [Kevin Lynagh](https://kevinlynagh.com/)'s
@@ -273,8 +275,6 @@ For instructions on building from source, see
 
 ## Host Requirements
 
-Voom bundles its gvproxy build in release and Nix installations.
-
 - **Linux**: `/dev/kvm` access through [KVM](https://linux-kvm.org/),
   [QEMU](https://www.qemu.org/) (`qemu-system-<arch>`, `qemu-img`), and
   [OpenSSH](https://www.openssh.com/) (`ssh`).
@@ -286,7 +286,11 @@ Optional integrations: [virtiofsd](https://gitlab.com/virtio-fs/virtiofsd)
 (Linux/QEMU shares), [Nix](https://nixos.org/download/) and
 [`nixos-rebuild`](https://nixos.org/manual/nixos/stable/#sec-changing-config)
 (for `voom nixos switch`), and [Git](https://git-scm.com/) (NixOS switch
-metadata).
+metadata). Note that USB passthrough from Linux hosts requires a QEMU build
+with XHCI and libusb `usb-host` support.
+
+_Voom bundles its [gvproxy](https://github.com/containers/gvisor-tap-vsock)
+build in release and Nix installations._
 
 Install host runtime tools manually, or with your OS package manager.
 
@@ -320,6 +324,7 @@ image or a bootable disk image.
 | Forwards  | `forward add`, `forward rm`, `forward ls`, `forward discover`, `forward auto enable`/`disable`/`offset` |
 | Egress    | `config egress set`, `config egress clear`, `config egress enable`, `config egress disable`             |
 | Shares    | `share add`, `share rm`, `share ls`                                                                     |
+| USB       | `usb discover`, `usb add`, `usb rm`, `usb ls`                                                           |
 | NixOS     | `nixos switch`                                                                                          |
 | Inspect   | `list`, `info`, `logs`, `events`, `doctor`, `guest ports`, `debug paths`, `version`, `skill`            |
 
@@ -821,6 +826,65 @@ mounts declared shares from `/run/voom/mounts.json` (delivered over the reserved
 control share), so the image must ship the full-feature `guestShareMount`
 capability. Adding or removing a share requires the VM to be stopped.
 
+### USB Passthrough
+
+USB passthrough provides a VM with direct access to USB devices connected to
+the host. Voom supports USB passthrough from Linux hosts, but does **not**
+support USB passthrough from MacOS hosts.
+
+Use these commands to discover, assign, list, and remove USB devices:
+
+```sh
+voom usb discover
+voom usb add dev board usb-0000:00:14.0@2-3.2
+voom usb ls dev
+voom usb rm dev board
+```
+
+`voom list` reports the configured assignment count as `usb=N`. `voom info dev`
+reports each assignment's host state (`connected`, `disconnected`, `inaccessible`,
+or `unknown`) and runtime state (`active`, `missing`, `stopped`, or `unknown`).
+
+The location consists of a stable host-controller identity, a USB protocol
+domain, and the port path. On Linux, Voom finds the current bus number for the
+controller whenever it starts or attaches the assignment, then passes that bus
+and port to QEMU. Voom does not persist the numeric bus. QEMU checks the route
+periodically, so a disconnected device can attach later and a device can
+re-enumerate on the same route. QEMU exposes any USB device inserted on that
+route to the guest while the VM is running. Multiple stopped VMs can use the
+same assignment, but Voom prevents them from running with that assignment at
+the same time.
+
+If Voom cannot confirm a live USB removal, it keeps the VM running and retains
+the assignment so the route remains reserved. Retry the removal to reconcile
+the saved assignment with QEMU.
+
+USB 2 and USB 3 sides of one physical connector are separate topology routes.
+A device that reconnects at a different USB protocol can require a different
+assignment. `voom usb discover` reports the route used by the currently
+connected device.
+
+The user running Voom needs read/write access to the corresponding
+`/dev/bus/usb/<bus>/<address>` node. `voom usb discover` reports whether the
+current device is accessible. `voom usb add` and `voom start` reject a connected
+device if Voom cannot open its device node with read/write access. Configure
+access through a host udev rule. On a systemd desktop, for example, this rule
+grants the active user access to devices with vendor ID `1234`:
+
+```udev
+SUBSYSTEM=="usb", ATTR{idVendor}=="1234", TAG+="uaccess"
+```
+
+Replace `1234` with the vendor ID reported by `voom usb discover`. Use the
+narrowest suitable vendor or product match for the hardware. Reload the rules
+and reconnect the device after changing them. Voom does not install udev rules.
+
+The guest must include the drivers and software required by the device. Guest
+support can include XHCI, CDC ACM, USB serial, hidraw, or libusb. Guest udev
+rules or group membership must also grant the intended account access.
+You can add and remove assignments while the VM is running. Clones do not
+inherit USB assignments.
+
 ### State and Runtime Layout
 
 State is the persistent source of truth. JSON files are written atomically via
@@ -830,7 +894,7 @@ temp-file-and-rename; partial files are ignored on load.
 <state>/state.json                          # name → ID index
 <state>/images/<image-id>/image.json        # metadata, capabilities
 <state>/images/<image-id>/disk.qcow2|raw    # imported image disk
-<state>/vms/<vm-id>/vm.json                 # config, forwards, shares
+<state>/vms/<vm-id>/vm.json                 # config, forwards, shares, USB assignments
 <state>/vms/<vm-id>/disk.qcow2|raw          # per-VM disk copy
 <state>/locks/...                           # state and per-VM locks
 ```

@@ -86,8 +86,8 @@ handlers.
   output format selection, version command.
 - `internal/doctor` — `voom doctor` checks and state diagnostics.
 - `internal/vm` — orchestration for create, start, stop, list, resources,
-  forward, and share. Coordinates other packages but avoids low-level process
-  details.
+  forward, share, and USB assignments. Coordinates other packages but avoids
+  low-level process details.
 - `internal/state` — directory resolution, typed state loading/saving, schema
   version checks, VM/image path derivation, recoverable writes, locking, and
   runtime path layout. Normal command loading uses `state.json`; `voom doctor`
@@ -105,6 +105,8 @@ handlers.
   graceful shutdown, native virtio-fs wiring.
 - `internal/share` — share declarations, validation, guest mount scripts, and
   virtiofsd argument construction.
+- `internal/usb` — Linux USB inventory, topology parsing, and device-access
+  checks.
 - `internal/forward` — manual forward declarations, auto-forward state and
   reconciliation, bind-address normalization, gvproxy expose/unexpose plans.
 

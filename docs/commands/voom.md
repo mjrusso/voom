@@ -43,4 +43,5 @@ voom [flags]
 * [voom ssh-config](voom_ssh-config.md)	 - Print OpenSSH config
 * [voom start](voom_start.md)	 - Start a VM
 * [voom stop](voom_stop.md)	 - Stop a VM
+* [voom usb](voom_usb.md)	 - Manage Linux USB passthrough
 * [voom version](voom_version.md)	 - Print version information

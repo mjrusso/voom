@@ -2,9 +2,11 @@ package vm
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/mjrusso/voom/internal/egress"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
+	"github.com/mjrusso/voom/internal/usb"
 )
 
 func lifecycleTestStore(t *testing.T) *state.Store {
@@ -235,9 +238,22 @@ func TestCleanupReleasesGlobal(t *testing.T) {
 					return
 				}
 				defer func() { _ = conn.Close() }()
-				data := make([]byte, 64)
-				if _, err := conn.Read(data); err == nil {
-					close(entered)
+				encoder := json.NewEncoder(conn)
+				decoder := json.NewDecoder(conn)
+				_ = encoder.Encode(map[string]any{"QMP": map[string]any{"version": map[string]any{}, "capabilities": []string{}}})
+				for {
+					var request vmQMPRequest
+					if err := decoder.Decode(&request); err != nil {
+						return
+					}
+					if request.Execute == "qmp_capabilities" {
+						_ = encoder.Encode(map[string]any{"return": map[string]any{}, "id": request.ID})
+						continue
+					}
+					if request.Execute == "system_powerdown" {
+						close(entered)
+						return
+					}
 				}
 			}()
 			ctx, cancel := context.WithCancel(context.Background())
@@ -376,5 +392,98 @@ func TestConcurrentPortReservationsCommitOnce(t *testing.T) {
 				t.Fatalf("successful reservations = %d, want 1", successes)
 			}
 		})
+	}
+}
+
+func TestConcurrentUSBStartReservationsCommitOnce(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("USB passthrough is Linux-only")
+	}
+	st := lifecycleTestStore(t)
+	manager := New(st)
+	vms := make([]*state.VMRecord, 0, 2)
+	pids := make([]int, 0, 2)
+	for _, name := range []string{"a", "b"} {
+		vmRec, err := st.LoadVM(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		vmRec.USBDevices = []usb.Decl{{Name: "board", Route: usb.Route{Controller: "0000:00:14.0", Protocol: 2, Port: "2"}}}
+		if err := st.SaveVM(vmRec); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(st.Runtime(vmRec).Dir(), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		vms = append(vms, vmRec)
+		pids = append(pids, fakeNamedVMProcess(t, "qemu-system-test").Process.Pid)
+	}
+
+	results := make(chan error, 2)
+	for i, vmRec := range vms {
+		go func() {
+			results <- manager.withUSBStartReservation(context.Background(), vmRec, func() error {
+				return process.Record(st.Runtime(vmRec).VMProcessRecord(), pids[i])
+			})
+		}()
+	}
+	successes := 0
+	for range 2 {
+		if err := <-results; err == nil {
+			successes++
+		} else if !strings.Contains(err.Error(), "active or unconfirmed runtime") {
+			t.Fatal(err)
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful USB start reservations = %d, want 1", successes)
+	}
+}
+
+func TestUSBStartReservationReleasesGlobalLockBeforeStart(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("USB passthrough is Linux-only")
+	}
+	st := lifecycleTestStore(t)
+	vmRec, err := st.LoadVM("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vmRec.USBDevices = []usb.Decl{{Name: "board", Route: usb.Route{Controller: "0000:00:14.0", Protocol: 2, Port: "2"}}}
+	if err := st.SaveVM(vmRec); err != nil {
+		t.Fatal(err)
+	}
+
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	reservationResult := make(chan error, 1)
+	go func() {
+		reservationResult <- New(st).withUSBStartReservation(context.Background(), vmRec, func() error {
+			close(startEntered)
+			<-releaseStart
+			return nil
+		})
+	}()
+	<-startEntered
+
+	globalResult := make(chan error, 1)
+	go func() {
+		globalResult <- st.WithGlobal(func() error { return nil })
+	}()
+	select {
+	case err := <-globalResult:
+		if err != nil {
+			close(releaseStart)
+			<-reservationResult
+			t.Fatalf("acquire global state lock during VM start: %v", err)
+		}
+	case <-time.After(time.Second):
+		close(releaseStart)
+		<-reservationResult
+		t.Fatal("USB reservation held the global state lock while starting the VM")
+	}
+	close(releaseStart)
+	if err := <-reservationResult; err != nil {
+		t.Fatal(err)
 	}
 }

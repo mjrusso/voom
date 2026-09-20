@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mjrusso/voom/internal/host"
+	"github.com/mjrusso/voom/internal/usb"
 )
 
 func TestOpenRejectsUnsupportedSchema(t *testing.T) {
@@ -29,6 +30,59 @@ func TestOpenRejectsUnsupportedSchema(t *testing.T) {
 	if _, err := Open(); err == nil || !strings.Contains(err.Error(), "unsupported state schema version 2") {
 		t.Fatalf("expected schema rejection, got %v", err)
 	}
+}
+
+func TestLoadVMRejectsInvalidUSBDeclaration(t *testing.T) {
+	store, _ := newTestStore(t)
+	vm := &VMRecord{
+		SchemaVersion: SchemaVersion,
+		ID:            "vm1",
+		Name:          "bad-usb",
+		USBDevices:    []usb.Decl{{Name: "board\nquit", Route: usb.Route{Controller: "0000:00:14.0", Protocol: 2, Port: "2"}}},
+	}
+	if err := os.MkdirAll(store.VMDir(vm.ID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveVM(vm); err == nil || !strings.Contains(err.Error(), "invalid USB device name") {
+		t.Fatalf("SaveVM invalid USB declaration error = %v", err)
+	}
+	if err := WriteJSONAtomic(filepath.Join(store.VMDir(vm.ID), "vm.json"), vm); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.LoadVMByID(vm.ID); err == nil || !strings.Contains(err.Error(), "invalid USB device name") {
+		t.Fatalf("invalid USB declaration error = %v", err)
+	}
+}
+
+func TestLockResourcesScopesAndCancelsWaits(t *testing.T) {
+	store, _ := newTestStore(t)
+	board := "usb:usb-controller@2-1"
+	probe := "usb:usb-controller@2-2"
+
+	unlockBoard, err := store.LockResources(context.Background(), []string{board})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlockBoard()
+
+	unlockProbe, err := store.LockResources(context.Background(), []string{probe})
+	if err != nil {
+		t.Fatalf("independent USB location blocked: %v", err)
+	}
+	unlockProbe()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := store.LockResources(ctx, []string{board}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("overlapping USB lock error = %v", err)
+	}
+
+	unlockBoard()
+	unlockBoard, err = store.LockResources(context.Background(), []string{board})
+	if err != nil {
+		t.Fatalf("USB location remained locked: %v", err)
+	}
+	unlockBoard()
 }
 
 func TestParseCapabilitiesSupportsNestedAndTopLevel(t *testing.T) {

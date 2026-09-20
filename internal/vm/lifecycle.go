@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/mjrusso/voom/internal/driver/qemu"
 	"github.com/mjrusso/voom/internal/driver/vfkit"
 	"github.com/mjrusso/voom/internal/egress"
 	"github.com/mjrusso/voom/internal/gvproxy"
@@ -102,12 +102,12 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 // current disk. The source VM must be stopped so the disk is captured in a
 // consistent state. The clone receives a fresh ID and a newly-allocated SSH
 // port and keeps the source's resources, access, and recorded NixOS switch
-// metadata (all of which describe the copied disk). It deliberately does NOT
-// inherit the source's shares, manual forwards, or auto-forward settings:
+// metadata (all of which describe the copied disk). It does not inherit the
+// source's shares, USB devices, manual forwards, or auto-forward settings:
 // those carry host-side state (host ports, offsets, host paths) that would
 // collide or surprise if duplicated silently. The 'voom clone' and
 // 'voom config show' commands print the commands to reproduce them
-// deliberately. The disk copy honors ctx cancellation.
+// explicitly. The disk copy honors ctx cancellation.
 func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.VMRecord, retErr error) {
 	src, unlock, err := m.store.LockVMRecord(ctx, srcName)
 	if err != nil {
@@ -128,6 +128,7 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.
 	clone.CreatedAt = now
 	clone.UpdatedAt = now
 	clone.Shares = nil
+	clone.USBDevices = nil
 	clone.Network = state.VMNetwork{SSHBind: src.Network.SSHBind}
 	if src.Nixos != nil {
 		nixos := *src.Nixos
@@ -311,7 +312,12 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	}
 	switch vm.Driver {
 	case "qemu":
-		if err := host.RequireExe("qemu-system-" + strings.TrimSuffix(vm.Arch, "-linux")); err != nil {
+		if len(vm.USBDevices) > 0 {
+			err = qemu.RequireUSB(vm.Arch)
+		} else {
+			err = host.RequireExe(qemu.ExecutableName(vm.Arch))
+		}
+		if err != nil {
 			return nil, err
 		}
 		if err := host.RequireExe("qemu-img"); err != nil {
@@ -343,6 +349,10 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	}
 	if len(vm.Shares) > 0 && !im.Capabilities.GuestShareMount {
 		return nil, fmt.Errorf("share mounting unavailable for image %q: guestShareMount capability is false; import an image with guest share-mount support", im.Name)
+	}
+	usbBindings, err := m.prepareUSBDevices(vm)
+	if err != nil {
+		return nil, err
 	}
 	if portBusy(vm.Network.SSHBind, vm.Network.SSHPort) {
 		return nil, fmt.Errorf("persisted SSH port %s:%d is in use; stop the conflicting process or change VM state", vm.Network.SSHBind, vm.Network.SSHPort)
@@ -436,13 +446,17 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	}
 	switch vm.Driver {
 	case "qemu":
-		qemuBin := "qemu-system-" + strings.TrimSuffix(vm.Arch, "-linux")
-		qargs := m.qemuArgs(vm, virtiofsShares)
+		qargs, err := m.qemuArgs(vm, virtiofsShares, usbBindings)
+		if err != nil {
+			return nil, err
+		}
 		if strings.HasPrefix(vm.Arch, "aarch64") {
 			qargs = append([]string{"-machine", "virt"}, qargs...)
 			qargs = append(qargs, "-bios", uefi)
 		}
-		if err := m.startRecorded(qemuBin, qargs, m.store.LogPath(vm, "qemu"), rt.VMProcessRecord()); err != nil {
+		if err := m.withUSBStartReservation(ctx, vm, func() error {
+			return m.startRecorded(qemu.ExecutableName(vm.Arch), qargs, m.store.LogPath(vm, "qemu"), rt.VMProcessRecord())
+		}); err != nil {
 			return nil, err
 		}
 		if err := waitFor(ctx, func() bool { return m.IsRunning(vm) && socketExists(rt.QEMUMonitor()) }, driverStartTimeout); err != nil {
@@ -539,9 +553,7 @@ func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeS
 	if pid, ok := process.ValidRecord(rt.VMProcessRecord(), state.VMProcessKind(vm.Driver)); ok {
 		switch vm.Driver {
 		case "qemu":
-			if conn, err := net.DialTimeout("unix", rt.QEMUMonitor(), time.Second); err == nil {
-				_, _ = conn.Write([]byte("system_powerdown\n"))
-				_ = conn.Close()
+			if err := qemu.SystemPowerdown(ctx, rt.QEMUMonitor()); err == nil {
 				_ = waitFor(ctx, func() bool { return !process.Alive(pid) }, driverStopTimeout)
 			}
 		case "vfkit":

@@ -43,8 +43,11 @@ func (s *Store) RegisterVMLocked(name, id string) error {
 	return nil
 }
 
-// SaveVM atomically writes the VM record to its on-disk vm.json.
+// SaveVM validates and atomically writes the VM record to its on-disk vm.json.
 func (s *Store) SaveVM(vm *VMRecord) error {
+	if err := vm.validate(); err != nil {
+		return err
+	}
 	return WriteJSONAtomic(filepath.Join(s.VMDir(vm.ID), "vm.json"), vm)
 }
 
@@ -70,6 +73,9 @@ func (s *Store) loadVMLocked(name string) (*VMRecord, error) {
 	if vm.Name != name || vm.ID != id {
 		return nil, fmt.Errorf("VM index mismatch for %q", name)
 	}
+	if err := vm.validate(); err != nil {
+		return nil, err
+	}
 	return &vm, nil
 }
 
@@ -81,6 +87,9 @@ func (s *Store) LoadVMByID(id string) (*VMRecord, error) {
 	}
 	if vm.SchemaVersion != SchemaVersion {
 		return nil, fmt.Errorf("unsupported VM schema version %d", vm.SchemaVersion)
+	}
+	if err := vm.validate(); err != nil {
+		return nil, err
 	}
 	return &vm, nil
 }

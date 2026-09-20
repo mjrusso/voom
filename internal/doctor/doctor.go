@@ -8,12 +8,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 
+	"github.com/mjrusso/voom/internal/driver/qemu"
 	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
+	"github.com/mjrusso/voom/internal/usb"
 	"github.com/mjrusso/voom/internal/vm"
 )
 
@@ -46,7 +47,7 @@ func Run(all bool) []Check {
 	add("host", true, host.ValidateHostImage(host.System(), state.DiskFormat(state.DefaultDriver()), state.DefaultDriver()), runtime.GOOS+"/"+runtime.GOARCH)
 	if runtime.GOOS == "linux" {
 		add("kvm", true, KVMAvailable(), "available")
-		add("qemu", true, host.RequireExe("qemu-system-"+strings.TrimSuffix(host.System(), "-linux")), "found")
+		add("qemu", true, host.RequireExe(qemu.ExecutableName(host.System())), "found")
 	}
 	add("qemu-img", runtime.GOOS == "linux", host.RequireExe("qemu-img"), "found")
 	if runtime.GOOS == "darwin" {
@@ -79,6 +80,9 @@ func Run(all bool) []Check {
 		add("state", true, err, "")
 		return checks
 	}
+	if runtime.GOOS == "linux" && (all || hasUSBDevices(st)) {
+		add("qemu-usb", false, qemu.RequireUSB(host.System()), "XHCI and host passthrough available")
+	}
 	if _, err := st.AllocateSSHPort(); err != nil {
 		add("ssh-port-range", true, err, "")
 	} else {
@@ -105,6 +109,9 @@ func StateDiagnostics(st *state.Store) []Check {
 	vmMgr := vm.New(st)
 	index := st.IndexSnapshot()
 	vmSeenIDs := map[string]string{}
+	var usbInventory *usb.Inventory
+	var usbInventoryErr error
+	usbScanned := false
 	for name, id := range index.VMs {
 		vmRec, err := st.LoadVM(name)
 		if err != nil || vmRec.ID != id {
@@ -118,6 +125,21 @@ func StateDiagnostics(st *state.Store) []Check {
 			out = append(out, Check{"state-vm-duplicate-id", "warn", false, prev + " and " + name})
 		}
 		out = append(out, egressDiagnostics(st, vmMgr, vmRec)...)
+		if runtime.GOOS == "linux" {
+			for _, device := range vmRec.USBDevices {
+				if !usbScanned {
+					usbInventory, usbInventoryErr = usb.Scan()
+					usbScanned = true
+				}
+				err := usbInventoryErr
+				if err == nil {
+					err = usbInventory.CheckAccess(device)
+				}
+				if err != nil {
+					out = append(out, Check{"usb-access-" + name + "-" + device.Name, "warn", false, err.Error()})
+				}
+			}
+		}
 		vmSeenIDs[vmRec.ID] = name
 		if vmRec.Network.SSHBind == "0.0.0.0" || vmRec.Network.SSHBind == "::" {
 			out = append(out, Check{"lan-ssh-" + name, "warn", false, "VM SSH is exposed beyond loopback"})
@@ -269,6 +291,19 @@ func hasControlShareImages(st *state.Store) bool {
 	}
 	for _, im := range images {
 		if im.Capabilities.ControlShare {
+			return true
+		}
+	}
+	return false
+}
+
+func hasUSBDevices(st *state.Store) bool {
+	vms, err := st.ListVMs()
+	if err != nil {
+		return false
+	}
+	for _, vmRec := range vms {
+		if len(vmRec.USBDevices) > 0 {
 			return true
 		}
 	}

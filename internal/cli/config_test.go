@@ -11,6 +11,7 @@ import (
 	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/share"
 	"github.com/mjrusso/voom/internal/state"
+	"github.com/mjrusso/voom/internal/usb"
 )
 
 func TestReplayCommands(t *testing.T) {
@@ -20,6 +21,7 @@ func TestReplayCommands(t *testing.T) {
 			{Tag: "code", HostPath: "/home/u/src", GuestPath: "/mnt/code"},
 			{Tag: "data", HostPath: "/home/u/my data", GuestPath: "/mnt/data", Readonly: true},
 		},
+		USBDevices: []usb.Decl{{Name: "board", Route: usb.Route{Controller: "0000:00:14.0", Protocol: 2, Port: "3.2"}}},
 		Network: state.VMNetwork{
 			Forwards: []forward.Decl{
 				{Protocol: "tcp", GuestPort: 8080, HostPort: 18080, Bind: "127.0.0.1"},
@@ -33,6 +35,7 @@ func TestReplayCommands(t *testing.T) {
 	want := []string{
 		"voom share add dev code /home/u/src /mnt/code",
 		"voom share add dev data '/home/u/my data' /mnt/data --ro",
+		"voom usb add dev board usb-0000:00:14.0@2-3.2",
 		"voom forward add dev 8080 --host-port 18080",
 		"voom forward add dev 5432 --host-port 5432 --bind 0.0.0.0",
 		"voom forward auto enable dev --offset 10000 --bind 0.0.0.0",
@@ -44,12 +47,14 @@ func TestReplayCommands(t *testing.T) {
 
 func TestReplayCommandsRetargetsName(t *testing.T) {
 	vm := &state.VMRecord{
-		Name:    "dev",
-		Shares:  []share.Decl{{Tag: "code", HostPath: "/src", GuestPath: "/mnt/code"}},
-		Network: state.VMNetwork{AutoForward: true},
+		Name:       "dev",
+		Shares:     []share.Decl{{Tag: "code", HostPath: "/src", GuestPath: "/mnt/code"}},
+		USBDevices: []usb.Decl{{Name: "probe", Route: usb.Route{Controller: "platform-xhci", Protocol: 3, Port: "1"}}},
+		Network:    state.VMNetwork{AutoForward: true},
 	}
 	want := []string{
 		"voom share add clone1 code /src /mnt/code",
+		"voom usb add clone1 probe usb-platform-xhci@3-1",
 		"voom forward auto enable clone1",
 	}
 	if got := replayCommands(vm, "clone1"); !reflect.DeepEqual(got, want) {

@@ -64,7 +64,7 @@ func cloneCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "clone <source-name> <new-name>",
 		Short: "Clone a stopped VM into a new VM",
-		Long:  "Create a new VM by copying a stopped VM's current disk. The clone gets a fresh ID and a newly-allocated SSH port and keeps the source's resources and access. It does not inherit the source's shares, manual forwards, or auto-forward settings, but prints the commands to reproduce them on the clone.",
+		Long:  "Create a new VM by copying a stopped VM's current disk. The clone gets a fresh ID and a newly-allocated SSH port and keeps the source's resources and access. It does not inherit the source's shares, USB assignments, manual forwards, or auto-forward settings, but prints the commands to reproduce them on the clone.",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := state.ValidateName("VM", args[1]); err != nil {
@@ -269,6 +269,7 @@ func infoCommand() *cobra.Command {
 			observed, _ := deps.vm.ObserveEgress(cmd.Context(), vmRec)
 			out.EgressRuntime = &observed
 		}
+		out.USBStatus = deps.vm.ObserveUSB(cmd.Context(), vmRec)
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
 		}
@@ -276,7 +277,16 @@ func infoCommand() *cobra.Command {
 		if out.Disk != nil {
 			disk = fmt.Sprintf("%s virtual, %s allocated on host", formatBytes(out.Disk.VirtualBytes), formatBytes(out.Disk.AllocatedBytes))
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\nstatus: %s\nimage: %s\ncpus: %d\nmemory: %dMiB\ndisk: %s\nssh: %s@%s:%d\nforwards: %d\nshares: %d\n", vmRec.Name, vmRec.ID, vm.Status(out.Running), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, disk, vmRec.Access.SSHUser, vmRec.Network.SSHBind, vmRec.Network.SSHPort, len(vmRec.Network.Forwards), len(vmRec.Shares))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\nstatus: %s\nimage: %s\ncpus: %d\nmemory: %dMiB\ndisk: %s\nssh: %s@%s:%d\nforwards: %d\nshares: %d\nusb: %d\n", vmRec.Name, vmRec.ID, vm.Status(out.Running), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, disk, vmRec.Access.SSHUser, vmRec.Network.SSHBind, vmRec.Network.SSHPort, len(vmRec.Network.Forwards), len(vmRec.Shares), len(vmRec.USBDevices))
+		for _, device := range out.USBStatus {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "usb-device: %s %s host=%s runtime=%s\n", device.Name, device.Location, device.Host.State, device.Runtime.State)
+			if device.Host.Error != "" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "usb-host-error: %s: %s\n", device.Name, device.Host.Error)
+			}
+			if device.Runtime.Error != "" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "usb-runtime-error: %s: %s\n", device.Name, device.Runtime.Error)
+			}
+		}
 		status := egressStatus(vmRec.Network.Egress, out.EgressRuntime)
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "egress: %s; direct egress remains available\n", status)
 		return nil
@@ -290,6 +300,7 @@ type vmInfo struct {
 	DiskPath      string            `json:"diskPath"`
 	Disk          *state.DiskUsage  `json:"disk,omitempty"`
 	DiskError     string            `json:"diskError,omitempty"`
+	USBStatus     []vm.USBStatus    `json:"usbStatus,omitempty"`
 }
 
 type omittedConfig struct {
@@ -299,7 +310,7 @@ type omittedConfig struct {
 }
 
 func listCommand() *cobra.Command {
-	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List VMs", Long: "List VMs, one per row: name, ID, status, image, CPUs, memory, SSH port, disk capacity, and saved egress configuration. A disk that cannot be read shows as disk=?. The egress-config column shows the saved attachment (enabled, disabled, or none) and does not check the running VM; 'voom info' reports observed egress state and host disk allocation.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List VMs", Long: "List VMs, one per row: name, ID, status, image, CPUs, memory, SSH port, disk capacity, configured USB count, and saved egress configuration. A disk that cannot be read shows as disk=?. The USB count and egress-config columns show saved configuration; 'voom info' reports observed USB and egress state and host disk allocation.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -317,6 +328,7 @@ func listCommand() *cobra.Command {
 			MemoryMiB    int              `json:"memoryMiB"`
 			SSHPort      int              `json:"sshPort"`
 			Disk         *state.DiskUsage `json:"disk,omitempty"`
+			USB          int              `json:"usb"`
 			EgressConfig string           `json:"egressConfig"`
 		}
 		rows := []row{}
@@ -325,7 +337,18 @@ func listCommand() *cobra.Command {
 			if usage, err := state.ReadDiskUsage(deps.store.VMDiskPath(vmRec)); err == nil {
 				disk = &usage
 			}
-			rows = append(rows, row{vmRec.Name, vmRec.ID, vm.Status(deps.vm.IsRunning(vmRec)), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, vmRec.Network.SSHPort, disk, egressConfig(vmRec.Network.Egress)})
+			rows = append(rows, row{
+				Name:         vmRec.Name,
+				ID:           vmRec.ID,
+				Status:       vm.Status(deps.vm.IsRunning(vmRec)),
+				Image:        vmRec.Image.Name,
+				CPUs:         vmRec.Resources.CPUs,
+				MemoryMiB:    vmRec.Resources.MemoryMiB,
+				SSHPort:      vmRec.Network.SSHPort,
+				Disk:         disk,
+				USB:          len(vmRec.USBDevices),
+				EgressConfig: egressConfig(vmRec.Network.Egress),
+			})
 		}
 		if outputFormat(cmd) == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(rows)
@@ -336,7 +359,7 @@ func listCommand() *cobra.Command {
 			if r.Disk != nil {
 				disk = formatBytes(r.Disk.VirtualBytes)
 			}
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%dMiB\t%d\tdisk=%s\tegress-config=%s\n", r.Name, r.ID, r.Status, r.Image, r.CPUs, r.MemoryMiB, r.SSHPort, disk, r.EgressConfig)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%dMiB\t%d\tdisk=%s\tusb=%d\tegress-config=%s\n", r.Name, r.ID, r.Status, r.Image, r.CPUs, r.MemoryMiB, r.SSHPort, disk, r.USB, r.EgressConfig)
 		}
 		return tw.Flush()
 	}}
