@@ -230,11 +230,11 @@ func TestQEMUArgsIncludeSeedDiskAndVirtioFS(t *testing.T) {
 		ID:        "vm1",
 		Name:      "scratch",
 		Driver:    "qemu",
-		Arch:      host.System(),
+		Arch:      "x86_64-linux",
 		Resources: state.VMResources{CPUs: 2, MemoryMiB: 512},
 	}
 	shares := []share.Runtime{{Tag: state.ControlShareTag, Sock: filepath.Join(st.Runtime(vmRec).Dir(), "virtiofs-"+state.ControlShareTag+".sock")}}
-	args, err := mgr.qemuArgs(vmRec, shares, nil)
+	args, err := mgr.qemuArgs(vmRec, "", shares, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

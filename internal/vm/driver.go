@@ -12,23 +12,25 @@ import (
 	"github.com/mjrusso/voom/internal/usb"
 )
 
-func (m *Manager) qemuArgs(vm *state.VMRecord, shares []share.Runtime, usbBindings []usb.Binding) ([]string, error) {
+func (m *Manager) qemuArgs(vm *state.VMRecord, firmwarePath string, shares []share.Runtime, usbBindings []usb.Binding) ([]string, error) {
 	qshares := make([]qemu.Share, 0, len(shares))
 	for _, sh := range shares {
 		qshares = append(qshares, qemu.Share{Tag: sh.Tag, Sock: sh.Sock})
 	}
 	return qemu.Args(qemu.ArgsConfig{
-		CPUs:        vm.Resources.CPUs,
-		MemoryMiB:   vm.Resources.MemoryMiB,
-		DiskPath:    m.store.VMDiskPath(vm),
-		DiskFormat:  state.ImageFormatFromDisk(m.store.VMDiskPath(vm)),
-		SeedImage:   m.store.SeedImagePath(vm),
-		NetSock:     m.store.Runtime(vm).QEMUNetSock(),
-		MAC:         state.GuestMAC(vm.Driver, vm.ID),
-		SerialLog:   m.store.LogPath(vm, "serial"),
-		MonitorSock: m.store.Runtime(vm).QEMUMonitor(),
-		Shares:      qshares,
-		USBDevices:  usbBindings,
+		Arch:         vm.Arch,
+		FirmwarePath: firmwarePath,
+		CPUs:         vm.Resources.CPUs,
+		MemoryMiB:    vm.Resources.MemoryMiB,
+		DiskPath:     m.store.VMDiskPath(vm),
+		DiskFormat:   state.ImageFormatFromDisk(m.store.VMDiskPath(vm)),
+		SeedImage:    m.store.SeedImagePath(vm),
+		NetSock:      m.store.Runtime(vm).QEMUNetSock(),
+		MAC:          state.GuestMAC(vm.Driver, vm.ID),
+		SerialLog:    m.store.LogPath(vm, "serial"),
+		MonitorSock:  m.store.Runtime(vm).QEMUMonitor(),
+		Shares:       qshares,
+		USBDevices:   usbBindings,
 	})
 }
 

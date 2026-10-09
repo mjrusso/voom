@@ -7,6 +7,13 @@
 > **Upgrading from any earlier version:** Stop all running VMs before
 > installing the new release. Voom now uses QMP instead of HMP for the QEMU
 > monitor; the new binary cannot manage a VM that started prior to the upgrade.
+>
+> x86_64 QEMU VMs now use the q35 machine type instead of QEMU's default
+> i440FX (`pc`) machine, including existing VMs on their next start. Guest PCI
+> addresses and predictable network interface names change. Images that use
+> Voom's cloud-init seed are unaffected, because its network configuration
+> matches `en*` and `eth*` interfaces; custom images that configure a specific
+> interface name may need updating.
 
 - Add Linux/QEMU USB passthrough by stable controller route and port, with host
   discovery, live attach and detach, persisted VM assignments, permission

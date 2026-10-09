@@ -1,6 +1,7 @@
 package qemu
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/mjrusso/voom/internal/usb"
@@ -14,22 +15,33 @@ type Share struct {
 
 // ArgsConfig is the structured input used to build qemu-system command-line arguments.
 type ArgsConfig struct {
-	CPUs        int
-	MemoryMiB   int
-	DiskPath    string
-	DiskFormat  string
-	SeedImage   string
-	NetSock     string
-	MAC         string
-	SerialLog   string
-	MonitorSock string
-	Shares      []Share
-	USBDevices  []usb.Binding
+	Arch         string
+	FirmwarePath string
+	CPUs         int
+	MemoryMiB    int
+	DiskPath     string
+	DiskFormat   string
+	SeedImage    string
+	NetSock      string
+	MAC          string
+	SerialLog    string
+	MonitorSock  string
+	Shares       []Share
+	USBDevices   []usb.Binding
 }
 
 // Args returns the qemu-system command-line arguments for the supplied configuration.
 func Args(c ArgsConfig) ([]string, error) {
-	args := []string{"-enable-kvm", "-cpu", "host", "-smp", strconv.Itoa(c.CPUs), "-m", strconv.Itoa(c.MemoryMiB)}
+	var args []string
+	switch c.Arch {
+	case "x86_64-linux":
+		args = []string{"-machine", "q35"}
+	case "aarch64-linux":
+		args = []string{"-machine", "virt", "-bios", c.FirmwarePath}
+	default:
+		return nil, fmt.Errorf("unsupported QEMU architecture %q", c.Arch)
+	}
+	args = append(args, "-enable-kvm", "-cpu", "host", "-smp", strconv.Itoa(c.CPUs), "-m", strconv.Itoa(c.MemoryMiB))
 	diskDrive := "file=" + c.DiskPath + ",if=virtio"
 	if c.DiskFormat != "" {
 		diskDrive += ",format=" + c.DiskFormat

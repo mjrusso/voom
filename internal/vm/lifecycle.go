@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/mjrusso/voom/internal/driver/qemu"
@@ -362,9 +361,9 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 			return nil, fmt.Errorf("declared forward %s:%d is in use; remove the conflict or 'voom forward remove %s %d'", f.Bind, f.HostPort, vm.Name, f.HostPort)
 		}
 	}
-	uefi := ""
-	if vm.Driver == "qemu" && strings.HasPrefix(vm.Arch, "aarch64") {
-		uefi, err = ResolveAarch64UEFI()
+	firmwarePath := ""
+	if vm.Driver == "qemu" && vm.Arch == "aarch64-linux" {
+		firmwarePath, err = ResolveAarch64UEFI()
 		if err != nil {
 			return nil, err
 		}
@@ -446,13 +445,9 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	}
 	switch vm.Driver {
 	case "qemu":
-		qargs, err := m.qemuArgs(vm, virtiofsShares, usbBindings)
+		qargs, err := m.qemuArgs(vm, firmwarePath, virtiofsShares, usbBindings)
 		if err != nil {
 			return nil, err
-		}
-		if strings.HasPrefix(vm.Arch, "aarch64") {
-			qargs = append([]string{"-machine", "virt"}, qargs...)
-			qargs = append(qargs, "-bios", uefi)
 		}
 		if err := m.withUSBStartReservation(ctx, vm, func() error {
 			return m.startRecorded(qemu.ExecutableName(vm.Arch), qargs, m.store.LogPath(vm, "qemu"), rt.VMProcessRecord())

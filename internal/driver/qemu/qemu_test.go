@@ -29,6 +29,7 @@ func TestRequireUSB(t *testing.T) {
 
 func TestArgsIncludesVirtiofsDevices(t *testing.T) {
 	args := mustArgs(t, ArgsConfig{
+		Arch:        "x86_64-linux",
 		CPUs:        2,
 		MemoryMiB:   512,
 		DiskPath:    "/state/vm/disk.qcow2",
@@ -63,15 +64,26 @@ func TestArgsIncludesVirtiofsDevices(t *testing.T) {
 	}
 }
 
+func TestArgsSelectsMachineByArch(t *testing.T) {
+	x86 := mustArgs(t, ArgsConfig{Arch: "x86_64-linux", CPUs: 1, MemoryMiB: 256})
+	if !hasArgPair(x86, "-machine", "q35") || hasArg(x86, "-bios") {
+		t.Fatalf("x86_64 machine args = %#v", x86)
+	}
+	arm := mustArgs(t, ArgsConfig{Arch: "aarch64-linux", FirmwarePath: "/fw/QEMU_EFI.fd", CPUs: 1, MemoryMiB: 256})
+	if !hasArgPair(arm, "-machine", "virt") || !hasArgPair(arm, "-bios", "/fw/QEMU_EFI.fd") {
+		t.Fatalf("aarch64 machine args = %#v", arm)
+	}
+}
+
 func TestArgsOmitsSharedMemoryWithoutVirtiofs(t *testing.T) {
-	args := mustArgs(t, ArgsConfig{CPUs: 1, MemoryMiB: 256})
+	args := mustArgs(t, ArgsConfig{Arch: "x86_64-linux", CPUs: 1, MemoryMiB: 256})
 	if hasArg(args, "-object") || hasArg(args, "-numa") {
 		t.Fatalf("unexpected shared memory args without virtiofs: %#v", args)
 	}
 }
 
 func TestArgsIncludesUSBPassthrough(t *testing.T) {
-	args := mustArgs(t, ArgsConfig{CPUs: 1, MemoryMiB: 256, USBDevices: []usb.Binding{{Name: "board", Bus: 1, Port: "3.2"}, {Name: "probe", Bus: 2, Port: "4"}}})
+	args := mustArgs(t, ArgsConfig{Arch: "x86_64-linux", CPUs: 1, MemoryMiB: 256, USBDevices: []usb.Binding{{Name: "board", Bus: 1, Port: "3.2"}, {Name: "probe", Bus: 2, Port: "4"}}})
 	for _, pair := range [][2]string{
 		{"-device", "qemu-xhci,id=voom-xhci"},
 		{"-device", "usb-host,bus=voom-xhci.0,hostbus=1,hostport=3.2,id=voom-usb-board"},
@@ -84,14 +96,14 @@ func TestArgsIncludesUSBPassthrough(t *testing.T) {
 }
 
 func TestArgsOmitsUSBControllerWithoutDevices(t *testing.T) {
-	args := mustArgs(t, ArgsConfig{CPUs: 1, MemoryMiB: 256})
+	args := mustArgs(t, ArgsConfig{Arch: "x86_64-linux", CPUs: 1, MemoryMiB: 256})
 	if hasArgPair(args, "-device", "qemu-xhci,id=voom-xhci") {
 		t.Fatalf("unexpected USB controller in %#v", args)
 	}
 }
 
 func TestArgsRejectsInvalidUSBDeclaration(t *testing.T) {
-	if _, err := Args(ArgsConfig{CPUs: 1, MemoryMiB: 256, USBDevices: []usb.Binding{{Name: "bad,name", Bus: 1, Port: "2"}}}); err == nil {
+	if _, err := Args(ArgsConfig{Arch: "x86_64-linux", CPUs: 1, MemoryMiB: 256, USBDevices: []usb.Binding{{Name: "bad,name", Bus: 1, Port: "2"}}}); err == nil {
 		t.Fatal("Args accepted an invalid USB declaration")
 	}
 }
