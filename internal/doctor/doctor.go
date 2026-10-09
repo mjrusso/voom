@@ -87,7 +87,7 @@ func Run(all bool) []Check {
 	if vms := pciVMs(st); runtime.GOOS == "linux" && (all || len(vms) > 0) {
 		add("qemu-vfio", false, qemu.RequireVFIO(host.System()), "PCI Express root ports and VFIO available")
 		add("iommu", false, pci.CheckIOMMU(), "IOMMU groups present")
-		add("vfio-interrupts", false, pci.CheckInterruptIsolation(), "interrupt remapping required")
+		add("vfio-interrupts", false, pci.CheckInterruptIsolation(), "unsafe interrupts not allowed")
 		for _, vmRec := range vms {
 			add("memlock-"+vmRec.Name, false, vm.CheckMemlock(vmRec.Resources.MemoryMiB), "sufficient for PCI passthrough")
 		}
