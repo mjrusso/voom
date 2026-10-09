@@ -760,3 +760,22 @@ func hasArgPair(args []string, key, value string) bool {
 	}
 	return false
 }
+
+func TestDriverStartErrorIncludesLastLogLine(t *testing.T) {
+	st, _ := newTestStore(t)
+	vmRec := &state.VMRecord{ID: "vm1", Name: "one", Driver: "qemu"}
+	mgr := New(st)
+	logPath := st.LogPath(vmRec, "qemu")
+	if err := mgr.driverStartError(vmRec, "qemu"); err == nil || err.Error() != "qemu did not start; see "+logPath {
+		t.Fatalf("error without log = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath, []byte("starting\nqemu-system-x86_64: -device vfio-pci: group 30 is busy\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.driverStartError(vmRec, "qemu"); err == nil || !strings.Contains(err.Error(), "qemu exited during startup: qemu-system-x86_64: -device vfio-pci: group 30 is busy; see ") {
+		t.Fatalf("error with log = %v", err)
+	}
+}

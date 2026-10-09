@@ -461,14 +461,14 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 			return nil, err
 		}
 		if err := waitFor(ctx, func() bool { return m.IsRunning(vm) && socketExists(rt.QEMUMonitor()) }, driverStartTimeout); err != nil {
-			return nil, fmt.Errorf("qemu did not start; see %s", m.store.LogPath(vm, "qemu"))
+			return nil, m.driverStartError(vm, "qemu")
 		}
 	case "vfkit":
 		if err := m.startRecorded("vfkit", m.vfkitArgs(vm, im, virtiofsShares), m.store.LogPath(vm, "vfkit"), rt.VMProcessRecord()); err != nil {
 			return nil, err
 		}
 		if err := waitFor(ctx, func() bool { return m.IsRunning(vm) && socketExists(rt.VFKitRestSock()) }, driverStartTimeout); err != nil {
-			return nil, fmt.Errorf("vfkit did not start; see %s", m.store.LogPath(vm, "vfkit"))
+			return nil, m.driverStartError(vm, "vfkit")
 		}
 	}
 	if vm.Network.AutoForward && im.Capabilities.GuestPortReport && im.Capabilities.ControlShare {

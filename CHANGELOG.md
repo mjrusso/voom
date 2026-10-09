@@ -19,6 +19,8 @@
   x86_64 VMs, by slot or single function, with host discovery, persisted
   assignments that record each function's vendor:device ID, and VFIO, IOMMU
   group, and memlock checks in `add`, `start`, `info`, and `doctor`.
+- Include the last line of the QEMU or vfkit log in the error when the VM
+  process exits during startup.
 - Add Linux/QEMU USB passthrough by stable controller route and port, with host
   discovery, live attach and detach, persisted VM assignments, permission
   checks, and QEMU capability and runtime status diagnostics.
