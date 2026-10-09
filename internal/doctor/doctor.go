@@ -12,6 +12,7 @@ import (
 	"github.com/mjrusso/voom/internal/driver/qemu"
 	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/host"
+	"github.com/mjrusso/voom/internal/pci"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 	"github.com/mjrusso/voom/internal/usb"
@@ -83,6 +84,14 @@ func Run(all bool) []Check {
 	if runtime.GOOS == "linux" && (all || hasUSBDevices(st)) {
 		add("qemu-usb", false, qemu.RequireUSB(host.System()), "XHCI and host passthrough available")
 	}
+	if vms := pciVMs(st); runtime.GOOS == "linux" && (all || len(vms) > 0) {
+		add("qemu-vfio", false, qemu.RequireVFIO(host.System()), "PCI Express root ports and VFIO available")
+		add("iommu", false, pci.CheckIOMMU(), "IOMMU groups present")
+		add("vfio-interrupts", false, pci.CheckInterruptIsolation(), "interrupt remapping required")
+		for _, vmRec := range vms {
+			add("memlock-"+vmRec.Name, false, vm.CheckMemlock(vmRec.Resources.MemoryMiB), "sufficient for PCI passthrough")
+		}
+	}
 	if _, err := st.AllocateSSHPort(); err != nil {
 		add("ssh-port-range", true, err, "")
 	} else {
@@ -138,6 +147,11 @@ func StateDiagnostics(st *state.Store) []Check {
 				if err != nil {
 					out = append(out, Check{"usb-access-" + name + "-" + device.Name, "warn", false, err.Error()})
 				}
+			}
+		}
+		for _, status := range vmMgr.ObservePCI(vmRec) {
+			if status.State == vm.PCIUnavailable {
+				out = append(out, Check{"pci-" + name + "-" + status.Name, "warn", false, status.Error})
 			}
 		}
 		vmSeenIDs[vmRec.ID] = name
@@ -295,6 +309,20 @@ func hasControlShareImages(st *state.Store) bool {
 		}
 	}
 	return false
+}
+
+func pciVMs(st *state.Store) []*state.VMRecord {
+	vms, err := st.ListVMs()
+	if err != nil {
+		return nil
+	}
+	var out []*state.VMRecord
+	for _, vmRec := range vms {
+		if len(vmRec.PCIDevices) > 0 {
+			out = append(out, vmRec)
+		}
+	}
+	return out
 }
 
 func hasUSBDevices(st *state.Store) bool {

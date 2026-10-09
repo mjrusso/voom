@@ -8,6 +8,7 @@ import (
 	"github.com/mjrusso/voom/internal/egress"
 	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/host"
+	"github.com/mjrusso/voom/internal/pci"
 	"github.com/mjrusso/voom/internal/share"
 	"github.com/mjrusso/voom/internal/usb"
 )
@@ -71,11 +72,15 @@ type VMRecord struct {
 	Network       VMNetwork    `json:"network"`
 	Shares        []share.Decl `json:"shares"`
 	USBDevices    []usb.Decl   `json:"usbDevices,omitempty"`
+	PCIDevices    []pci.Decl   `json:"pciDevices,omitempty"`
 	Nixos         *NixOSSwitch `json:"nixos,omitempty"`
 }
 
 func (vm *VMRecord) validate() error {
 	if err := usb.ValidateAssignments(vm.USBDevices); err != nil {
+		return fmt.Errorf("VM %q: %w", vm.Name, err)
+	}
+	if err := pci.ValidateAssignments(vm.PCIDevices); err != nil {
 		return fmt.Errorf("VM %q: %w", vm.Name, err)
 	}
 	return nil

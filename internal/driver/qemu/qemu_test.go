@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mjrusso/voom/internal/host"
+	"github.com/mjrusso/voom/internal/pci"
 	"github.com/mjrusso/voom/internal/usb"
 )
 
@@ -92,6 +93,25 @@ func TestArgsIncludesUSBPassthrough(t *testing.T) {
 		if !hasArgPair(args, pair[0], pair[1]) {
 			t.Fatalf("missing %s %s in %#v", pair[0], pair[1], args)
 		}
+	}
+}
+
+func TestArgsPlacesPCIDevicesBehindRootPorts(t *testing.T) {
+	gpu := pci.Decl{Name: "gpu", Slot: pci.Slot{Bus: 0x41}, Functions: []pci.Function{
+		{Number: 0, Vendor: "10de", Device: "1e84"},
+		{Number: 1, Vendor: "10de", Device: "10f8"},
+	}}
+	audio := pci.Decl{Name: "audio", Slot: pci.Slot{Bus: 0x42}, Functions: []pci.Function{{Number: 1, Vendor: "10de", Device: "10f8"}}}
+	args := mustArgs(t, ArgsConfig{Arch: "x86_64-linux", CPUs: 1, MemoryMiB: 256, PCIDevices: []pci.Decl{gpu, audio}})
+	want := []string{
+		"-device", "pcie-root-port,id=voom-rp-gpu,bus=pcie.0,addr=10.0,chassis=1,slot=1,multifunction=on",
+		"-device", "vfio-pci,host=0000:41:00.0,bus=voom-rp-gpu,addr=00.0,id=voom-pci-gpu-0,multifunction=on",
+		"-device", "vfio-pci,host=0000:41:00.1,bus=voom-rp-gpu,addr=00.1,id=voom-pci-gpu-1",
+		"-device", "pcie-root-port,id=voom-rp-audio,bus=pcie.0,addr=10.1,chassis=1,slot=2",
+		"-device", "vfio-pci,host=0000:42:00.1,bus=voom-rp-audio,addr=00.0,id=voom-pci-audio-1",
+	}
+	if got := args[len(args)-len(want):]; strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("PCI args = %#v", got)
 	}
 }
 

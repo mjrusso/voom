@@ -15,6 +15,16 @@ func ExecutableName(arch string) string {
 
 // RequireUSB verifies that QEMU for arch supports XHCI and libusb host passthrough.
 func RequireUSB(arch string) error {
+	return requireDevices(arch, "USB and libusb", "qemu-xhci", "usb-host")
+}
+
+// RequireVFIO verifies that QEMU for arch supports PCI Express root ports and
+// VFIO PCI passthrough.
+func RequireVFIO(arch string) error {
+	return requireDevices(arch, "VFIO", "pcie-root-port", "vfio-pci")
+}
+
+func requireDevices(arch, feature string, devices ...string) error {
 	name := ExecutableName(arch)
 	path, err := host.ExePath(name)
 	if err != nil {
@@ -22,11 +32,11 @@ func RequireUSB(arch string) error {
 	}
 	out, err := exec.Command(path, "-device", "help").CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("inspect %s USB support: %w", name, err)
+		return fmt.Errorf("inspect %s device support: %w", name, err)
 	}
-	for _, device := range []string{"qemu-xhci", "usb-host"} {
+	for _, device := range devices {
 		if !strings.Contains(string(out), `name "`+device+`"`) {
-			return fmt.Errorf("%s does not provide required device %s; install a QEMU build with USB and libusb support", name, device)
+			return fmt.Errorf("%s does not provide required device %s; install a QEMU build with %s support", name, device, feature)
 		}
 	}
 	return nil

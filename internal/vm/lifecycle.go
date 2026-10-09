@@ -128,6 +128,7 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.
 	clone.UpdatedAt = now
 	clone.Shares = nil
 	clone.USBDevices = nil
+	clone.PCIDevices = nil
 	clone.Network = state.VMNetwork{SSHBind: src.Network.SSHBind}
 	if src.Nixos != nil {
 		nixos := *src.Nixos
@@ -311,10 +312,12 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	}
 	switch vm.Driver {
 	case "qemu":
-		if len(vm.USBDevices) > 0 {
+		err = host.RequireExe(qemu.ExecutableName(vm.Arch))
+		if err == nil && len(vm.USBDevices) > 0 {
 			err = qemu.RequireUSB(vm.Arch)
-		} else {
-			err = host.RequireExe(qemu.ExecutableName(vm.Arch))
+		}
+		if err == nil && len(vm.PCIDevices) > 0 {
+			err = qemu.RequireVFIO(vm.Arch)
 		}
 		if err != nil {
 			return nil, err
@@ -351,6 +354,9 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	}
 	usbBindings, err := m.prepareUSBDevices(vm)
 	if err != nil {
+		return nil, err
+	}
+	if err := m.preparePCIDevices(vm); err != nil {
 		return nil, err
 	}
 	if portBusy(vm.Network.SSHBind, vm.Network.SSHPort) {

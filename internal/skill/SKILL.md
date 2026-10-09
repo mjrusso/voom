@@ -43,6 +43,7 @@ voom image list --output json
 voom image inspect <name> --output json
 voom forward list --output json
 voom usb list <name> --output json
+voom pci list <name> --output json
 ```
 
 Human- and subprocess-oriented commands such as `ssh`, `console`, and `logs`
@@ -193,6 +194,26 @@ operation reports that the `/dev/bus/usb` node is inaccessible, report the
 required host udev or ACL change. Do not weaken permissions for all USB devices.
 The `usbStatus` rows from `info` separate host connectivity from QEMU runtime
 state. Voom does not install guest flashing tools or host udev rules.
+
+### Assign a PCI device on Linux
+
+PCI passthrough gives an x86_64 QEMU VM exclusive use of a host PCI Express
+device, such as a GPU. The VM must be stopped to change assignments. Inspect
+the host slots before making the assignment:
+
+```bash
+voom pci discover --output json
+voom pci add <name> <device-name> <slot-or-function> --output json
+voom pci list <name> --output json
+voom info <name> --output json
+voom pci remove <name> <device-name> --output json
+```
+
+A slot such as `0000:41:00` assigns all of its functions; a function such as
+`0000:41:00.0` assigns one. When discovery or `start` reports a host problem,
+such as a function bound to a host driver, a missing IOMMU group, an
+inaccessible `/dev/vfio` node, or a low memlock limit, report the required host
+change. Voom does not bind drivers, install udev rules, or change limits.
 
 ### Diagnose a VM
 

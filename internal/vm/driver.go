@@ -31,6 +31,7 @@ func (m *Manager) qemuArgs(vm *state.VMRecord, firmwarePath string, shares []sha
 		MonitorSock:  m.store.Runtime(vm).QEMUMonitor(),
 		Shares:       qshares,
 		USBDevices:   usbBindings,
+		PCIDevices:   vm.PCIDevices,
 	})
 }
 

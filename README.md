@@ -30,6 +30,8 @@ Optional features include:
   supply credentials at request time
 - [USB passthrough for QEMU VMs on Linux](#usb-passthrough), including live
   attach and detach
+- [PCI Express passthrough for QEMU VMs on Linux](#pci-passthrough), such as
+  a GPU for compute workloads
 
 Note that there are many excellent tools in this space, with differing goals
 and trade-offs. [Kevin Lynagh](https://kevinlynagh.com/)'s
@@ -287,7 +289,8 @@ Optional integrations: [virtiofsd](https://gitlab.com/virtio-fs/virtiofsd)
 [`nixos-rebuild`](https://nixos.org/manual/nixos/stable/#sec-changing-config)
 (for `voom nixos switch`), and [Git](https://git-scm.com/) (NixOS switch
 metadata). Note that USB passthrough from Linux hosts requires a QEMU build
-with XHCI and libusb `usb-host` support.
+with XHCI and libusb `usb-host` support, and PCI passthrough requires a QEMU
+build with VFIO `vfio-pci` support.
 
 _Voom bundles its [gvproxy](https://github.com/containers/gvisor-tap-vsock)
 build in release and Nix installations._
@@ -325,6 +328,7 @@ image or a bootable disk image.
 | Egress    | `config egress set`, `config egress clear`, `config egress enable`, `config egress disable`             |
 | Shares    | `share add`, `share remove`, `share list`                                                               |
 | USB       | `usb discover`, `usb add`, `usb remove`, `usb list`                                                     |
+| PCI       | `pci discover`, `pci add`, `pci remove`, `pci list` (alias: `gpu`)                                      |
 | NixOS     | `nixos switch`                                                                                          |
 | Inspect   | `list`, `info`, `logs`, `events`, `doctor`, `guest ports`, `debug paths`, `version`, `skill`            |
 
@@ -882,11 +886,78 @@ Replace `1234` with the vendor ID reported by `voom usb discover`. Use the
 narrowest suitable vendor or product match for the hardware. Reload the rules
 and reconnect the device after changing them. Voom does not install udev rules.
 
+`uaccess` grants access only to users logged in at the host's own console. On a
+headless host used over SSH, grant access through a group that the Voom user
+belongs to instead:
+
+```udev
+SUBSYSTEM=="usb", ATTR{idVendor}=="1234", GROUP="plugdev", MODE="0660"
+```
+
 The guest must include the drivers and software required by the device. Guest
 support can include XHCI, CDC ACM, USB serial, hidraw, or libusb. Guest udev
 rules or group membership must also grant the intended account access.
 You can add and remove assignments while the VM is running. Clones do not
 inherit USB assignments.
+
+### PCI Passthrough
+
+PCI passthrough gives a VM exclusive use of a PCI Express device on the host,
+such as a GPU for CUDA or ROCm workloads. Voom supports it for x86_64 QEMU VMs
+on Linux hosts. While the VM runs, the host and other VMs cannot use the
+device.
+
+Use these commands to discover, assign, list, and remove PCI devices; `voom
+gpu` is an alias for `voom pci`:
+
+```sh
+voom pci discover
+voom pci add dev gpu 0000:41:00      # every function in the slot
+voom pci add dev gpu 0000:41:00.0    # one function
+voom pci list dev
+voom pci remove dev gpu
+```
+
+A slot address assigns all of the slot's functions, such as a GPU's display,
+audio, USB, and USB-C controller functions. A function address assigns only
+that function; for compute workloads, the GPU function alone is enough. Voom
+records each function's vendor:device ID, and `voom start` refuses the VM if
+the hardware at that address has changed.
+
+Adding or removing an assignment requires the VM to be stopped. A VM can have
+up to 8 assignments. Each one is placed behind its own PCI Express root port in
+the guest; guest PCI addresses can change when assignments are added or
+removed. Multiple stopped VMs can use the same device, but only one of them can
+run at a time. Clones do not inherit PCI assignments. `voom list` reports the
+configured assignment count as `pci=N`, and `voom info dev` reports whether
+each assignment is ready.
+
+Voom does not change the host's configuration. Before assigning a device:
+
+1. Enable the IOMMU (AMD-Vi or VT-d) in the firmware. On Intel hosts, also add
+   `intel_iommu=on` to the kernel command line.
+2. Bind every function you assign to the `vfio-pci` driver, typically at boot
+   with the `vfio-pci.ids=<vendor>:<device>,...` kernel parameter. Every other
+   device in the same IOMMU group must also be bound to `vfio-pci` or have no
+   driver. If the device is the host's only GPU, the host loses its local
+   display when `vfio-pci` claims it.
+3. Grant the Voom user read/write access to `/dev/vfio/<group>`, for example
+   with this udev rule for the `kvm` group:
+
+   ```udev
+   SUBSYSTEM=="vfio", GROUP="kvm", MODE="0660"
+   ```
+
+4. Raise the Voom user's soft and hard memlock limits (`ulimit -l`). VFIO locks
+   all guest memory, and Voom requires a limit of at least the guest's memory
+   plus 1 GiB, matching libvirt's x86 VFIO calculation.
+
+`voom pci discover` reports whether each host slot is ready to assign, and why
+not. `voom pci add`, `voom start`, and `voom doctor` report the same problems.
+`voom start` also opens each device's IOMMU group to check that the kernel
+reports it viable and that no other VM or process holds it.
+
+The guest needs the device's drivers, such as the NVIDIA or ROCm driver.
 
 ### State and Runtime Layout
 
@@ -897,7 +968,7 @@ temp-file-and-rename; partial files are ignored on load.
 <state>/state.json                          # name → ID index
 <state>/images/<image-id>/image.json        # metadata, capabilities
 <state>/images/<image-id>/disk.qcow2|raw    # imported image disk
-<state>/vms/<vm-id>/vm.json                 # config, forwards, shares, USB assignments
+<state>/vms/<vm-id>/vm.json                 # config, forwards, shares, USB and PCI assignments
 <state>/vms/<vm-id>/disk.qcow2|raw          # per-VM disk copy
 <state>/locks/...                           # state and per-VM locks
 ```

@@ -16,6 +16,7 @@ import (
 
 	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/host"
+	"github.com/mjrusso/voom/internal/pci"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/share"
 	"github.com/mjrusso/voom/internal/state"
@@ -531,6 +532,7 @@ func TestCloneCopiesDiskAndResourcesButNotHostConfig(t *testing.T) {
 		},
 		Shares:     []share.Decl{{Tag: "code", HostPath: "/host/code", GuestPath: "/mnt/code", Readonly: true}},
 		USBDevices: []usb.Decl{{Name: "probe", Route: usb.Route{Controller: "0000:00:14.0", Protocol: 2, Port: "3"}}},
+		PCIDevices: []pci.Decl{{Name: "gpu", Slot: pci.Slot{Bus: 0x41}, Functions: []pci.Function{{Number: 0, Vendor: "10de", Device: "1e84"}}}},
 	}
 	if err := os.MkdirAll(st.VMDir(src.ID), 0o755); err != nil {
 		t.Fatal(err)
@@ -573,6 +575,9 @@ func TestCloneCopiesDiskAndResourcesButNotHostConfig(t *testing.T) {
 	if len(clone.USBDevices) != 0 {
 		t.Fatalf("clone should not carry USB devices: %#v", clone.USBDevices)
 	}
+	if len(clone.PCIDevices) != 0 {
+		t.Fatalf("clone should not carry PCI devices: %#v", clone.PCIDevices)
+	}
 	disk, err := os.ReadFile(st.VMDiskPath(clone))
 	if err != nil {
 		t.Fatalf("reading clone disk: %v", err)
@@ -596,7 +601,7 @@ func TestCloneCopiesDiskAndResourcesButNotHostConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(srcReloaded.Shares) != 1 || len(srcReloaded.USBDevices) != 1 || len(srcReloaded.Network.Forwards) != 1 || !srcReloaded.Network.AutoForward {
+	if len(srcReloaded.Shares) != 1 || len(srcReloaded.USBDevices) != 1 || len(srcReloaded.PCIDevices) != 1 || len(srcReloaded.Network.Forwards) != 1 || !srcReloaded.Network.AutoForward {
 		t.Fatalf("source config mutated by clone: %#v", srcReloaded)
 	}
 

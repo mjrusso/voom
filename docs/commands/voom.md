@@ -33,6 +33,7 @@ voom [flags]
 * [voom list](voom_list.md)	 - List VMs
 * [voom logs](voom_logs.md)	 - Print VM logs
 * [voom nixos](voom_nixos.md)	 - NixOS integrations
+* [voom pci](voom_pci.md)	 - Manage Linux PCI passthrough, such as GPUs
 * [voom remove](voom_remove.md)	 - Remove a VM
 * [voom rename](voom_rename.md)	 - Rename a VM
 * [voom resources](voom_resources.md)	 - Manage VM resource allocations

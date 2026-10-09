@@ -88,6 +88,9 @@ func replayCommands(vm *state.VMRecord, target string) []string {
 	for _, device := range vm.USBDevices {
 		cmds = append(cmds, fmt.Sprintf("voom usb add %s %s %s", shellQuote(target), shellQuote(device.Name), shellQuote(device.Location())))
 	}
+	for _, decl := range vm.PCIDevices {
+		cmds = append(cmds, fmt.Sprintf("voom pci add %s %s %s", shellQuote(target), shellQuote(decl.Name), shellQuote(decl.Selector().String())))
+	}
 	for _, f := range vm.Network.Forwards {
 		line := fmt.Sprintf("voom forward add %s %d --host-port %d", shellQuote(target), f.GuestPort, f.HostPort)
 		// Manual forwards default to a 127.0.0.1 bind; only emit --bind when the

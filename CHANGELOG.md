@@ -15,6 +15,10 @@
 > matches `en*` and `eth*` interfaces; custom images that configure a specific
 > interface name may need updating.
 
+- Add Linux/QEMU PCI Express passthrough (`voom pci`, alias `voom gpu`) for
+  x86_64 VMs, by slot or single function, with host discovery, persisted
+  assignments that record each function's vendor:device ID, and VFIO, IOMMU
+  group, and memlock checks in `add`, `start`, `info`, and `doctor`.
 - Add Linux/QEMU USB passthrough by stable controller route and port, with host
   discovery, live attach and detach, persisted VM assignments, permission
   checks, and QEMU capability and runtime status diagnostics.

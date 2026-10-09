@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mjrusso/voom/internal/forward"
+	"github.com/mjrusso/voom/internal/pci"
 	"github.com/mjrusso/voom/internal/share"
 	"github.com/mjrusso/voom/internal/state"
 	"github.com/mjrusso/voom/internal/usb"
@@ -22,6 +23,10 @@ func TestReplayCommands(t *testing.T) {
 			{Tag: "data", HostPath: "/home/u/my data", GuestPath: "/mnt/data", Readonly: true},
 		},
 		USBDevices: []usb.Decl{{Name: "board", Route: usb.Route{Controller: "0000:00:14.0", Protocol: 2, Port: "3.2"}}},
+		PCIDevices: []pci.Decl{
+			{Name: "gpu", Slot: pci.Slot{Bus: 0x41}, Functions: []pci.Function{{Number: 0, Vendor: "10de", Device: "1e84"}, {Number: 1, Vendor: "10de", Device: "10f8"}}},
+			{Name: "audio", Slot: pci.Slot{Bus: 0x42}, Functions: []pci.Function{{Number: 1, Vendor: "10de", Device: "10f8"}}},
+		},
 		Network: state.VMNetwork{
 			Forwards: []forward.Decl{
 				{Protocol: "tcp", GuestPort: 8080, HostPort: 18080, Bind: "127.0.0.1"},
@@ -36,6 +41,8 @@ func TestReplayCommands(t *testing.T) {
 		"voom share add dev code /home/u/src /mnt/code",
 		"voom share add dev data '/home/u/my data' /mnt/data --ro",
 		"voom usb add dev board usb-0000:00:14.0@2-3.2",
+		"voom pci add dev gpu 0000:41:00",
+		"voom pci add dev audio 0000:42:00.1",
 		"voom forward add dev 8080 --host-port 18080",
 		"voom forward add dev 5432 --host-port 5432 --bind 0.0.0.0",
 		"voom forward auto enable dev --offset 10000 --bind 0.0.0.0",
