@@ -1,6 +1,7 @@
 package qemu
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,16 +103,43 @@ func TestArgsPlacesPCIDevicesBehindRootPorts(t *testing.T) {
 		{Number: 1, Vendor: "10de", Device: "10f8"},
 	}}
 	audio := pci.Decl{Name: "audio", Slot: pci.Slot{Bus: 0x42}, Functions: []pci.Function{{Number: 1, Vendor: "10de", Device: "10f8"}}}
-	args := mustArgs(t, ArgsConfig{Arch: "x86_64-linux", CPUs: 1, MemoryMiB: 256, PCIDevices: []pci.Decl{gpu, audio}})
-	want := []string{
-		"-device", "pcie-root-port,id=voom-rp-gpu,bus=pcie.0,addr=10.0,chassis=1,slot=1,multifunction=on",
-		"-device", "vfio-pci,host=0000:41:00.0,bus=voom-rp-gpu,addr=00.0,id=voom-pci-gpu-0,multifunction=on",
-		"-device", "vfio-pci,host=0000:41:00.1,bus=voom-rp-gpu,addr=00.1,id=voom-pci-gpu-1",
-		"-device", "pcie-root-port,id=voom-rp-audio,bus=pcie.0,addr=10.1,chassis=1,slot=2",
-		"-device", "vfio-pci,host=0000:42:00.1,bus=voom-rp-audio,addr=00.0,id=voom-pci-audio-1",
+	// Enough automatically addressed devices to reach guest slot 0x10.
+	shares := make([]Share, 16)
+	for i := range shares {
+		shares[i] = Share{Tag: fmt.Sprintf("share%d", i), Sock: fmt.Sprintf("/run/vm/share%d.sock", i)}
 	}
-	if got := args[len(args)-len(want):]; strings.Join(got, " ") != strings.Join(want, " ") {
-		t.Fatalf("PCI args = %#v", got)
+	args := mustArgs(t, ArgsConfig{
+		Arch:       "x86_64-linux",
+		CPUs:       1,
+		MemoryMiB:  256,
+		DiskPath:   "/state/vm/disk.qcow2",
+		SeedImage:  "/run/vm/seed.img",
+		Shares:     shares,
+		USBDevices: []usb.Binding{{Name: "board", Bus: 1, Port: "3.2"}},
+		PCIDevices: []pci.Decl{gpu, audio},
+	})
+	for _, device := range []string{
+		"pcie-root-port,id=voom-rp-gpu,bus=pcie.0,addr=10.0,chassis=1,slot=1,multifunction=on",
+		"vfio-pci,host=0000:41:00.0,bus=voom-rp-gpu,addr=00.0,id=voom-pci-gpu-0,multifunction=on",
+		"vfio-pci,host=0000:41:00.1,bus=voom-rp-gpu,addr=00.1,id=voom-pci-gpu-1",
+		"pcie-root-port,id=voom-rp-audio,bus=pcie.0,addr=10.1,chassis=1,slot=2",
+		"vfio-pci,host=0000:42:00.1,bus=voom-rp-audio,addr=00.0,id=voom-pci-audio-1",
+	} {
+		if !hasArgPair(args, "-device", device) {
+			t.Fatalf("missing -device %s in %#v", device, args)
+		}
+	}
+	lastRootPort := -1
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-device" && strings.HasPrefix(args[i+1], "pcie-root-port,") {
+			lastRootPort = i
+		}
+	}
+	for i := 0; i < lastRootPort; i++ {
+		automatic := args[i] == "-drive" || args[i] == "-device" && !strings.HasPrefix(args[i+1], "pcie-root-port,")
+		if automatic {
+			t.Fatalf("%s %s precedes a root port in %#v", args[i], args[i+1], args)
+		}
 	}
 }
 

@@ -44,6 +44,11 @@ func Args(c ArgsConfig) ([]string, error) {
 		return nil, fmt.Errorf("unsupported QEMU architecture %q", c.Arch)
 	}
 	args = append(args, "-enable-kvm", "-cpu", "host", "-smp", strconv.Itoa(c.CPUs), "-m", strconv.Itoa(c.MemoryMiB))
+	rootPorts, vfioDevices, err := pciDeviceArguments(c.PCIDevices)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, rootPorts...)
 	diskDrive := "file=" + c.DiskPath + ",if=virtio"
 	if c.DiskFormat != "" {
 		diskDrive += ",format=" + c.DiskFormat
@@ -83,27 +88,24 @@ func Args(c ArgsConfig) ([]string, error) {
 		}
 		args = append(args, "-device", argument)
 	}
-	pciArgs, err := pciDeviceArguments(c.PCIDevices)
-	if err != nil {
-		return nil, err
-	}
-	return append(args, pciArgs...), nil
+	return append(args, vfioDevices...), nil
 }
 
 // pciDeviceArguments places one root port per assignment, all in guest slot
-// 0x10, which is clear of the slots QEMU assigns automatically.
-func pciDeviceArguments(decls []pci.Decl) ([]string, error) {
+// 0x10, and the VFIO devices behind them. QEMU assigns automatic addresses in
+// command-line order, so the root ports must precede every device without an
+// explicit address, or one of those devices can take slot 0x10 first.
+func pciDeviceArguments(decls []pci.Decl) (rootPorts, vfioDevices []string, err error) {
 	if err := pci.ValidateAssignments(decls); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var args []string
 	for i, decl := range decls {
 		port := "voom-rp-" + decl.Name
 		rootPort := fmt.Sprintf("pcie-root-port,id=%s,bus=pcie.0,addr=10.%d,chassis=1,slot=%d", port, i, i+1)
 		if i == 0 && len(decls) > 1 {
 			rootPort += ",multifunction=on"
 		}
-		args = append(args, "-device", rootPort)
+		rootPorts = append(rootPorts, "-device", rootPort)
 		for _, f := range decl.Functions {
 			// A single function becomes guest function 0 so the guest enumerates it.
 			guestFunction := f.Number
@@ -114,10 +116,10 @@ func pciDeviceArguments(decls []pci.Decl) ([]string, error) {
 			if guestFunction == 0 && len(decl.Functions) > 1 {
 				device += ",multifunction=on"
 			}
-			args = append(args, "-device", device)
+			vfioDevices = append(vfioDevices, "-device", device)
 		}
 	}
-	return args, nil
+	return rootPorts, vfioDevices, nil
 }
 
 func usbDeviceArgument(device usb.Binding) (string, error) {
