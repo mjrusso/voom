@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -22,10 +21,6 @@ const (
 
 	unsafeInterruptsParameter = "/sys/module/vfio_iommu_type1/parameters/allow_unsafe_interrupts"
 	vfioDriver                = "vfio-pci"
-
-	// _IO(VFIO_TYPE, VFIO_BASE + 3) and its flag, from linux/vfio.h.
-	vfioGroupGetStatus   = 0x3b67
-	vfioGroupFlagsViable = 1
 )
 
 // Drivers the kernel accepts on the other devices of an assigned IOMMU group.
@@ -287,19 +282,6 @@ func readDevice(dir string, number int) (Device, error) {
 	_, err := os.Stat(filepath.Join(dir, "max_link_speed"))
 	device.PCIe = err == nil
 	return device, nil
-}
-
-func vfioGroupViable(path string) (bool, error) {
-	f, err := os.OpenFile(path, os.O_RDWR, 0)
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = f.Close() }()
-	status := struct{ argsz, flags uint32 }{argsz: 8}
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, f.Fd(), vfioGroupGetStatus, uintptr(unsafe.Pointer(&status))); errno != 0 {
-		return false, errno
-	}
-	return status.flags&vfioGroupFlagsViable != 0, nil
 }
 
 func access(path string) error {
