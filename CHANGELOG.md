@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.3.0 - 2026-10-09
+
 > [!IMPORTANT]
 >
 > **Upgrading from any earlier version:** Stop all running VMs before
