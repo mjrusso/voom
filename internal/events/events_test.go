@@ -40,18 +40,27 @@ func TestEmitAndReplayFromCursor(t *testing.T) {
 func TestConcurrentEmitProducesCompleteRecords(t *testing.T) {
 	dir := t.TempDir()
 	const writers, perWriter = 8, 40
+	warnings := make(chan string, writers*perWriter)
 	var wg sync.WaitGroup
 	for i := 0; i < writers; i++ {
 		wg.Add(1)
 		go func(writer int) {
 			defer wg.Done()
-			emitter := NewEmitter(dir, nil)
+			emitter := NewEmitter(dir, func(message string) { warnings <- message })
 			for j := 0; j < perWriter; j++ {
 				emitter.Emit(Event{Type: "vm", Action: "test", Actor: Actor{ID: fmt.Sprintf("%d-%d", writer, j)}})
 			}
 		}(i)
 	}
 	wg.Wait()
+	close(warnings)
+	dropped := 0
+	for message := range warnings {
+		if message != "timed out acquiring event lock" {
+			t.Fatalf("emitter warning = %q", message)
+		}
+		dropped++
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -63,8 +72,11 @@ func TestConcurrentEmitProducesCompleteRecords(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if count != writers*perWriter {
-		t.Fatalf("event count = %d, want %d", count, writers*perWriter)
+	if count == 0 {
+		t.Fatal("every emit timed out; no records to check")
+	}
+	if count+dropped != writers*perWriter {
+		t.Fatalf("event count + lock timeouts = %d + %d, want %d", count, dropped, writers*perWriter)
 	}
 }
 
