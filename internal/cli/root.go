@@ -62,7 +62,6 @@ func NewRootCommand() *cobra.Command {
 			return cmd.Help()
 		},
 	}
-	cmd.CompletionOptions.DisableDefaultCmd = true
 	cmd.PersistentFlags().StringVar(&opts.output, "output", "text", "output format: text or json")
 	cmd.PersistentFlags().BoolVarP(&opts.verbose, "verbose", "v", false, "enable verbose diagnostics")
 	cmd.Flags().BoolVar(&opts.version, "version", false, "print version information")
@@ -124,7 +123,7 @@ func debugCommand() *cobra.Command {
 
 func guestCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "guest", Short: "Inspect guest-reported state"}
-	cmd.AddCommand(&cobra.Command{Use: "ports <name>", Short: "Show guest listeners", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd.AddCommand(&cobra.Command{Use: "ports <name>", ValidArgsFunction: completeVMNames, Short: "Show guest listeners", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err

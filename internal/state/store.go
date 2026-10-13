@@ -55,7 +55,7 @@ func Open(opts ...Option) (*Store, error) {
 }
 
 func (s *Store) reloadIndex() error {
-	index, err := s.readIndex()
+	index, err := ReadIndex(s.paths.State)
 	if err != nil {
 		return err
 	}
@@ -65,8 +65,9 @@ func (s *Store) reloadIndex() error {
 	return nil
 }
 
-func (s *Store) readIndex() (Index, error) {
-	b, err := os.ReadFile(filepath.Join(s.paths.State, "state.json"))
+// ReadIndex reads the saved index without creating directories or changing state.
+func ReadIndex(stateDir string) (Index, error) {
+	b, err := os.ReadFile(filepath.Join(stateDir, "state.json"))
 	if err != nil {
 		return Index{}, err
 	}

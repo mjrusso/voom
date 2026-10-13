@@ -58,10 +58,11 @@ func pciCommand() *cobra.Command {
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
-		Use:   "add <name> <device-name> <slot-or-function>",
-		Short: "Assign a host PCI Express slot or function to a VM",
-		Long:  "Assign a host PCI Express slot, such as 0000:41:00, or one of its functions, such as 0000:41:00.0, to a stopped QEMU VM. A slot assigns all of its functions. The assigned functions must be bound to vfio-pci, and every other device in their IOMMU groups must be bound to vfio-pci or have no driver. Voom records each function's vendor:device ID and refuses to start the VM if the hardware at that address changes.",
-		Args:  cobra.ExactArgs(3),
+		Use:               "add <name> <device-name> <slot-or-function>",
+		ValidArgsFunction: completeVMNames,
+		Short:             "Assign a host PCI Express slot or function to a VM",
+		Long:              "Assign a host PCI Express slot, such as 0000:41:00, or one of its functions, such as 0000:41:00.0, to a stopped QEMU VM. A slot assigns all of its functions. The assigned functions must be bound to vfio-pci, and every other device in their IOMMU groups must be bound to vfio-pci or have no driver. Voom records each function's vendor:device ID and refuses to start the VM if the hardware at that address changes.",
+		Args:              cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {
@@ -79,10 +80,11 @@ func pciCommand() *cobra.Command {
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
-		Use:     "remove <name> <device-name>",
-		Aliases: []string{"rm", "delete"},
-		Short:   "Remove a PCI assignment from a stopped VM",
-		Args:    cobra.ExactArgs(2),
+		Use:               "remove <name> <device-name>",
+		ValidArgsFunction: completeVMNames,
+		Aliases:           []string{"rm", "delete"},
+		Short:             "Remove a PCI assignment from a stopped VM",
+		Args:              cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {
@@ -99,10 +101,11 @@ func pciCommand() *cobra.Command {
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
-		Use:     "list <name>",
-		Aliases: []string{"ls"},
-		Short:   "List a VM's PCI assignments",
-		Args:    cobra.ExactArgs(1),
+		Use:               "list <name>",
+		ValidArgsFunction: completeVMNames,
+		Aliases:           []string{"ls"},
+		Short:             "List a VM's PCI assignments",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {

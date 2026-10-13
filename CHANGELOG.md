@@ -8,6 +8,7 @@
 
 - Add command aliases: `shutdown` for `stop`, `reboot` for `restart`, `inspect`
   for `info`, `image info` for `image inspect`, and `delete` for `remove`.
+- Add shell completion for commands, VM names, and image names.
 
 - If Voom cannot confirm whether a port forward was added or removed, try to stop
   gvproxy so an outstanding request cannot later change forwarding or keep a host

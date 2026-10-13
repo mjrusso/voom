@@ -20,9 +20,10 @@ func createCommand() *cobra.Command {
 	var imageName, driver, memory string
 	var cpus, sshPort int
 	cmd := &cobra.Command{
-		Use:   "create <name> --image <image>",
-		Short: "Create a stopped VM from an image",
-		Args:  cobra.ExactArgs(1),
+		Use:               "create <name> --image <image>",
+		ValidArgsFunction: cobra.NoFileCompletions,
+		Short:             "Create a stopped VM from an image",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := state.ValidateName("VM", args[0]); err != nil {
 				return err
@@ -53,6 +54,7 @@ func createCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&imageName, "image", "", "image name")
+	_ = cmd.RegisterFlagCompletionFunc("image", completeImageFlag)
 	cmd.Flags().StringVar(&driver, "driver", "auto", "driver: auto, qemu, or vfkit")
 	cmd.Flags().IntVar(&cpus, "cpus", 4, "CPU count")
 	cmd.Flags().StringVar(&memory, "memory", "4096MiB", "memory size")
@@ -62,10 +64,11 @@ func createCommand() *cobra.Command {
 
 func cloneCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "clone <source-name> <new-name>",
-		Short: "Clone a stopped VM into a new VM",
-		Long:  "Create a new VM by copying a stopped VM's current disk. The clone gets a fresh ID and a newly-allocated SSH port and keeps the source's resources and access. It does not inherit the source's shares, USB and PCI assignments, manual forwards, or auto-forward settings, but prints the commands to reproduce them on the clone.",
-		Args:  cobra.ExactArgs(2),
+		Use:               "clone <source-name> <new-name>",
+		ValidArgsFunction: completeVMNames,
+		Short:             "Clone a stopped VM into a new VM",
+		Long:              "Create a new VM by copying a stopped VM's current disk. The clone gets a fresh ID and a newly-allocated SSH port and keeps the source's resources and access. It does not inherit the source's shares, USB and PCI assignments, manual forwards, or auto-forward settings, but prints the commands to reproduce them on the clone.",
+		Args:              cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := state.ValidateName("VM", args[1]); err != nil {
 				return err
@@ -105,7 +108,7 @@ func cloneCommand() *cobra.Command {
 }
 
 func startCommand() *cobra.Command {
-	return &cobra.Command{Use: "start <name>", Short: "Start a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "start <name>", ValidArgsFunction: completeVMNames, Short: "Start a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -123,7 +126,7 @@ func startCommand() *cobra.Command {
 }
 
 func stopCommand() *cobra.Command {
-	return &cobra.Command{Use: "stop <name>", Aliases: []string{"shutdown"}, Short: "Stop a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "stop <name>", ValidArgsFunction: completeVMNames, Aliases: []string{"shutdown"}, Short: "Stop a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -145,7 +148,7 @@ func stopCommand() *cobra.Command {
 }
 
 func restartCommand() *cobra.Command {
-	return &cobra.Command{Use: "restart <name>", Aliases: []string{"reboot"}, Short: "Restart a VM", Long: "Stop and start the VM and its host helpers, including gvproxy.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "restart <name>", ValidArgsFunction: completeVMNames, Aliases: []string{"reboot"}, Short: "Restart a VM", Long: "Stop and start the VM and its host helpers, including gvproxy.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -165,7 +168,7 @@ func restartCommand() *cobra.Command {
 }
 
 func sshCommand() *cobra.Command {
-	return &cobra.Command{Use: "ssh <name> [--] [command...]", Short: "SSH into a VM, or run a one-shot command", Long: "Open an interactive SSH session to a running VM. Any trailing arguments are passed through to ssh as a remote command, so `voom ssh <name> -- uname -a` runs `uname -a` in the VM and exits. The `--` separator is optional but recommended when the remote command itself takes flags.", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "ssh <name> [--] [command...]", ValidArgsFunction: completeVMNames, Short: "SSH into a VM, or run a one-shot command", Long: "Open an interactive SSH session to a running VM. Any trailing arguments are passed through to ssh as a remote command, so `voom ssh <name> -- uname -a` runs `uname -a` in the VM and exits. The `--` separator is optional but recommended when the remote command itself takes flags.", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -191,7 +194,7 @@ func sshCommand() *cobra.Command {
 }
 
 func sshConfigCommand() *cobra.Command {
-	return &cobra.Command{Use: "ssh-config <name>", Short: "Print OpenSSH config", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "ssh-config <name>", ValidArgsFunction: completeVMNames, Short: "Print OpenSSH config", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -209,7 +212,7 @@ func sshConfigCommand() *cobra.Command {
 }
 
 func consoleCommand() *cobra.Command {
-	return &cobra.Command{Use: "console <name>", Short: "Follow serial console log", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "console <name>", ValidArgsFunction: completeVMNames, Short: "Follow serial console log", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -226,7 +229,7 @@ func consoleCommand() *cobra.Command {
 
 func logsCommand() *cobra.Command {
 	var kind string
-	cmd := &cobra.Command{Use: "logs <name>", Short: "Print VM logs", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "logs <name>", ValidArgsFunction: completeVMNames, Short: "Print VM logs", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -250,7 +253,7 @@ func logsCommand() *cobra.Command {
 }
 
 func infoCommand() *cobra.Command {
-	return &cobra.Command{Use: "info <name>", Aliases: []string{"inspect"}, Short: "Inspect a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "info <name>", ValidArgsFunction: completeVMNames, Aliases: []string{"inspect"}, Short: "Inspect a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -389,7 +392,7 @@ func formatBytes(n int64) string {
 }
 
 func renameCommand() *cobra.Command {
-	return &cobra.Command{Use: "rename <old-name> <new-name>", Short: "Rename a VM", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "rename <old-name> <new-name>", ValidArgsFunction: completeVMNames, Short: "Rename a VM", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		if err := state.ValidateName("VM", args[1]); err != nil {
 			return err
 		}
@@ -411,7 +414,7 @@ func renameCommand() *cobra.Command {
 
 func removeCommand() *cobra.Command {
 	var force bool
-	cmd := &cobra.Command{Use: "remove <name>", Aliases: []string{"rm", "destroy", "delete"}, Short: "Remove a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "remove <name>", ValidArgsFunction: completeVMNames, Aliases: []string{"rm", "destroy", "delete"}, Short: "Remove a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -449,7 +452,7 @@ func removeCommand() *cobra.Command {
 func diskCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "disk", Short: "Manage VM disks"}
 	var resetImage string
-	reset := &cobra.Command{Use: "reset <name> --image <image>", Short: "Reset VM disk from image", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	reset := &cobra.Command{Use: "reset <name> --image <image>", ValidArgsFunction: completeVMNames, Short: "Reset VM disk from image", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if resetImage == "" {
 			return errors.New("--image is required")
 		}
@@ -467,6 +470,7 @@ func diskCommand() *cobra.Command {
 		return nil
 	}}
 	reset.Flags().StringVar(&resetImage, "image", "", "image name")
+	_ = reset.RegisterFlagCompletionFunc("image", completeImageFlag)
 	cmd.AddCommand(reset)
 	return cmd
 }
@@ -476,7 +480,7 @@ func resourcesCommand() *cobra.Command {
 	disk := &cobra.Command{Use: "disk", Short: "Manage VM disk allocation"}
 	disk.AddCommand(diskGrowCommand())
 	cmd.AddCommand(disk)
-	cmd.AddCommand(&cobra.Command{Use: "cpus <name> <n>", Short: "Set CPU allocation for a stopped VM", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd.AddCommand(&cobra.Command{Use: "cpus <name> <n>", ValidArgsFunction: completeVMNames, Short: "Set CPU allocation for a stopped VM", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		cpus, err := strconv.Atoi(args[1])
 		if err != nil || cpus < 1 {
 			return errors.New("cpus must be at least 1")
@@ -499,7 +503,7 @@ func resourcesCommand() *cobra.Command {
 		}
 		return nil
 	}})
-	cmd.AddCommand(&cobra.Command{Use: "memory <name> <size>", Short: "Set memory allocation for a stopped VM", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd.AddCommand(&cobra.Command{Use: "memory <name> <size>", ValidArgsFunction: completeVMNames, Short: "Set memory allocation for a stopped VM", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		memoryMiB, err := state.ParseMemoryMiB(args[1])
 		if err != nil {
 			return err
@@ -526,7 +530,7 @@ func resourcesCommand() *cobra.Command {
 }
 
 func diskGrowCommand() *cobra.Command {
-	return &cobra.Command{Use: "grow <name> [amount]", Short: "Grow a stopped VM disk", Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "grow <name> [amount]", ValidArgsFunction: completeVMNames, Short: "Grow a stopped VM disk", Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err

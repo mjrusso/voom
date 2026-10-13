@@ -17,7 +17,7 @@ import (
 func nixosCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "nixos", Short: "NixOS integrations"}
 	var flake string
-	sw := &cobra.Command{Use: "switch <name> --flake <flake-ref> [nixos-rebuild args...]", Short: "Run nixos-rebuild switch", Args: cobra.MinimumNArgs(1), RunE: func(c *cobra.Command, args []string) error {
+	sw := &cobra.Command{Use: "switch <name> --flake <flake-ref> [nixos-rebuild args...]", ValidArgsFunction: completeVMNames, Short: "Run nixos-rebuild switch", Args: cobra.MinimumNArgs(1), RunE: func(c *cobra.Command, args []string) error {
 		if flake == "" {
 			return errors.New("--flake is required")
 		}

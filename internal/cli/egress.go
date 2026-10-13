@@ -21,10 +21,11 @@ func egressSetCommand() *cobra.Command {
 	var socket, ca, expectedID string
 	var disabled bool
 	cmd := &cobra.Command{
-		Use:   "set <name>",
-		Short: "Set the explicit proxy attachment",
-		Long:  "Attach a unique host Unix proxy socket to a stopped VM. The attachment is enabled unless --disabled is set. An optional CA file must contain public certificates only. Ordinary direct network egress remains available.",
-		Args:  cobra.ExactArgs(1),
+		Use:               "set <name>",
+		ValidArgsFunction: completeVMNames,
+		Short:             "Set the explicit proxy attachment",
+		Long:              "Attach a unique host Unix proxy socket to a stopped VM. The attachment is enabled unless --disabled is set. An optional CA file must contain public certificates only. Ordinary direct network egress remains available.",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {
@@ -53,10 +54,11 @@ func egressSetCommand() *cobra.Command {
 func egressClearCommand() *cobra.Command {
 	var expectedID string
 	cmd := &cobra.Command{
-		Use:   "clear <name>",
-		Short: "Clear the explicit proxy attachment",
-		Long:  "Remove a stopped VM's proxy attachment and release its backend socket reservation. Ordinary direct network egress remains available.",
-		Args:  cobra.ExactArgs(1),
+		Use:               "clear <name>",
+		ValidArgsFunction: completeVMNames,
+		Short:             "Clear the explicit proxy attachment",
+		Long:              "Remove a stopped VM's proxy attachment and release its backend socket reservation. Ordinary direct network egress remains available.",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {
@@ -76,10 +78,11 @@ func egressClearCommand() *cobra.Command {
 func egressEnableCommand() *cobra.Command {
 	var expectedID string
 	cmd := &cobra.Command{
-		Use:   "enable <name>",
-		Short: "Enable the explicit proxy attachment",
-		Long:  "Validate and enable the configured proxy attachment. A running VM does not need to restart. Ordinary direct network egress remains available.",
-		Args:  cobra.ExactArgs(1),
+		Use:               "enable <name>",
+		ValidArgsFunction: completeVMNames,
+		Short:             "Enable the explicit proxy attachment",
+		Long:              "Validate and enable the configured proxy attachment. A running VM does not need to restart. Ordinary direct network egress remains available.",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {
@@ -99,10 +102,11 @@ func egressEnableCommand() *cobra.Command {
 func egressDisableCommand() *cobra.Command {
 	var expectedID string
 	cmd := &cobra.Command{
-		Use:   "disable <name>",
-		Short: "Disable the explicit proxy attachment",
-		Long:  "Disable the proxy attachment and close its active tunnels. Keep its socket reservation for later re-enabling. Ordinary direct network egress remains available.",
-		Args:  cobra.ExactArgs(1),
+		Use:               "disable <name>",
+		ValidArgsFunction: completeVMNames,
+		Short:             "Disable the explicit proxy attachment",
+		Long:              "Disable the proxy attachment and close its active tunnels. Keep its socket reservation for later re-enabling. Ordinary direct network egress remains available.",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {

@@ -47,10 +47,11 @@ func imageListCommand() *cobra.Command {
 
 func imageInspectCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:     "inspect <name>",
-		Aliases: []string{"info"},
-		Short:   "Inspect an image",
-		Args:    cobra.ExactArgs(1),
+		Use:               "inspect <name>",
+		Aliases:           []string{"info"},
+		ValidArgsFunction: completeImageNames,
+		Short:             "Inspect an image",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {
@@ -88,9 +89,10 @@ func imageImportCommand() *cobra.Command {
 	var metaPath, arch, format, sshUser string
 	var installGuestHelpers bool
 	cmd := &cobra.Command{
-		Use:   "import <name> <path>",
-		Short: "Import an image",
-		Args:  cobra.ExactArgs(2),
+		Use:               "import <name> <path>",
+		ValidArgsFunction: completeImageImport,
+		Short:             "Import an image",
+		Args:              cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := state.ValidateName("image", args[0]); err != nil {
 				return err
@@ -129,10 +131,11 @@ func imageImportCommand() *cobra.Command {
 func imageRemoveCommand() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
-		Use:     "remove <name>",
-		Aliases: []string{"rm", "delete"},
-		Short:   "Remove an image",
-		Args:    cobra.ExactArgs(1),
+		Use:               "remove <name>",
+		ValidArgsFunction: completeImageNames,
+		Aliases:           []string{"rm", "delete"},
+		Short:             "Remove an image",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {

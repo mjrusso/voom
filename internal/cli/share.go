@@ -11,7 +11,7 @@ import (
 func shareCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "share", Short: "Manage shares"}
 	var readonly bool
-	add := &cobra.Command{Use: "add <name> <tag> <host-path> <guest-path>", Short: "Add a share", Args: cobra.ExactArgs(4), RunE: func(cmd *cobra.Command, args []string) error {
+	add := &cobra.Command{Use: "add <name> <tag> <host-path> <guest-path>", ValidArgsFunction: completeShareAdd, Short: "Add a share", Args: cobra.ExactArgs(4), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -34,7 +34,7 @@ func shareCommand() *cobra.Command {
 		return pflag.NormalizedName(name)
 	})
 	cmd.AddCommand(add)
-	cmd.AddCommand(&cobra.Command{Use: "remove <name> <tag>", Aliases: []string{"rm", "delete"}, Short: "Remove a share", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd.AddCommand(&cobra.Command{Use: "remove <name> <tag>", ValidArgsFunction: completeVMNames, Aliases: []string{"rm", "delete"}, Short: "Remove a share", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -48,7 +48,7 @@ func shareCommand() *cobra.Command {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "removed share %s from %s\n", args[1], args[0])
 		return nil
 	}})
-	cmd.AddCommand(&cobra.Command{Use: "list <name>", Aliases: []string{"ls"}, Short: "List shares", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd.AddCommand(&cobra.Command{Use: "list <name>", ValidArgsFunction: completeVMNames, Aliases: []string{"ls"}, Short: "List shares", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err

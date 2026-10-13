@@ -23,7 +23,7 @@ func forwardAddCommand() *cobra.Command {
 	var hostPort int
 	var bind, protocol string
 	var lan, auto bool
-	cmd := &cobra.Command{Use: "add <name> <guest-port>", Short: "Add a manual TCP or UDP forward", Example: "  voom forward add dev 8080 --protocol tcp --host-port 18080 --bind 127.0.0.1\n  voom forward add dev 5353 --protocol udp --host-port 15353 --bind 127.0.0.1", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "add <name> <guest-port>", ValidArgsFunction: completeVMNames, Short: "Add a manual TCP or UDP forward", Example: "  voom forward add dev 8080 --protocol tcp --host-port 18080 --bind 127.0.0.1\n  voom forward add dev 5353 --protocol udp --host-port 15353 --bind 127.0.0.1", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		protocol, err := forward.NormalizeProtocol(protocol)
 		if err != nil {
 			return err
@@ -77,7 +77,7 @@ func forwardAddCommand() *cobra.Command {
 
 func forwardRemoveCommand() *cobra.Command {
 	var bind, protocol string
-	cmd := &cobra.Command{Use: "remove <name> <host-port>", Aliases: []string{"rm", "delete"}, Short: "Remove a manual TCP or UDP forward", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "remove <name> <host-port>", ValidArgsFunction: completeVMNames, Aliases: []string{"rm", "delete"}, Short: "Remove a manual TCP or UDP forward", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		protocol, err := forward.NormalizeProtocol(protocol)
 		if err != nil {
 			return err
@@ -108,7 +108,7 @@ func forwardRemoveCommand() *cobra.Command {
 }
 
 func forwardListCommand() *cobra.Command {
-	return &cobra.Command{Use: "list [name]", Aliases: []string{"ls"}, Short: "List effective forwards", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "list [name]", ValidArgsFunction: completeVMNames, Aliases: []string{"ls"}, Short: "List effective forwards", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -135,7 +135,7 @@ func forwardListCommand() *cobra.Command {
 }
 
 func forwardDiscoverCommand() *cobra.Command {
-	return &cobra.Command{Use: "discover <name>", Short: "Preview forwarding state", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "discover <name>", ValidArgsFunction: completeVMNames, Short: "Preview forwarding state", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -197,7 +197,7 @@ func forwardAutoCommand() *cobra.Command {
 	enableOffset := 0
 	enableBind := ""
 	enableLan := false
-	enable := &cobra.Command{Use: "enable <name>", Short: "Enable auto-forwarding", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	enable := &cobra.Command{Use: "enable <name>", ValidArgsFunction: completeVMNames, Short: "Enable auto-forwarding", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if enableLan && enableBind != "" {
 			return errors.New("--lan and --bind are mutually exclusive")
 		}
@@ -215,18 +215,18 @@ func forwardAutoCommand() *cobra.Command {
 	enable.Flags().StringVar(&enableBind, "bind", "", "host bind address")
 	enable.Flags().BoolVar(&enableLan, "lan", false, "bind to 0.0.0.0")
 	cmd.AddCommand(enable)
-	cmd.AddCommand(&cobra.Command{Use: "disable <name>", Short: "Disable auto-forwarding", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd.AddCommand(&cobra.Command{Use: "disable <name>", ValidArgsFunction: completeVMNames, Short: "Disable auto-forwarding", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		enabled := false
 		return updateAutoForward(cmd, args[0], vm.AutoForwardUpdate{Enabled: &enabled})
 	}})
-	cmd.AddCommand(&cobra.Command{Use: "offset <name> <n>", Short: "Set auto-forward offset", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd.AddCommand(&cobra.Command{Use: "offset <name> <n>", ValidArgsFunction: completeVMNames, Short: "Set auto-forward offset", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		n, err := strconv.Atoi(args[1])
 		if err != nil || n < 0 {
 			return errors.New("offset must be a non-negative integer")
 		}
 		return updateAutoForward(cmd, args[0], vm.AutoForwardUpdate{Offset: &n})
 	}})
-	reconcile := &cobra.Command{Use: "reconcile <name>", Short: "Reconcile runtime auto-forwards", Args: cobra.ExactArgs(1), Hidden: true, RunE: func(cmd *cobra.Command, args []string) error {
+	reconcile := &cobra.Command{Use: "reconcile <name>", ValidArgsFunction: completeVMNames, Short: "Reconcile runtime auto-forwards", Args: cobra.ExactArgs(1), Hidden: true, RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err

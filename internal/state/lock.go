@@ -50,7 +50,7 @@ func (s *Store) LockVMRecord(ctx context.Context, name string) (*VMRecord, func(
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		index, err := s.readIndex()
+		index, err := ReadIndex(s.paths.State)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -64,7 +64,7 @@ func (s *Store) LockVMRecord(ctx context.Context, name string) (*VMRecord, func(
 		}
 		if unlock != nil {
 			unlock = sync.OnceFunc(unlock)
-			index, err = s.readIndex()
+			index, err = ReadIndex(s.paths.State)
 			if err != nil {
 				unlock()
 				return nil, nil, err

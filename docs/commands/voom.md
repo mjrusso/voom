@@ -19,6 +19,7 @@ voom [flags]
 ### SEE ALSO
 
 * [voom clone](voom_clone.md)	 - Clone a stopped VM into a new VM
+* [voom completion](voom_completion.md)	 - Generate the autocompletion script for the specified shell
 * [voom config](voom_config.md)	 - Inspect and modify VM configuration
 * [voom console](voom_console.md)	 - Follow serial console log
 * [voom create](voom_create.md)	 - Create a stopped VM from an image

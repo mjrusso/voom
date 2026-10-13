@@ -22,6 +22,7 @@ func main() {
 	}
 	cmd := cli.NewRootCommand()
 	cmd.DisableAutoGenTag = true
+	cmd.InitDefaultCompletionCmd()
 	if err := doc.GenMarkdownTree(cmd, out); err != nil {
 		log.Fatal(err)
 	}

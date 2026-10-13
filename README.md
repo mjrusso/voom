@@ -365,7 +365,7 @@ Notes and considerations:
 
 _For the full command reference, see [docs/commands](docs/commands/)._
 
-### Aliases
+### Aliases and shell completion
 
 `shutdown` is an alias for `stop`, and `reboot` is an alias for `restart`.
 `restart` and `reboot` stop and start the VM and its host helpers, including gvproxy.
@@ -373,6 +373,34 @@ Use `inspect` or `info` to inspect a VM, and `image inspect` or `image info`
 to inspect an image. Every `list` command accepts `ls`. Every `remove` command
 accepts `rm` and `delete`; `voom remove` also accepts `destroy`.
 `gpu` is an alias for `pci`.
+
+Generate completion scripts for Bash, Zsh, Fish, or PowerShell with
+`voom completion <shell>`. Completion includes command names, existing VM and
+image names, and image names for `--image`.
+
+Bash requires the `bash-completion` package.
+
+To enable completion in the current session:
+
+```bash
+source <(voom completion bash)
+```
+
+```zsh
+# Initialize Zsh completion if it is not already enabled.
+autoload -Uz compinit && compinit
+source <(voom completion zsh)
+```
+
+```fish
+voom completion fish | source
+```
+
+```powershell
+voom completion powershell | Out-String | Invoke-Expression
+```
+
+For installation instructions, run `voom completion <shell> --help`.
 
 ## Explicit HTTP proxy attachments
 

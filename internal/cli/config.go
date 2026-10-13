@@ -13,10 +13,11 @@ import (
 func configCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "config", Short: "Inspect and modify VM configuration"}
 	show := &cobra.Command{
-		Use:   "show <name>",
-		Short: "Print the commands to reproduce a VM's configuration",
-		Long:  "Print the shell commands that recreate a VM's post-create configuration: its shares, USB assignments, manual forwards, auto-forward settings, and explicit egress attachment. The output is empty for a VM with none of these. ('voom clone' retargets commands, but omits egress because the clone needs its own backend socket.)",
-		Args:  cobra.ExactArgs(1),
+		Use:               "show <name>",
+		ValidArgsFunction: completeVMNames,
+		Short:             "Print the commands to reproduce a VM's configuration",
+		Long:              "Print the shell commands that recreate a VM's post-create configuration: its shares, USB assignments, manual forwards, auto-forward settings, and explicit egress attachment. The output is empty for a VM with none of these. ('voom clone' retargets commands, but omits egress because the clone needs its own backend socket.)",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {
@@ -41,9 +42,10 @@ func configCommand() *cobra.Command {
 		},
 	}
 	sshPort := &cobra.Command{
-		Use:   "ssh-port <name> <port|auto>",
-		Short: "Set or reallocate the host SSH port for a stopped VM",
-		Args:  cobra.ExactArgs(2),
+		Use:               "ssh-port <name> <port|auto>",
+		ValidArgsFunction: completeVMNames,
+		Short:             "Set or reallocate the host SSH port for a stopped VM",
+		Args:              cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			port := 0
 			if args[1] != "auto" {
