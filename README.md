@@ -378,6 +378,10 @@ Generate completion scripts for Bash, Zsh, Fish, or PowerShell with
 `voom completion <shell>`. Completion includes command names, existing VM and
 image names, and image names for `--image`.
 
+The Nix package installs Bash, Fish, and Zsh completion files in their standard
+directories. Fish loads them automatically from Nix profiles. Bash and Zsh use
+them when their completion systems are enabled.
+
 Bash requires the `bash-completion` package.
 
 To enable completion in the current session:

@@ -27,6 +27,7 @@
           inherit version;
           src = self;
           subPackages = [ "cmd/voom" ];
+          nativeBuildInputs = [ pkgs.installShellFiles ];
           vendorHash = "sha256-fxOjkVStDgZInA0/HEzi1/ZaI0XO+bc7sI94ok0QenY=";
           ldflags = [
             "-X github.com/mjrusso/voom/internal/cli.version=${version}"
@@ -34,6 +35,10 @@
             "-X github.com/mjrusso/voom/internal/cli.date=${date}"
           ];
           postInstall = ''
+            installShellCompletion --cmd voom \
+              --bash <($out/bin/voom completion bash) \
+              --fish <($out/bin/voom completion fish) \
+              --zsh <($out/bin/voom completion zsh)
             ln -s ${gvproxy}/bin/gvproxy $out/bin/gvproxy
             mkdir -p $out/share/licenses
             ln -s ${gvproxy}/share/licenses/gvproxy $out/share/licenses/gvproxy
@@ -63,6 +68,7 @@
             ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.terminal-notifier ];
         };
         checks.voom = voom;
+        checks.voom-completions = pkgs.callPackage ./nix/completion-test.nix { inherit voom; };
         checks.gvproxy = gvproxy;
       });
 }
