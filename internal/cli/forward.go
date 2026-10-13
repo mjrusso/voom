@@ -77,7 +77,7 @@ func forwardAddCommand() *cobra.Command {
 
 func forwardRemoveCommand() *cobra.Command {
 	var bind, protocol string
-	cmd := &cobra.Command{Use: "remove <name> <host-port>", Aliases: []string{"rm"}, Short: "Remove a manual TCP or UDP forward", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "remove <name> <host-port>", Aliases: []string{"rm", "delete"}, Short: "Remove a manual TCP or UDP forward", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		protocol, err := forward.NormalizeProtocol(protocol)
 		if err != nil {
 			return err

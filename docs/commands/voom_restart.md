@@ -2,6 +2,10 @@
 
 Restart a VM
 
+### Synopsis
+
+Stop and start the VM and its host helpers, including gvproxy.
+
 ```
 voom restart <name> [flags]
 ```

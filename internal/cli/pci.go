@@ -80,7 +80,7 @@ func pciCommand() *cobra.Command {
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use:     "remove <name> <device-name>",
-		Aliases: []string{"rm"},
+		Aliases: []string{"rm", "delete"},
 		Short:   "Remove a PCI assignment from a stopped VM",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

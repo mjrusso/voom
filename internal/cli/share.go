@@ -34,7 +34,7 @@ func shareCommand() *cobra.Command {
 		return pflag.NormalizedName(name)
 	})
 	cmd.AddCommand(add)
-	cmd.AddCommand(&cobra.Command{Use: "remove <name> <tag>", Aliases: []string{"rm"}, Short: "Remove a share", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd.AddCommand(&cobra.Command{Use: "remove <name> <tag>", Aliases: []string{"rm", "delete"}, Short: "Remove a share", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err

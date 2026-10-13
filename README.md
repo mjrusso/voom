@@ -349,9 +349,6 @@ image or a bootable disk image.
 | NixOS     | `nixos switch`                                                                                          |
 | Inspect   | `list`, `info`, `logs`, `events`, `doctor`, `guest ports`, `debug paths`, `version`, `skill`            |
 
-Every `list` command accepts `ls` as an alias. Every `remove` command accepts
-`rm`; `voom remove` also accepts `destroy`.
-
 Notes and considerations:
 
 - Host SSH ports are auto-allocated (in the range 2222–2299); the selection is
@@ -367,6 +364,15 @@ Notes and considerations:
   text/subprocess oriented.
 
 _For the full command reference, see [docs/commands](docs/commands/)._
+
+### Aliases
+
+`shutdown` is an alias for `stop`, and `reboot` is an alias for `restart`.
+`restart` and `reboot` stop and start the VM and its host helpers, including gvproxy.
+Use `inspect` or `info` to inspect a VM, and `image inspect` or `image info`
+to inspect an image. Every `list` command accepts `ls`. Every `remove` command
+accepts `rm` and `delete`; `voom remove` also accepts `destroy`.
+`gpu` is an alias for `pci`.
 
 ## Explicit HTTP proxy attachments
 

@@ -123,7 +123,7 @@ func startCommand() *cobra.Command {
 }
 
 func stopCommand() *cobra.Command {
-	return &cobra.Command{Use: "stop <name>", Short: "Stop a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "stop <name>", Aliases: []string{"shutdown"}, Short: "Stop a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -145,7 +145,7 @@ func stopCommand() *cobra.Command {
 }
 
 func restartCommand() *cobra.Command {
-	return &cobra.Command{Use: "restart <name>", Short: "Restart a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "restart <name>", Aliases: []string{"reboot"}, Short: "Restart a VM", Long: "Stop and start the VM and its host helpers, including gvproxy.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -250,7 +250,7 @@ func logsCommand() *cobra.Command {
 }
 
 func infoCommand() *cobra.Command {
-	return &cobra.Command{Use: "info <name>", Short: "Inspect a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "info <name>", Aliases: []string{"inspect"}, Short: "Inspect a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -411,7 +411,7 @@ func renameCommand() *cobra.Command {
 
 func removeCommand() *cobra.Command {
 	var force bool
-	cmd := &cobra.Command{Use: "remove <name>", Aliases: []string{"rm", "destroy"}, Short: "Remove a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "remove <name>", Aliases: []string{"rm", "destroy", "delete"}, Short: "Remove a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err

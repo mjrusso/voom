@@ -47,9 +47,10 @@ func imageListCommand() *cobra.Command {
 
 func imageInspectCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "inspect <name>",
-		Short: "Inspect an image",
-		Args:  cobra.ExactArgs(1),
+		Use:     "inspect <name>",
+		Aliases: []string{"info"},
+		Short:   "Inspect an image",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()
 			if err != nil {
@@ -129,7 +130,7 @@ func imageRemoveCommand() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:     "remove <name>",
-		Aliases: []string{"rm"},
+		Aliases: []string{"rm", "delete"},
 		Short:   "Remove an image",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

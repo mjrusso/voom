@@ -6,6 +6,9 @@
 - Keep VMs running when an automatic forward cannot be saved before installation,
   or when gvproxy rejects a forward without installing it.
 
+- Add command aliases: `shutdown` for `stop`, `reboot` for `restart`, `inspect`
+  for `info`, `image info` for `image inspect`, and `delete` for `remove`.
+
 - If Voom cannot confirm whether a port forward was added or removed, try to stop
   gvproxy so an outstanding request cannot later change forwarding or keep a host
   port bound. Once gvproxy is confirmed stopped, stop the VM because its networking
