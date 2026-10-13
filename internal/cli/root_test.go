@@ -675,3 +675,15 @@ func TestSSHPortReservationsPersistAcrossStoppedVMs(t *testing.T) {
 		t.Fatalf("expected stopped VM SSH reservation to block forward, got %v", err)
 	}
 }
+
+func TestManualForwardRejectsUnsupportedProtocol(t *testing.T) {
+	for _, command := range []string{"add", "remove"} {
+		cmd := NewRootCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs([]string{"forward", command, "unused", "5353", "--protocol", "sctp"})
+		if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "unsupported forward protocol") {
+			t.Fatalf("%s: %v", command, err)
+		}
+	}
+}

@@ -60,3 +60,8 @@ Remove the patch when an upstream release provides startup configuration,
 host-only live control and observation, idempotent listeners, cancellation of
 pending dials, and confirmed active-relay termination. Update the pinned source,
 capability checks, and integration tests together.
+
+UDP forwards use a separate guest connection for each host client.
+`gvproxy-udp-forward.patch` preserves empty datagrams and prevents new sessions
+after removal. The capability reports include `udp-forward-v1`, which Voom
+requires to install UDP forwards.

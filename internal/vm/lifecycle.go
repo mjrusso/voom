@@ -13,6 +13,7 @@ import (
 	"github.com/mjrusso/voom/internal/driver/qemu"
 	"github.com/mjrusso/voom/internal/driver/vfkit"
 	"github.com/mjrusso/voom/internal/egress"
+	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/image"
@@ -294,6 +295,12 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		return nil, err
 	}
 	requiredCapabilities := []string{gvproxy.GuestIsolationCapability}
+	for _, f := range vm.Network.Forwards {
+		if f.Protocol == "udp" {
+			requiredCapabilities = append(requiredCapabilities, gvproxy.UDPForwardCapability)
+			break
+		}
+	}
 	var egressCA []byte
 	if d := vm.Network.Egress; d != nil {
 		if d.Enabled {
@@ -359,12 +366,12 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	if err := m.preparePCIDevices(vm); err != nil {
 		return nil, err
 	}
-	if portBusy(vm.Network.SSHBind, vm.Network.SSHPort) {
+	if portBusy("tcp", vm.Network.SSHBind, vm.Network.SSHPort) {
 		return nil, fmt.Errorf("persisted SSH port %s:%d is in use; stop the conflicting process or change VM state", vm.Network.SSHBind, vm.Network.SSHPort)
 	}
 	for _, f := range vm.Network.Forwards {
-		if portBusy(f.Bind, f.HostPort) {
-			return nil, fmt.Errorf("declared forward %s:%d is in use; remove the conflict or 'voom forward remove %s %d'", f.Bind, f.HostPort, vm.Name, f.HostPort)
+		if portBusy(f.Protocol, f.Bind, f.HostPort) {
+			return nil, fmt.Errorf("declared %s forward %s is in use; remove the conflict or 'voom forward remove %s %d --protocol %s --bind %s'", f.Protocol, forward.Address(f.Bind, f.HostPort), vm.Name, f.HostPort, f.Protocol, f.Bind)
 		}
 	}
 	firmwarePath := ""
@@ -441,12 +448,12 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		return nil, fmt.Errorf("timed out waiting for gvproxy sockets; see %s", m.store.LogPath(vm, "gvproxy"))
 	}
 	guestTargetIP := m.GuestTargetIP(vm)
-	if err := gvproxyExpose(rt.NetworkSock(), fmt.Sprintf("%s:%d", vm.Network.SSHBind, vm.Network.SSHPort), fmt.Sprintf("%s:22", guestTargetIP)); err != nil {
+	if err := gvproxy.Expose(rt.NetworkSock(), "tcp", forward.Address(vm.Network.SSHBind, vm.Network.SSHPort), forward.Address(guestTargetIP, 22)); err != nil {
 		return nil, fmt.Errorf("could not install SSH forward: %w", err)
 	}
 	for _, f := range vm.Network.Forwards {
-		if err := gvproxyExpose(rt.NetworkSock(), fmt.Sprintf("%s:%d", f.Bind, f.HostPort), fmt.Sprintf("%s:%d", guestTargetIP, f.GuestPort)); err != nil {
-			return nil, err
+		if err := gvproxy.Expose(rt.NetworkSock(), f.Protocol, forward.Address(f.Bind, f.HostPort), forward.Address(guestTargetIP, f.GuestPort)); err != nil {
+			return nil, fmt.Errorf("could not install %s forward %s: %w", f.Protocol, forward.Address(f.Bind, f.HostPort), err)
 		}
 	}
 	switch vm.Driver {
@@ -582,6 +589,13 @@ func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeS
 	})
 	if gatewayErr != nil {
 		failures = append(failures, gatewayErr)
+	}
+	if !gatewayConfirmed {
+		for _, f := range vm.Network.Forwards {
+			if err := gvproxy.Unexpose(rt.NetworkSock(), f.Protocol, forward.Address(f.Bind, f.HostPort)); err != nil {
+				failures = append(failures, err)
+			}
+		}
 	}
 	cleanupMode := unexposeAutoForwards
 	if gatewayConfirmed {

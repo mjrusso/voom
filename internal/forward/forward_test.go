@@ -1,6 +1,7 @@
 package forward
 
 import (
+	"encoding/json"
 	"errors"
 	"net"
 	"os"
@@ -211,4 +212,22 @@ func mustPlanAuto(t *testing.T, cfg VMPlanConfig, report PortsReport, existing [
 		t.Fatal(err)
 	}
 	return rows
+}
+
+func TestDeclarationProtocolCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		input, want string
+		invalid     bool
+	}{
+		{`{"guestPort":80,"hostPort":8080,"bind":"127.0.0.1"}`, "tcp", false},
+		{`{"protocol":"","guestPort":80}`, "tcp", false},
+		{`{"protocol":"udp","guestPort":53}`, "udp", false},
+		{`{"protocol":"sctp"}`, "", true},
+	} {
+		var decl Decl
+		err := json.Unmarshal([]byte(tc.input), &decl)
+		if (err != nil) != tc.invalid || decl.Protocol != tc.want {
+			t.Fatalf("%s: %#v %v", tc.input, decl, err)
+		}
+	}
 }

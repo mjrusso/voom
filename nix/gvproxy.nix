@@ -1,7 +1,7 @@
 { lib, buildGoModule, gvproxyLicenses, gvproxyNotice, gvproxySource }:
 buildGoModule {
   pname = "gvproxy";
-  version = "0.8.9-voom.4";
+  version = "0.8.9-voom.5";
   src = gvproxySource;
   vendorHash = null;
   subPackages = [ "cmd/gvproxy" ];

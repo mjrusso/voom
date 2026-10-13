@@ -93,6 +93,9 @@ func replayCommands(vm *state.VMRecord, target string) []string {
 	}
 	for _, f := range vm.Network.Forwards {
 		line := fmt.Sprintf("voom forward add %s %d --host-port %d", shellQuote(target), f.GuestPort, f.HostPort)
+		if f.Protocol == "udp" {
+			line += " --protocol udp"
+		}
 		// Manual forwards default to a 127.0.0.1 bind; only emit --bind when the
 		// VM was given a different host bind address.
 		if f.Bind != "" && f.Bind != "127.0.0.1" {

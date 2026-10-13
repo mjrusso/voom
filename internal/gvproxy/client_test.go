@@ -1,6 +1,7 @@
 package gvproxy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // shortTempDir avoids the MacOS 104-char Unix-socket path limit that t.TempDir()
@@ -48,13 +50,13 @@ func TestExposePostsLocalAndRemote(t *testing.T) {
 		gotBody = string(b)
 		w.WriteHeader(http.StatusOK)
 	}))
-	if err := Expose(sock, "127.0.0.1:2222", "192.168.127.2:22"); err != nil {
+	if err := Expose(sock, "tcp", "127.0.0.1:2222", "192.168.127.2:22"); err != nil {
 		t.Fatal(err)
 	}
 	if gotPath != "/services/forwarder/expose" {
 		t.Errorf("path = %q, want /services/forwarder/expose", gotPath)
 	}
-	if !strings.Contains(gotBody, `"local":"127.0.0.1:2222"`) || !strings.Contains(gotBody, `"remote":"192.168.127.2:22"`) {
+	if !strings.Contains(gotBody, `"protocol":"tcp"`) || !strings.Contains(gotBody, `"local":"127.0.0.1:2222"`) || !strings.Contains(gotBody, `"remote":"192.168.127.2:22"`) {
 		t.Errorf("body = %s", gotBody)
 	}
 }
@@ -64,7 +66,7 @@ func TestUnexposeReportsNon2xxBody(t *testing.T) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("forwarder not found\n"))
 	}))
-	err := Unexpose(sock, "127.0.0.1:2222")
+	err := Unexpose(sock, "tcp", "127.0.0.1:2222")
 	var response *HTTPError
 	if !errors.As(err, &response) || response.Status != http.StatusBadRequest || response.Body != "forwarder not found" {
 		t.Fatalf("Unexpose error = %#v", err)
@@ -117,7 +119,33 @@ func TestLookupLeaseRejectsMalformedJSON(t *testing.T) {
 
 func TestExposeFailsWhenSocketMissing(t *testing.T) {
 	sock := filepath.Join(shortTempDir(t), "x")
-	if err := Expose(sock, "127.0.0.1:2222", "192.168.127.2:22"); err == nil {
+	if err := Expose(sock, "tcp", "127.0.0.1:2222", "192.168.127.2:22"); err == nil {
 		t.Fatal("expected dial error")
+	}
+}
+
+func TestForwardsHonorsCancellation(t *testing.T) {
+	entered := make(chan struct{})
+	sock := newFakeGVProxy(t, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-r.Context().Done()
+	}))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { _, err := Forwards(ctx, sock); result <- err }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("snapshot request did not arrive")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancellation: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("snapshot request ignored cancellation")
 	}
 }

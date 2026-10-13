@@ -1,19 +1,27 @@
 ## voom forward add
 
-Add a manual forward
+Add a manual TCP or UDP forward
 
 ```
 voom forward add <name> <guest-port> [flags]
 ```
 
+### Examples
+
+```
+  voom forward add dev 8080 --protocol tcp --host-port 18080 --bind 127.0.0.1
+  voom forward add dev 5353 --protocol udp --host-port 15353 --bind 127.0.0.1
+```
+
 ### Options
 
 ```
-      --auto            allocate a free host port
-      --bind string     host bind address
-  -h, --help            help for add
-      --host-port int   host port
-      --lan             bind to 0.0.0.0
+      --auto              allocate a free host port
+      --bind string       host bind address
+  -h, --help              help for add
+      --host-port int     host port
+      --lan               bind to 0.0.0.0
+      --protocol string   transport protocol (tcp or udp) (default "tcp")
 ```
 
 ### Options inherited from parent commands

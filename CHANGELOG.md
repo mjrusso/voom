@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add UDP port forwarding with `voom forward add --protocol udp`. TCP remains
+  the default. TCP and UDP can use the same host address and port.
+
 ## v1.3.0 - 2026-10-09
 
 > [!IMPORTANT]

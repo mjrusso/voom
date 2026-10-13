@@ -1,0 +1,244 @@
+diff --git a/pkg/services/forwarder/udp_proxy.go b/pkg/services/forwarder/udp_proxy.go
+--- a/pkg/services/forwarder/udp_proxy.go
++++ b/pkg/services/forwarder/udp_proxy.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package forwarder
+ 
+ // Modified version of https://github.com/moby/moby/blob/master/cmd/docker-proxy/udp_proxy.go and
+@@ -5,6 +6,7 @@
+ 
+ import (
+ 	"encoding/binary"
++	"errors"
+ 	"io"
+ 	"net"
+ 	"strings"
+@@ -55,6 +57,7 @@
+ 	dialer         func() (net.Conn, error)
+ 	connTrackTable connTrackMap
+ 	connTrackLock  sync.Mutex
++	closed         bool
+ }
+ 
+ // NewUDPProxy creates a new UDPProxy.
+@@ -79,10 +82,6 @@
+ 		_ = proxyConn.SetReadDeadline(time.Now().Add(UDPConnTrackTimeout))
+ 	again:
+ 		read, err := proxyConn.Read(readBuf)
+-		if read == 0 && err == nil {
+-			// treat this condition same as EOF
+-			return
+-		}
+ 		if err != nil {
+ 			if err, ok := err.(*net.OpError); ok && err.Err == syscall.ECONNREFUSED {
+ 				// This will happen if the last write failed
+@@ -94,12 +93,8 @@
+ 			}
+ 			return
+ 		}
+-		for i := 0; i != read; {
+-			written, err := proxy.listener.WriteTo(readBuf[i:read], clientAddr)
+-			if err != nil {
+-				return
+-			}
+-			i += written
++		if _, err := proxy.listener.WriteTo(readBuf[:read], clientAddr); err != nil {
++			return
+ 		}
+ 	}
+ }
+@@ -121,6 +116,10 @@
+ 
+ 		fromKey := newConnTrackKey(from.(*net.UDPAddr))
+ 		proxy.connTrackLock.Lock()
++		if proxy.closed {
++			proxy.connTrackLock.Unlock()
++			return
++		}
+ 		proxyConn, hit := proxy.connTrackTable[*fromKey]
+ 		if !hit {
+ 			proxyConn, err = proxy.dialer()
+@@ -133,27 +132,28 @@
+ 			go proxy.replyLoop(proxyConn, from, fromKey)
+ 		}
+ 		proxy.connTrackLock.Unlock()
+-		for i := 0; i != read; {
+-			_ = proxyConn.SetReadDeadline(time.Now().Add(UDPConnTrackTimeout))
+-			written, err := proxyConn.Write(readBuf[i:read])
+-			if err != nil {
+-				log.Errorf("Can't proxy a datagram to udp: %s\n", err)
+-				break
+-			}
+-			i += written
++		_ = proxyConn.SetReadDeadline(time.Now().Add(UDPConnTrackTimeout))
++		if _, err := proxyConn.Write(readBuf[:read]); err != nil {
++			log.Errorf("Can't proxy a datagram to udp: %s", err)
+ 		}
+ 	}
+ }
+ 
+ // Close stops forwarding the traffic.
+ func (proxy *UDPProxy) Close() error {
+-	proxy.listener.Close()
++	var failures []error
++	if err := proxy.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
++		failures = append(failures, err)
++	}
+ 	proxy.connTrackLock.Lock()
+ 	defer proxy.connTrackLock.Unlock()
++	proxy.closed = true
+ 	for _, conn := range proxy.connTrackTable {
+-		conn.Close()
++		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
++			failures = append(failures, err)
++		}
+ 	}
+-	return nil
++	return errors.Join(failures...)
+ }
+ 
+ func isClosedError(err error) bool {
+diff --git a/pkg/services/gatewayforward/gatewayforward.go b/pkg/services/gatewayforward/gatewayforward.go
+--- a/pkg/services/gatewayforward/gatewayforward.go
++++ b/pkg/services/gatewayforward/gatewayforward.go
+@@ -208,7 +208,7 @@
+ 
+ func (f *Forwarder) Register(mux *http.ServeMux) {
+ 	mux.HandleFunc("GET /services/gateway-forward/capabilities", func(w http.ResponseWriter, r *http.Request) {
+-		_ = json.NewEncoder(w).Encode(map[string]int{Capability: 1, IsolationCapability: 1})
++		_ = json.NewEncoder(w).Encode(map[string]int{Capability: 1, IsolationCapability: 1, "udp-forward-v1": 1})
+ 	})
+ 	mux.HandleFunc("GET /services/gateway-forward/all", func(w http.ResponseWriter, r *http.Request) { _ = json.NewEncoder(w).Encode(f.All()) })
+ 	for _, action := range []string{"expose", "unexpose"} {
+diff --git a/cmd/gvproxy/config.go b/cmd/gvproxy/config.go
+--- a/cmd/gvproxy/config.go
++++ b/cmd/gvproxy/config.go
+@@ -98,7 +98,7 @@
+ 	}
+ 
+ 	if args.capabilities {
+-		_ = json.NewEncoder(os.Stdout).Encode(map[string]int{gatewayforward.Capability: 1, gatewayforward.IsolationCapability: 1})
++		_ = json.NewEncoder(os.Stdout).Encode(map[string]int{gatewayforward.Capability: 1, gatewayforward.IsolationCapability: 1, "udp-forward-v1": 1})
+ 		os.Exit(0)
+ 	}
+ 	if version.ShowVersion() {
+diff --git a/pkg/virtualnetwork/udp_forward_test.go b/pkg/virtualnetwork/udp_forward_test.go
+--- /dev/null
++++ b/pkg/virtualnetwork/udp_forward_test.go
+@@ -0,0 +1,115 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
++package virtualnetwork
++
++import (
++	"bytes"
++	"context"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/containers/gvisor-tap-vsock/pkg/types"
++	"gvisor.dev/gvisor/pkg/tcpip"
++	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
++	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
++)
++
++func TestUDPHostForwardMultipleClients(t *testing.T) {
++	host, err := New(&types.Configuration{MTU: 1500, Subnet: "192.168.127.0/24", GatewayIP: "192.168.127.1", GatewayMacAddress: "5a:94:ef:e4:0c:dd"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	guest, err := New(&types.Configuration{MTU: 1500, Subnet: "192.168.127.0/24", GatewayIP: "192.168.127.3", GatewayMacAddress: "5a:94:ef:e4:0c:ee"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer host.stack.Close()
++	defer guest.stack.Close()
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	a, b := net.Pipe()
++	defer a.Close()
++	defer b.Close()
++	go host.AcceptQemu(ctx, a)
++	go guest.AcceptQemu(ctx, b)
++	echo, err := gonet.DialUDP(guest.stack, &tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{192, 168, 127, 3}), Port: 5353}, nil, ipv4.ProtocolNumber)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer echo.Close()
++	go func() {
++		buf := make([]byte, 65507)
++		for {
++			n, from, err := echo.ReadFrom(buf)
++			if err != nil {
++				return
++			}
++			echo.WriteTo(buf[:n], from)
++		}
++	}()
++	probe, err := net.ListenPacket("udp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	local := probe.LocalAddr().String()
++	probe.Close()
++	mux := host.Mux()
++	request := func(action string) {
++		t.Helper()
++		res := httptest.NewRecorder()
++		mux.ServeHTTP(res, httptest.NewRequest(http.MethodPost, "/services/forwarder/"+action, strings.NewReader(`{"protocol":"udp","local":"`+local+`","remote":"192.168.127.3:5353"}`)))
++		if res.Code != 200 {
++			t.Fatalf("%s: %d %s", action, res.Code, res.Body.String())
++		}
++	}
++	request("expose")
++	defer request("unexpose")
++	clients := make([]net.Conn, 3)
++	for i := range clients {
++		clients[i], err = net.Dial("udp", local)
++		if err != nil {
++			t.Fatal(err)
++		}
++		defer clients[i].Close()
++	}
++	for round := 0; round < 3; round++ {
++		for i, c := range clients {
++			c.SetDeadline(time.Now().Add(3 * time.Second))
++			if _, err := c.Write([]byte{byte(i), byte(round)}); err != nil {
++				t.Fatal(err)
++			}
++		}
++		for i, c := range clients {
++			got := make([]byte, 100)
++			n, err := c.Read(got)
++			if err != nil || !bytes.Equal(got[:n], []byte{byte(i), byte(round)}) {
++				t.Fatalf("client %d round %d: %x %v", i, round, got[:n], err)
++			}
++		}
++	}
++	c := clients[0]
++	c.SetDeadline(time.Now().Add(3 * time.Second))
++	if _, err := c.Write(nil); err != nil {
++		t.Fatal(err)
++	}
++	if n, err := c.Read(make([]byte, 1)); n != 0 || err != nil {
++		t.Fatalf("empty datagram: %d %v", n, err)
++	}
++	request("unexpose")
++	rebound, err := net.ListenPacket("udp", local)
++	if err != nil {
++		t.Fatal(err)
++	}
++	rebound.Close()
++	request("expose")
++	c.SetDeadline(time.Now().Add(3 * time.Second))
++	c.Write([]byte("restart"))
++	got := make([]byte, 100)
++	n, err := c.Read(got)
++	if err != nil || string(got[:n]) != "restart" {
++		t.Fatalf("reinstall: %q %v", got[:n], err)
++	}
++}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mjrusso/voom/internal/forward"
+	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 )
@@ -291,7 +292,7 @@ func (m *Manager) reconcileAutoForwardsLocked(vm *state.VMRecord) ([]RuntimeAuto
 			desired[i].GVProxyPID = gvproxyPID
 			continue
 		}
-		err := gvproxyExpose(sock, fmt.Sprintf("%s:%d", desired[i].Bind, desired[i].HostPort), fmt.Sprintf("%s:%d", desired[i].GuestTargetIP, desired[i].GuestPort))
+		err := gvproxy.Expose(sock, desired[i].Protocol, forward.Address(desired[i].Bind, desired[i].HostPort), forward.Address(desired[i].GuestTargetIP, desired[i].GuestPort))
 		if err != nil {
 			desired[i].Installed = false
 			desired[i].Status = "skipped"
@@ -305,7 +306,7 @@ func (m *Manager) reconcileAutoForwardsLocked(vm *state.VMRecord) ([]RuntimeAuto
 	if err := m.saveRuntimeAutoForwards(vm, desired); err != nil {
 		failures := []error{err}
 		for _, row := range newlyExposed {
-			if rollbackErr := gvproxyUnexpose(sock, fmt.Sprintf("%s:%d", row.Bind, row.HostPort)); rollbackErr != nil {
+			if rollbackErr := gvproxy.Unexpose(sock, row.Protocol, forward.Address(row.Bind, row.HostPort)); rollbackErr != nil {
 				failures = append(failures, fmt.Errorf("roll back auto-forward %s:%d: %w", row.Bind, row.HostPort, rollbackErr))
 			}
 		}
@@ -348,7 +349,7 @@ func (m *Manager) removeAutoForwardRowsLocked(vm *state.VMRecord, oldRows []Runt
 			continue
 		}
 		if row.Installed && mode == unexposeAutoForwards {
-			if err := gvproxyUnexpose(rt.NetworkSock(), fmt.Sprintf("%s:%d", row.Bind, row.HostPort)); err != nil {
+			if err := gvproxy.Unexpose(rt.NetworkSock(), row.Protocol, forward.Address(row.Bind, row.HostPort)); err != nil {
 				remaining = append(remaining, row)
 				failures = append(failures, fmt.Errorf("unexpose auto-forward %s:%d: %w", row.Bind, row.HostPort, err))
 				continue
@@ -363,9 +364,9 @@ func (m *Manager) removeAutoForwardRowsLocked(vm *state.VMRecord, oldRows []Runt
 	if err := m.saveRuntimeAutoForwards(vm, remaining); err != nil {
 		failures = append(failures, err)
 		for _, row := range unexposed {
-			local := fmt.Sprintf("%s:%d", row.Bind, row.HostPort)
-			remote := fmt.Sprintf("%s:%d", row.GuestTargetIP, row.GuestPort)
-			if rollbackErr := gvproxyExpose(rt.NetworkSock(), local, remote); rollbackErr != nil {
+			local := forward.Address(row.Bind, row.HostPort)
+			remote := forward.Address(row.GuestTargetIP, row.GuestPort)
+			if rollbackErr := gvproxy.Expose(rt.NetworkSock(), row.Protocol, local, remote); rollbackErr != nil {
 				failures = append(failures, fmt.Errorf("roll back auto-forward removal %s: %w", local, rollbackErr))
 			}
 		}
@@ -427,14 +428,14 @@ func (m *Manager) PlanAutoForwards(vm *state.VMRecord, report GuestPortsReport, 
 		GuestTargetIP: m.GuestTargetIP(vm),
 	}, report, existing, forward.PlanOptions{
 		PortReserved: func(bind string, port int) (bool, error) {
-			reserved, err := m.store.PortReserved(bind, port)
+			reserved, err := m.store.PortReserved("tcp", bind, port)
 			if err != nil {
 				return false, fmt.Errorf("inspect declared port reservations: %w", err)
 			}
 			return reserved, nil
 		},
 		RuntimeAutoReserved: func(bind string, port int) (bool, error) {
-			reserved, err := m.runtimeAutoReserved(vm.ID, bind, port)
+			reserved, err := m.runtimeAutoReserved(vm.ID, "tcp", bind, port)
 			if err != nil {
 				return false, fmt.Errorf("inspect runtime auto-forward reservations: %w", err)
 			}
@@ -471,7 +472,7 @@ func (m *Manager) runtimeGVProxyPID(vm *state.VMRecord) int {
 	return pid
 }
 
-func (m *Manager) runtimeAutoReserved(exceptVMID, bind string, port int) (bool, error) {
+func (m *Manager) runtimeAutoReserved(exceptVMID, protocol, bind string, port int) (bool, error) {
 	vms, err := m.store.ListVMs()
 	if err != nil {
 		return false, err
@@ -485,7 +486,7 @@ func (m *Manager) runtimeAutoReserved(exceptVMID, bind string, port int) (bool, 
 			continue
 		}
 		for _, f := range rows {
-			if f.Installed && f.HostPort == port && forward.BindsConflict(bind, f.Bind) {
+			if f.Installed && f.Protocol == protocol && f.HostPort == port && forward.BindsConflict(bind, f.Bind) {
 				return true, nil
 			}
 		}
@@ -493,13 +494,13 @@ func (m *Manager) runtimeAutoReserved(exceptVMID, bind string, port int) (bool, 
 	return false, nil
 }
 
-func (m *Manager) allocateAutoPort(bind string) (int, error) {
+func (m *Manager) allocateAutoPort(protocol, bind string) (int, error) {
 	for p := autoForwardPortLow; p <= autoForwardPortHigh; p++ {
-		reserved, err := m.store.PortReserved(bind, p)
+		reserved, err := m.store.PortReserved(protocol, bind, p)
 		if err != nil {
 			return 0, err
 		}
-		if !reserved && !portBusy(bind, p) {
+		if !reserved && !portBusy(protocol, bind, p) {
 			return p, nil
 		}
 	}

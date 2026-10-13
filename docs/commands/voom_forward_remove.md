@@ -1,6 +1,6 @@
 ## voom forward remove
 
-Remove a manual forward
+Remove a manual TCP or UDP forward
 
 ```
 voom forward remove <name> <host-port> [flags]
@@ -9,8 +9,9 @@ voom forward remove <name> <host-port> [flags]
 ### Options
 
 ```
-      --bind string   host bind address (default "127.0.0.1")
-  -h, --help          help for remove
+      --bind string       host bind address (default "127.0.0.1")
+  -h, --help              help for remove
+      --protocol string   transport protocol (tcp or udp) (default "tcp")
 ```
 
 ### Options inherited from parent commands

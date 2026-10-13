@@ -12,7 +12,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mjrusso/voom/internal/forward"
 )
+
+// UDPForwardCapability identifies gvproxy builds with UDP datagram and session fixes.
+const UDPForwardCapability = "udp-forward-v1"
 
 var (
 	clientsMu sync.Mutex
@@ -36,15 +41,33 @@ func clientForSocket(sock string) *http.Client {
 	return c
 }
 
-// Expose registers a host-to-guest TCP forwarder with gvproxy.
-func Expose(sock, local, remote string) error {
-	_, err := request(context.Background(), sock, http.MethodPost, "/services/forwarder/expose", map[string]string{"local": local, "remote": remote})
+// Expose registers a host-to-guest TCP or UDP forwarder with gvproxy.
+func Expose(sock, protocol, local, remote string) error {
+	protocol, err := forward.NormalizeProtocol(protocol)
+	if err != nil {
+		return err
+	}
+	if protocol == "udp" {
+		if err := CheckProcess(context.Background(), sock, UDPForwardCapability); err != nil {
+			return fmt.Errorf("UDP forwarding unavailable: %w", err)
+		}
+	}
+	_, err = request(context.Background(), sock, http.MethodPost, "/services/forwarder/expose", map[string]string{"protocol": protocol, "local": local, "remote": remote})
 	return err
 }
 
-// Unexpose removes a previously registered host-to-guest TCP forwarder.
-func Unexpose(sock, local string) error {
-	_, err := request(context.Background(), sock, http.MethodPost, "/services/forwarder/unexpose", map[string]string{"local": local})
+// Unexpose removes a previously registered host-to-guest TCP or UDP forwarder.
+func Unexpose(sock, protocol, local string) error {
+	protocol, err := forward.NormalizeProtocol(protocol)
+	if err != nil {
+		return err
+	}
+	if protocol == "udp" {
+		if err := CheckProcess(context.Background(), sock, UDPForwardCapability); err != nil {
+			return fmt.Errorf("UDP forwarding unavailable: %w", err)
+		}
+	}
+	_, err = request(context.Background(), sock, http.MethodPost, "/services/forwarder/unexpose", map[string]string{"protocol": protocol, "local": local})
 	return err
 }
 
@@ -110,4 +133,28 @@ func request(ctx context.Context, sock, method, path string, body any) ([]byte, 
 		return nil, fmt.Errorf("gvproxy %s failed while reading response: %w", path, readErr)
 	}
 	return data, nil
+}
+
+// Forward is a host listener and guest target reported by gvproxy.
+type Forward struct {
+	Protocol string `json:"protocol"`
+	Local    string `json:"local"`
+	Remote   string `json:"remote"`
+}
+
+// Forwards indexes the installed host-to-guest forwards.
+func Forwards(ctx context.Context, sock string) (map[Forward]struct{}, error) {
+	data, err := request(ctx, sock, http.MethodGet, "/services/forwarder/all", nil)
+	if err != nil {
+		return nil, err
+	}
+	var rows []Forward
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, err
+	}
+	installed := make(map[Forward]struct{}, len(rows))
+	for _, row := range rows {
+		installed[row] = struct{}{}
+	}
+	return installed, nil
 }

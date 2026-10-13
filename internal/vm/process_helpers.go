@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/mjrusso/voom/internal/forward"
-	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
@@ -36,17 +35,9 @@ func socketExists(path string) bool {
 	return err == nil && info.Mode()&os.ModeSocket != 0
 }
 
-func portBusy(bind string, port int) bool {
-	ok, _ := forward.HostPortAvailable(bind, port)
+func portBusy(protocol, bind string, port int) bool {
+	ok, _ := forward.ProtocolPortAvailable(protocol, bind, port)
 	return !ok
-}
-
-func gvproxyExpose(sock, local, remote string) error {
-	return gvproxy.Expose(sock, local, remote)
-}
-
-func gvproxyUnexpose(sock, local string) error {
-	return gvproxy.Unexpose(sock, local)
 }
 
 const maxLogLineLen = 300

@@ -21,9 +21,13 @@ func forwardCommand() *cobra.Command {
 
 func forwardAddCommand() *cobra.Command {
 	var hostPort int
-	var bind string
+	var bind, protocol string
 	var lan, auto bool
-	cmd := &cobra.Command{Use: "add <name> <guest-port>", Short: "Add a manual forward", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "add <name> <guest-port>", Short: "Add a manual TCP or UDP forward", Example: "  voom forward add dev 8080 --protocol tcp --host-port 18080 --bind 127.0.0.1\n  voom forward add dev 5353 --protocol udp --host-port 15353 --bind 127.0.0.1", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		protocol, err := forward.NormalizeProtocol(protocol)
+		if err != nil {
+			return err
+		}
 		guestPort, err := state.ParsePort(args[1])
 		if err != nil {
 			return err
@@ -49,7 +53,7 @@ func forwardAddCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		fwd, err := deps.vm.AddForward(cmd.Context(), args[0], guestPort, hostPort, bind, auto)
+		fwd, err := deps.vm.AddForward(cmd.Context(), args[0], guestPort, hostPort, bind, auto, protocol)
 		if err != nil {
 			return err
 		}
@@ -60,10 +64,11 @@ func forwardAddCommand() *cobra.Command {
 		if vmRec, loadErr := deps.store.LoadVM(args[0]); loadErr == nil {
 			guestTargetIP = state.DefaultGuestTargetIP(vmRec.Driver)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s %s:%d -> %s:%d\n", args[0], fwd.Bind, fwd.HostPort, guestTargetIP, fwd.GuestPort)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s -> %s\n", args[0], fwd.Protocol, forward.Address(fwd.Bind, fwd.HostPort), forward.Address(guestTargetIP, fwd.GuestPort))
 		return nil
 	}}
 	cmd.Flags().IntVar(&hostPort, "host-port", 0, "host port")
+	cmd.Flags().StringVar(&protocol, "protocol", "tcp", "transport protocol (tcp or udp)")
 	cmd.Flags().StringVar(&bind, "bind", "", "host bind address")
 	cmd.Flags().BoolVar(&lan, "lan", false, "bind to 0.0.0.0")
 	cmd.Flags().BoolVar(&auto, "auto", false, "allocate a free host port")
@@ -71,8 +76,12 @@ func forwardAddCommand() *cobra.Command {
 }
 
 func forwardRemoveCommand() *cobra.Command {
-	var bind string
-	cmd := &cobra.Command{Use: "remove <name> <host-port>", Aliases: []string{"rm"}, Short: "Remove a manual forward", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	var bind, protocol string
+	cmd := &cobra.Command{Use: "remove <name> <host-port>", Aliases: []string{"rm"}, Short: "Remove a manual TCP or UDP forward", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		protocol, err := forward.NormalizeProtocol(protocol)
+		if err != nil {
+			return err
+		}
 		port, err := state.ParsePort(args[1])
 		if err != nil {
 			return err
@@ -84,15 +93,16 @@ func forwardRemoveCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err := deps.vm.RemoveForward(cmd.Context(), args[0], port, bind); err != nil {
+		if err := deps.vm.RemoveForward(cmd.Context(), args[0], port, bind, protocol); err != nil {
 			return err
 		}
 		if outputFormat(cmd) == "json" {
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": args[0], "hostPort": port, "bind": bind, "changed": true})
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"name": args[0], "hostPort": port, "bind": bind, "protocol": protocol, "changed": true})
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "removed forward %s:%d from %s\n", bind, port, args[0])
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "removed %s forward %s from %s\n", protocol, forward.Address(bind, port), args[0])
 		return nil
 	}}
+	cmd.Flags().StringVar(&protocol, "protocol", "tcp", "transport protocol (tcp or udp)")
 	cmd.Flags().StringVar(&bind, "bind", "127.0.0.1", "host bind address")
 	return cmd
 }
@@ -103,7 +113,7 @@ func forwardListCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		rows, err := deps.vm.ForwardRows(args)
+		rows, err := deps.vm.ForwardRows(cmd.Context(), args)
 		if err != nil {
 			return err
 		}
@@ -111,7 +121,7 @@ func forwardListCommand() *cobra.Command {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(rows)
 		}
 		for _, r := range rows {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s:%d\t%s:%d\t%s\tinstalled=%t", r.VM, r.Kind, r.Protocol, r.Bind, r.HostPort, r.GuestTargetIP, r.GuestPort, r.Status, r.Installed)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\t%s\t%s\tinstalled=%t", r.VM, r.Kind, r.Protocol, forward.Address(r.Bind, r.HostPort), forward.Address(r.GuestTargetIP, r.GuestPort), r.Status, r.Installed)
 			if r.Kind == "auto" {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\toffset=%d", r.Offset)
 			}
@@ -168,7 +178,7 @@ func forwardDiscoverCommand() *cobra.Command {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s:%d\tforwardable=%t\n", l.Proto, l.Addr, l.Port, forward.ListenerForwardable(l))
 		}
 		for _, f := range preview {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "auto\t%s\t%s:%d\t%s:%d\tinstalled=%t\toffset=%d", f.Status, f.Bind, f.HostPort, f.GuestTargetIP, f.GuestPort, f.Installed, f.Offset)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "auto\t%s\t%s\t%s\t%s\tinstalled=%t\toffset=%d", f.Protocol, f.Status, forward.Address(f.Bind, f.HostPort), forward.Address(f.GuestTargetIP, f.GuestPort), f.Installed, f.Offset)
 			if f.Reason != "" {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\t%s", f.Reason)
 			}
@@ -226,7 +236,7 @@ func forwardAutoCommand() *cobra.Command {
 		}
 		tw := tableWriter(cmd)
 		for _, r := range rows {
-			_, _ = fmt.Fprintf(tw, "%s\t%s:%d\t%s:%d\t%s\n", r.Status, r.Bind, r.HostPort, r.GuestTargetIP, r.GuestPort, r.Reason)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Protocol, r.Status, forward.Address(r.Bind, r.HostPort), forward.Address(r.GuestTargetIP, r.GuestPort), r.Reason)
 		}
 		return tw.Flush()
 	}}

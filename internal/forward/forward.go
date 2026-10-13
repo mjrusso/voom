@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -80,6 +81,38 @@ type PlanOptions struct {
 	HostPortAvailable   func(bind string, port int) (bool, string)
 }
 
+// NormalizeProtocol accepts tcp or udp and defaults an empty value to tcp.
+func NormalizeProtocol(protocol string) (string, error) {
+	if protocol == "" {
+		return "tcp", nil
+	}
+	if protocol != "tcp" && protocol != "udp" {
+		return "", fmt.Errorf("unsupported forward protocol %q; use tcp or udp", protocol)
+	}
+	return protocol, nil
+}
+
+// UnmarshalJSON treats an omitted or empty protocol as TCP.
+func (d *Decl) UnmarshalJSON(data []byte) error {
+	type declaration Decl
+	var decoded declaration
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	protocol, err := NormalizeProtocol(decoded.Protocol)
+	if err != nil {
+		return err
+	}
+	decoded.Protocol = protocol
+	*d = Decl(decoded)
+	return nil
+}
+
+// Address formats a host address and port, including IPv6 literals.
+func Address(bind string, port int) string {
+	return net.JoinHostPort(bind, strconv.Itoa(port))
+}
+
 // NormalizeBind validates and canonicalizes a bind address as an IP literal.
 func NormalizeBind(bind string) (string, error) {
 	if bind == "localhost" {
@@ -118,9 +151,23 @@ func BindsConflict(a, b string) bool {
 
 // HostPortAvailable probes whether the given bind/port can be opened, returning a reason if not.
 func HostPortAvailable(bind string, port int) (bool, string) {
-	ln, err := net.Listen("tcp", net.JoinHostPort(bind, strconv.Itoa(port)))
+	return ProtocolPortAvailable("tcp", bind, port)
+}
+
+// ProtocolPortAvailable probes the host socket for the selected transport.
+func ProtocolPortAvailable(protocol, bind string, port int) (bool, string) {
+	protocol, err := NormalizeProtocol(protocol)
+	if err != nil {
+		return false, err.Error()
+	}
+	var socket io.Closer
+	if protocol == "udp" {
+		socket, err = net.ListenPacket("udp", Address(bind, port))
+	} else {
+		socket, err = net.Listen("tcp", Address(bind, port))
+	}
 	if err == nil {
-		_ = ln.Close()
+		_ = socket.Close()
 		return true, ""
 	}
 	return false, HostPortUnavailableReason(port, err)
@@ -276,6 +323,13 @@ func ReadRuntimeState(path string) ([]RuntimeAuto, error) {
 	}
 	if err := json.Unmarshal(b, &rows); err != nil {
 		return nil, fmt.Errorf("runtime auto-forward state at %s is malformed: %w", path, err)
+	}
+	for i := range rows {
+		protocol, err := NormalizeProtocol(rows[i].Protocol)
+		if err != nil {
+			return nil, err
+		}
+		rows[i].Protocol = protocol
 	}
 	return rows, nil
 }

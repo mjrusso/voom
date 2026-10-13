@@ -184,7 +184,20 @@ curl http://127.0.0.1:9090
 
 The host port defaults to the guest port and binds to `127.0.0.1`; pass
 `--host-port` to map to a different host port, or `--lan` to expose on
-`0.0.0.0`.
+`0.0.0.0`. Use `--bind <host-ip>` to listen on a specific local IP address.
+TCP is the default; use `--protocol udp` for UDP.
+
+```bash
+voom forward add deb 8080 --protocol tcp --host-port 18080 --bind 127.0.0.1
+voom forward add deb 5353 --protocol udp --host-port 15353 --bind 127.0.0.1
+voom forward list deb
+voom forward remove deb 15353 --protocol udp --bind 127.0.0.1
+```
+
+TCP and UDP can share a host address and port. Forwards survive VM restarts.
+Removing a forward closes only that protocol's listener. UDP forwards return
+replies to each client and require the gvproxy bundled with Voom. Automatic
+forwarding discovers TCP listeners only.
 
 ### 6. Shut down the VM
 

@@ -378,7 +378,7 @@ func TestConcurrentPortReservationsCommitOnce(t *testing.T) {
 						results <- err
 						return
 					}
-					_, err := manager.AddForward(context.Background(), name, 8080, port, "127.0.0.1", false)
+					_, err := manager.AddForward(context.Background(), name, 8080, port, "127.0.0.1", false, "tcp")
 					results <- err
 				}()
 			}

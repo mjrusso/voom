@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 )
@@ -810,5 +811,22 @@ func TestReconcileRollsBackExposureAfterStateSaveFailure(t *testing.T) {
 	}
 	if len(rows) != 0 {
 		t.Fatalf("rows = %#v", rows)
+	}
+}
+
+func TestAutoForwardIgnoresUDPReservation(t *testing.T) {
+	st, manager, rec, _ := newAutoForwardFixture(t)
+	port := freeLoopbackPort(t)
+	rec.Network.Forwards = []forward.Decl{{Protocol: "udp", Bind: "0.0.0.0", HostPort: port, GuestPort: port}}
+	if err := st.SaveVM(rec); err != nil {
+		t.Fatal(err)
+	}
+	writeAutoForwardReport(t, st, rec, GuestPortsReport{SchemaVersion: 1, GeneratedAt: time.Now(), Listeners: []GuestListener{{Proto: "tcp", Addr: "0.0.0.0", Port: port}}})
+	rows, err := manager.ReconcileAutoForwards(context.Background(), rec.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || !rows[0].Installed || rows[0].Protocol != "tcp" {
+		t.Fatal(rows)
 	}
 }

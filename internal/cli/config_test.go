@@ -109,6 +109,14 @@ func TestCloneEmitsRetargetedReproductionCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	source, err := st.LoadVM("src")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(source.Network.Forwards) != 1 || source.Network.Forwards[0].Protocol != "tcp" {
+		t.Fatalf("default forward protocol: %#v", source.Network.Forwards)
+	}
+
 	dst, err := st.LoadVM("dst")
 	if err != nil {
 		t.Fatal(err)
@@ -144,5 +152,14 @@ func TestShellQuote(t *testing.T) {
 		if got := shellQuote(in); got != want {
 			t.Errorf("shellQuote(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestReplayUDPForward(t *testing.T) {
+	rec := &state.VMRecord{Network: state.VMNetwork{Forwards: []forward.Decl{{Protocol: "udp", GuestPort: 53, HostPort: 1053, Bind: "127.0.0.2"}}}}
+	got := replayCommands(rec, "clone")
+	want := []string{"voom forward add clone 53 --host-port 1053 --protocol udp --bind 127.0.0.2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }
