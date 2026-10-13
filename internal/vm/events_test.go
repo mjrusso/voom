@@ -47,9 +47,9 @@ func TestEmitAutoForwardTransitions(t *testing.T) {
 	recorder := &recordingEmitter{}
 	m := &Manager{events: recorder}
 	vm := &state.VMRecord{ID: "vm-id", Name: "demo"}
-	active := RuntimeAutoForward{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 8080, GuestPort: 80, Installed: true, Status: "active"}
+	active := RuntimeAutoForward{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 8080, GuestPort: 80, Status: "active"}
 	skipped := active
-	skipped.Installed = false
+
 	skipped.Status = "skipped"
 	skipped.Reason = "busy"
 
@@ -72,5 +72,21 @@ func TestEmitAutoForwardTransitions(t *testing.T) {
 		if actions[i] != want[i] {
 			t.Fatalf("actions = %v, want %v", actions, want)
 		}
+	}
+}
+
+func assertVMStopEvents(t *testing.T, recorder *recordingEmitter, vmID string, want int) {
+	t.Helper()
+	count := 0
+	for _, event := range recorder.events {
+		if event.Type == "vm" && event.Action == "stop" {
+			if event.Actor.ID != vmID {
+				t.Fatalf("stop event has actor %q, want %q", event.Actor.ID, vmID)
+			}
+			count++
+		}
+	}
+	if count != want {
+		t.Fatalf("stop events = %d, want %d: %#v", count, want, recorder.events)
 	}
 }

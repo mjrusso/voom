@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,6 +19,9 @@ import (
 
 // UDPForwardCapability identifies gvproxy builds with UDP datagram and session fixes.
 const UDPForwardCapability = "udp-forward-v1"
+
+// ErrForwardOutcomeUnknown means a mutation may have completed despite its error.
+var ErrForwardOutcomeUnknown = errors.New("gvproxy forward mutation outcome unknown")
 
 var (
 	clientsMu sync.Mutex
@@ -53,7 +57,7 @@ func Expose(sock, protocol, local, remote string) error {
 		}
 	}
 	_, err = request(context.Background(), sock, http.MethodPost, "/services/forwarder/expose", map[string]string{"protocol": protocol, "local": local, "remote": remote})
-	return err
+	return forwardMutationError(err)
 }
 
 // Unexpose removes a previously registered host-to-guest TCP or UDP forwarder.
@@ -68,7 +72,22 @@ func Unexpose(sock, protocol, local string) error {
 		}
 	}
 	_, err = request(context.Background(), sock, http.MethodPost, "/services/forwarder/unexpose", map[string]string{"protocol": protocol, "local": local})
-	return err
+	return forwardMutationError(err)
+}
+
+func forwardMutationError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var response *HTTPError
+	if errors.As(err, &response) {
+		// HTTP 409 from expose guarantees that no listener was installed.
+		if response.Status == http.StatusBadRequest ||
+			(response.Path == "/services/forwarder/expose" && response.Status == http.StatusConflict) {
+			return err
+		}
+	}
+	return errors.Join(ErrForwardOutcomeUnknown, err)
 }
 
 // LookupLease returns the IP address gvproxy has leased to the given MAC, or an error if no lease matches.

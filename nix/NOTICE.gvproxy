@@ -7,8 +7,9 @@ Upstream version: v0.8.9
 Voom adds private gateway forwarding, blocks guest access to host-only services,
 and fixes UDP datagram forwarding and session cleanup. The changes are in
 nix/patches/gvproxy-gateway-forward.patch,
-nix/patches/gvproxy-modification-notices.patch, and
-nix/patches/gvproxy-udp-forward.patch in the Voom source repository.
+nix/patches/gvproxy-modification-notices.patch,
+nix/patches/gvproxy-udp-forward.patch, and
+nix/patches/gvproxy-forward-outcomes.patch in the Voom source repository.
 
 gvproxy is licensed under the Apache License, Version 2.0. See
 LICENSE.gvproxy. Licenses and notices for its linked dependencies are under

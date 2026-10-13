@@ -65,3 +65,7 @@ UDP forwards use a separate guest connection for each host client.
 `gvproxy-udp-forward.patch` preserves empty datagrams and prevents new sessions
 after removal. The capability reports include `udp-forward-v1`, which Voom
 requires to install UDP forwards.
+
+`gvproxy-forward-outcomes.patch` reports rejected expose requests as HTTP 409
+only when no listener was installed. Removal failures and lost responses retain
+an unknown outcome, so Voom keeps reservations until termination is confirmed.

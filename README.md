@@ -197,7 +197,11 @@ voom forward remove deb 15353 --protocol udp --bind 127.0.0.1
 TCP and UDP can share a host address and port. Forwards survive VM restarts.
 Removing a forward closes only that protocol's listener. UDP forwards return
 replies to each client and require the gvproxy bundled with Voom. Automatic
-forwarding discovers TCP listeners only.
+forwarding discovers TCP listeners only. If a forwarding request has an unknown
+outcome, Voom stops the VM before releasing its reservation. If gvproxy
+termination cannot be confirmed, Voom retains the reservation and returns an error.
+Unconfirmed new automatic forwards appear in `voom forward list` as `reservation`
+rows with `uncertain` status.
 
 ### 6. Shut down the VM
 

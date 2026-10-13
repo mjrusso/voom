@@ -7,12 +7,15 @@ import (
 
 type forwardObservation struct {
 	running   bool
+	uncertain bool
 	installed map[gvproxy.Forward]struct{}
 	err       error
 }
 
 func (o forwardObservation) status(f forward.Decl, guestTargetIP string) (string, string) {
 	switch {
+	case o.uncertain:
+		return "uncertain", "forward mutation requires confirmed gvproxy termination"
 	case !o.running:
 		return "stopped", ""
 	case o.err != nil:
@@ -26,12 +29,12 @@ func (o forwardObservation) status(f forward.Decl, guestTargetIP string) (string
 }
 
 func (o forwardObservation) autoStatus(f RuntimeAutoForward) (string, string) {
-	if !f.Installed {
-		return f.Status, f.Reason
+	if f.Status == forward.ReservationSkipped {
+		return string(f.Status), f.Reason
 	}
-	status, reason := o.status(forward.Decl{Protocol: f.Protocol, Bind: f.Bind, HostPort: f.HostPort, GuestPort: f.GuestPort}, f.GuestTargetIP)
+	status, reason := o.status(f.Endpoint(), f.GuestTargetIP)
 	if status == "running" {
-		status = f.Status
+		status = string(f.Status)
 	}
 	if reason == "" {
 		reason = f.Reason

@@ -149,3 +149,47 @@ func TestForwardsHonorsCancellation(t *testing.T) {
 		t.Fatal("snapshot request ignored cancellation")
 	}
 }
+
+func TestForwardMutationOutcomes(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		status  int
+		unknown bool
+	}{{"rejected", 400, false}, {"conflict", 409, false}, {"server-error", 500, true}, {"lost-response", 0, true}} {
+		for _, action := range []string{"expose", "unexpose"} {
+			t.Run(action+"-"+tc.name, func(t *testing.T) {
+				sock := newFakeGVProxy(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					if tc.status == 0 {
+						conn, _, err := w.(http.Hijacker).Hijack()
+						if err != nil {
+							t.Error(err)
+							return
+						}
+						_ = conn.Close()
+					} else {
+						http.Error(w, "failed", tc.status)
+					}
+				}))
+				var err error
+				if action == "expose" {
+					err = Expose(sock, "tcp", "127.0.0.1:18080", "192.168.127.3:8080")
+				} else {
+					err = Unexpose(sock, "tcp", "127.0.0.1:18080")
+				}
+				unknown := tc.unknown || (action == "unexpose" && tc.status == http.StatusConflict)
+				if err == nil || errors.Is(err, ErrForwardOutcomeUnknown) != unknown {
+					t.Fatalf("outcome: %v", err)
+				}
+			})
+		}
+	}
+	sock := newFakeGVProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/services/gateway-forward/capabilities" {
+			t.Error("unsupported backend received mutation")
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	if err := Expose(sock, "udp", "127.0.0.1:15353", "192.168.127.3:5353"); err == nil || errors.Is(err, ErrForwardOutcomeUnknown) {
+		t.Fatalf("capability rejection: %v", err)
+	}
+}

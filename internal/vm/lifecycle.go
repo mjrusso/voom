@@ -447,14 +447,8 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	}, gvproxyStartTimeout); err != nil {
 		return nil, fmt.Errorf("timed out waiting for gvproxy sockets; see %s", m.store.LogPath(vm, "gvproxy"))
 	}
-	guestTargetIP := m.GuestTargetIP(vm)
-	if err := gvproxy.Expose(rt.NetworkSock(), "tcp", forward.Address(vm.Network.SSHBind, vm.Network.SSHPort), forward.Address(guestTargetIP, 22)); err != nil {
-		return nil, fmt.Errorf("could not install SSH forward: %w", err)
-	}
-	for _, f := range vm.Network.Forwards {
-		if err := gvproxy.Expose(rt.NetworkSock(), f.Protocol, forward.Address(f.Bind, f.HostPort), forward.Address(guestTargetIP, f.GuestPort)); err != nil {
-			return nil, fmt.Errorf("could not install %s forward %s: %w", f.Protocol, forward.Address(f.Bind, f.HostPort), err)
-		}
+	if err := m.installDeclaredForwardsLocked(vm); err != nil {
+		return nil, err
 	}
 	switch vm.Driver {
 	case "qemu":
@@ -497,14 +491,20 @@ func (m *Manager) Stop(ctx context.Context, name string) (bool, error) {
 		return false, err
 	}
 	defer unlock()
+	stop, err := m.stopLocked(ctx, vm)
+	return stop.changed, err
+}
+
+// The caller must hold the VM lock.
+func (m *Manager) stopLocked(ctx context.Context, vm *state.VMRecord) (runtimeStopResult, error) {
 	stop, err := m.stopRuntime(ctx, vm)
 	if err != nil {
-		return stop.changed, err
+		return stop, err
 	}
 	if stop.changed {
 		m.emitVM("stop", vm, nil)
 	}
-	return stop.changed, nil
+	return stop, nil
 }
 
 type runtimeStopResult struct {
@@ -552,10 +552,20 @@ func stopService(service runtimeService) (bool, error) {
 // other cleanup errors because live egress rollback depends on it.
 // Cancellation ends graceful waits; signal escalation has a separate time bound.
 func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeStopResult, error) {
+	changed := hasRuntimeState(vm, m.store.Runtime(vm))
+	processErr := m.stopVMProcesses(ctx, vm)
+	confirmed, gatewayErr := m.stopGVProxy(vm)
+	filesChanged, cleanupErr := m.cleanupRuntime(vm, confirmed)
+	return runtimeStopResult{
+		changed:                     changed || filesChanged,
+		gatewayTerminationConfirmed: confirmed,
+	}, errors.Join(processErr, gatewayErr, cleanupErr)
+}
+
+func (m *Manager) stopVMProcesses(ctx context.Context, vm *state.VMRecord) error {
 	rt := m.store.Runtime(vm)
-	changed := hasRuntimeState(vm, rt)
 	var failures []error
-	if err := process.StopRecorded(rt.AutoForwardProcessRecord(), "auto-forward", processStopTimeout); err != nil {
+	if err := m.StopAutoForwardWatcher(vm); err != nil {
 		failures = append(failures, err)
 	}
 	if pid, ok := process.ValidRecord(rt.VMProcessRecord(), state.VMProcessKind(vm.Driver)); ok {
@@ -579,39 +589,48 @@ func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeS
 	if driverErr != nil {
 		failures = append(failures, driverErr)
 	}
-	gatewayConfirmed, gatewayErr := stopService(runtimeService{
-		label:     "gvproxy",
-		kind:      "gvproxy",
-		record:    rt.GVProxyProcessRecord(),
-		artifacts: rt.NetworkArtifacts(),
-		timeout:   processStopTimeout,
-		logPath:   m.store.LogPath(vm, "gvproxy"),
+	return errors.Join(failures...)
+}
+
+func (m *Manager) stopGVProxy(vm *state.VMRecord) (bool, error) {
+	rt := m.store.Runtime(vm)
+	return stopService(runtimeService{
+		label: "gvproxy", kind: "gvproxy", record: rt.GVProxyProcessRecord(),
+		artifacts: rt.NetworkArtifacts(), timeout: processStopTimeout,
+		logPath: m.store.LogPath(vm, "gvproxy"),
 	})
-	if gatewayErr != nil {
-		failures = append(failures, gatewayErr)
-	}
-	if !gatewayConfirmed {
+}
+
+// The caller must hold the VM lock. Unconfirmed termination retains uncertain reservations.
+func (m *Manager) cleanupRuntime(vm *state.VMRecord, gatewayConfirmed bool) (bool, error) {
+	rt := m.store.Runtime(vm)
+	var failures []error
+	if gatewayConfirmed {
+		if err := os.Remove(rt.ForwardMutation()); err != nil && !errors.Is(err, os.ErrNotExist) {
+			failures = append(failures, err)
+		}
+	} else {
+		operations := make([]forwardOperation, 0, len(vm.Network.Forwards))
 		for _, f := range vm.Network.Forwards {
-			if err := gvproxy.Unexpose(rt.NetworkSock(), f.Protocol, forward.Address(f.Bind, f.HostPort)); err != nil {
-				failures = append(failures, err)
-			}
+			operations = append(operations, forwardOperation{action: forwardUnexpose, endpoint: f})
+		}
+		if len(operations) > 0 {
+			err := m.executeForwardMutation(vm, forwardMutation{operations: operations})
+			failures = append(failures, err)
 		}
 	}
-	cleanupMode := unexposeAutoForwards
+	var autoErr error
 	if gatewayConfirmed {
-		cleanupMode = forgetAutoForwards
+		autoErr = m.clearRuntimeAutoForwardsLocked(vm)
+	} else {
+		autoErr = m.cleanupAutoForwardsLocked(vm)
 	}
-	if err := m.cleanupAutoForwardsLocked(vm, cleanupMode); err != nil {
-		failures = append(failures, err)
-	}
+	failures = append(failures, autoErr)
 	if err := m.stopVirtiofsd(rt); err != nil {
 		failures = append(failures, err)
 	}
-	filesChanged, err := removeEgressFiles(rt)
-	return runtimeStopResult{
-		changed:                     changed || filesChanged,
-		gatewayTerminationConfirmed: gatewayConfirmed,
-	}, errors.Join(append(failures, err)...)
+	changed, err := removeEgressFiles(rt)
+	return changed, errors.Join(append(failures, err)...)
 }
 
 func hasRuntimeState(vm *state.VMRecord, rt state.RuntimeLayout) bool {
@@ -621,7 +640,7 @@ func hasRuntimeState(vm *state.VMRecord, rt state.RuntimeLayout) bool {
 		len(rt.FindVirtiofsd()) > 0 {
 		return true
 	}
-	paths := []string{rt.AutoForwardsJSON(), rt.EgressManifest(), rt.EgressCA()}
+	paths := []string{rt.ForwardMutation(), rt.AutoForwardsJSON(), rt.EgressManifest(), rt.EgressCA()}
 	paths = append(paths, rt.NetworkArtifacts()...)
 	paths = append(paths, rt.DriverArtifacts(vm.Driver)...)
 	for _, path := range paths {

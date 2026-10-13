@@ -82,6 +82,11 @@ func (r RuntimeLayout) AutoForwardProcessRecord() string {
 	return filepath.Join(r.dir, "auto-forward.process.json")
 }
 
+// ForwardMutation returns the marker for an unresolved forward mutation.
+func (r RuntimeLayout) ForwardMutation() string {
+	return filepath.Join(r.Dir(), "forward-mutation")
+}
+
 // AutoForwardsJSON returns the path to the auto-forward runtime state JSON.
 func (r RuntimeLayout) AutoForwardsJSON() string {
 	return filepath.Join(r.dir, "auto-forwards.json")

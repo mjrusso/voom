@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Avoid assigning SSH ports that are reserved by automatic forwards.
+- Keep VMs running when an automatic forward cannot be saved before installation,
+  or when gvproxy rejects a forward without installing it.
+
+- If Voom cannot confirm whether a port forward was added or removed, try to stop
+  gvproxy so an outstanding request cannot later change forwarding or keep a host
+  port bound. Once gvproxy is confirmed stopped, stop the VM because its networking
+  is gone, and clear uncertain runtime forwarding state and automatic-forward
+  reservations. Preserve saved forwarding configuration for the next start. If
+  termination cannot be confirmed, keep the affected host ports reserved.
+
 - Add UDP port forwarding with `voom forward add --protocol udp`. TCP remains
   the default. TCP and UDP can use the same host address and port.
 

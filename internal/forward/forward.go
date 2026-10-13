@@ -14,7 +14,7 @@ import (
 	"github.com/mjrusso/voom/internal/atomicfile"
 )
 
-// Decl declares a host-to-guest port forward configured for a VM.
+// Decl is the comparable endpoint identity of a host-to-guest forward.
 type Decl struct {
 	Protocol  string `json:"protocol"`
 	GuestPort int    `json:"guestPort"`
@@ -24,8 +24,8 @@ type Decl struct {
 
 // Row represents a single forward entry as rendered for listing or status output.
 type Row struct {
-	VM            string `json:"vm"`
-	Kind          string `json:"kind"`
+	VM            string `json:"vm,omitempty"`
+	Kind          string `json:"kind,omitempty"`
 	Bind          string `json:"bind"`
 	HostPort      int    `json:"hostPort"`
 	GuestPort     int    `json:"guestPort"`
@@ -37,18 +37,103 @@ type Row struct {
 	Reason        string `json:"reason,omitempty"`
 }
 
-// RuntimeAuto is a runtime auto-forward entry mirroring a guest listener on the host.
+// ReservationState records whether a runtime forward is active or skipped.
+type ReservationState string
+
+// Persisted reservation states.
+const (
+	ReservationActive  ReservationState = "active"
+	ReservationSkipped ReservationState = "skipped"
+)
+
+// RuntimeAuto records a port reservation and its last confirmed backend state.
 type RuntimeAuto struct {
+	Protocol      string           `json:"protocol"`
+	Bind          string           `json:"bind"`
+	HostPort      int              `json:"hostPort"`
+	GuestPort     int              `json:"guestPort"`
+	GuestTargetIP string           `json:"guestTargetIP"`
+	Offset        int              `json:"offset"`
+	Status        ReservationState `json:"status"`
+	Reason        string           `json:"reason,omitempty"`
+	GVProxyPID    int              `json:"gvproxyPid,omitempty"`
+}
+
+// Endpoint returns the forward identity without runtime metadata.
+func (f RuntimeAuto) Endpoint() Decl {
+	return Decl{Protocol: f.Protocol, Bind: f.Bind, HostPort: f.HostPort, GuestPort: f.GuestPort}
+}
+
+// Installed reports whether backend installation was confirmed.
+func (f RuntimeAuto) Installed() bool {
+	return f.Status == ReservationActive
+}
+
+// MarshalJSON retains the installed field in runtime and CLI JSON.
+func (f RuntimeAuto) MarshalJSON() ([]byte, error) {
+	type record RuntimeAuto
+	return json.Marshal(struct {
+		record
+		Installed bool `json:"installed"`
+	}{record(f), f.Installed()})
+}
+
+// UnmarshalJSON accepts legacy installed fields and validates reservation state.
+func (f *RuntimeAuto) UnmarshalJSON(data []byte) error {
+	type record RuntimeAuto
+	var decoded struct {
+		record
+		Installed *bool `json:"installed"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if decoded.Status == "" {
+		decoded.Status = ReservationSkipped
+		if decoded.Installed != nil && *decoded.Installed {
+			decoded.Status = ReservationActive
+		}
+	}
+	switch decoded.Status {
+	case ReservationActive, ReservationSkipped:
+	default:
+		return fmt.Errorf("unsupported auto-forward reservation state %q", decoded.Status)
+	}
+	row := RuntimeAuto(decoded.record)
+	if decoded.Installed != nil && *decoded.Installed != row.Installed() {
+		return errors.New("auto-forward installed field disagrees with reservation state")
+	}
+	*f = row
+	return nil
+}
+
+// AutoPlan describes eligibility for a guest listener.
+type AutoPlan struct {
 	Protocol      string `json:"protocol"`
 	Bind          string `json:"bind"`
 	HostPort      int    `json:"hostPort"`
 	GuestPort     int    `json:"guestPort"`
 	GuestTargetIP string `json:"guestTargetIP"`
 	Offset        int    `json:"offset"`
-	Status        string `json:"status"`
 	Reason        string `json:"reason,omitempty"`
-	Installed     bool   `json:"installed"`
-	GVProxyPID    int    `json:"gvproxyPid,omitempty"`
+}
+
+// Endpoint returns the forward identity without planning metadata.
+func (p AutoPlan) Endpoint() Decl {
+	return Decl{Protocol: p.Protocol, Bind: p.Bind, HostPort: p.HostPort, GuestPort: p.GuestPort}
+}
+
+// Preview reports eligible plans as active, regardless of backend installation.
+func (p AutoPlan) Preview() Row {
+	status := "active"
+	if p.Reason != "" {
+		status = "skipped"
+	}
+	return Row{
+		Protocol: p.Protocol, Bind: p.Bind, HostPort: p.HostPort,
+		GuestPort: p.GuestPort, GuestTargetIP: p.GuestTargetIP, Offset: p.Offset,
+		Status: status, Reason: p.Reason, Installed: p.Reason == "",
+	}
 }
 
 // Listener describes a single TCP listener observed inside the guest.
@@ -76,9 +161,8 @@ type VMPlanConfig struct {
 
 // PlanOptions supplies reservation checks and host-port probes used by PlanAuto.
 type PlanOptions struct {
-	PortReserved        func(bind string, port int) (bool, error)
-	RuntimeAutoReserved func(bind string, port int) (bool, error)
-	HostPortAvailable   func(bind string, port int) (bool, string)
+	PortReserved      func(bind string, port int) (bool, error)
+	HostPortAvailable func(bind string, port int) (bool, string)
 }
 
 // NormalizeProtocol accepts tcp or udp and defaults an empty value to tcp.
@@ -211,8 +295,8 @@ func ValidateReport(r PortsReport) error {
 	return nil
 }
 
-// PlanAuto computes the desired runtime auto-forward rows for a VM from a guest ports report.
-func PlanAuto(cfg VMPlanConfig, report PortsReport, existing []RuntimeAuto, opts PlanOptions) ([]RuntimeAuto, error) {
+// PlanAuto computes forwarding candidates from a guest ports report.
+func PlanAuto(cfg VMPlanConfig, report PortsReport, existing []RuntimeAuto, opts PlanOptions) ([]AutoPlan, error) {
 	hostBind := cfg.HostBind
 	if hostBind == "" {
 		hostBind = "127.0.0.1"
@@ -220,37 +304,34 @@ func PlanAuto(cfg VMPlanConfig, report PortsReport, existing []RuntimeAuto, opts
 	if opts.PortReserved == nil {
 		opts.PortReserved = func(string, int) (bool, error) { return false, nil }
 	}
-	if opts.RuntimeAutoReserved == nil {
-		opts.RuntimeAutoReserved = func(string, int) (bool, error) { return false, nil }
-	}
 	if opts.HostPortAvailable == nil {
 		opts.HostPortAvailable = HostPortAvailable
 	}
-	existingActive := map[string]struct{}{}
+	existingActive := map[Decl]struct{}{}
 	for _, f := range existing {
-		if f.Installed {
-			existingActive[Key(f)] = struct{}{}
+		if f.Installed() {
+			existingActive[f.Endpoint()] = struct{}{}
 		}
 	}
 	listeners := preferredListeners(report.Listeners)
-	rows := make([]RuntimeAuto, 0, len(listeners))
+	rows := make([]AutoPlan, 0, len(listeners))
 	for _, l := range listeners {
 		hostPort := l.Port + cfg.HostOffset
-		f := RuntimeAuto{Protocol: "tcp", Bind: hostBind, HostPort: hostPort, GuestPort: l.Port, GuestTargetIP: cfg.GuestTargetIP, Offset: cfg.HostOffset, Status: "active", Installed: true}
-		_, alreadyActive := existingActive[Key(f)]
+		f := AutoPlan{Protocol: "tcp", Bind: hostBind, HostPort: hostPort, GuestPort: l.Port, GuestTargetIP: cfg.GuestTargetIP, Offset: cfg.HostOffset}
+		_, alreadyActive := existingActive[f.Endpoint()]
 		reason, err := autoForwardSkipReason(l, f, alreadyActive, opts)
 		if err != nil {
 			return nil, err
 		}
 		if reason != "" {
-			f.Status, f.Installed, f.Reason = "skipped", false, reason
+			f.Reason = reason
 		}
 		rows = append(rows, f)
 	}
 	return rows, nil
 }
 
-func autoForwardSkipReason(listener Listener, f RuntimeAuto, alreadyActive bool, opts PlanOptions) (string, error) {
+func autoForwardSkipReason(listener Listener, f AutoPlan, alreadyActive bool, opts PlanOptions) (string, error) {
 	switch {
 	case listener.Proto != "tcp":
 		return "non-tcp listener", nil
@@ -266,14 +347,7 @@ func autoForwardSkipReason(listener Listener, f RuntimeAuto, alreadyActive bool,
 		return "", err
 	}
 	if reserved {
-		return "host port is reserved by SSH or a manual forward", nil
-	}
-	reserved, err = opts.RuntimeAutoReserved(f.Bind, f.HostPort)
-	if err != nil {
-		return "", err
-	}
-	if reserved {
-		return "host port is already used by another runtime auto-forward", nil
+		return "host port is reserved by SSH or another forward", nil
 	}
 	if !alreadyActive {
 		if ok, reason := opts.HostPortAvailable(f.Bind, f.HostPort); !ok {
@@ -301,11 +375,6 @@ func preferredListeners(listeners []Listener) []Listener {
 		out = append(out, byPort[port])
 	}
 	return out
-}
-
-// Key returns a stable identity string for a RuntimeAuto row.
-func Key(f RuntimeAuto) string {
-	return fmt.Sprintf("%s/%s/%d/%d", f.Protocol, f.Bind, f.HostPort, f.GuestPort)
 }
 
 // ReadRuntimeState loads the persisted runtime auto-forward rows from path.

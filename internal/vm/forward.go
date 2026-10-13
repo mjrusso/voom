@@ -12,6 +12,17 @@ import (
 	"github.com/mjrusso/voom/internal/state"
 )
 
+// The caller must hold the VM lock. Failed startup owns runtime cleanup.
+func (m *Manager) installDeclaredForwardsLocked(vm *state.VMRecord) error {
+	operations := []forwardOperation{{endpoint: forward.Decl{
+		Protocol: "tcp", Bind: vm.Network.SSHBind, HostPort: vm.Network.SSHPort, GuestPort: 22,
+	}, guestTargetIP: m.GuestTargetIP(vm)}}
+	for _, f := range vm.Network.Forwards {
+		operations = append(operations, forwardOperation{endpoint: f, guestTargetIP: m.GuestTargetIP(vm)})
+	}
+	return m.executeForwardMutation(vm, forwardMutation{operations: operations})
+}
+
 // AddForward declares a host-to-guest port forward on the VM and installs it
 // in gvproxy if the VM is running.
 func (m *Manager) AddForward(ctx context.Context, name string, guestPort, hostPort int, bind string, auto bool, protocol string) (forward.Decl, error) {
@@ -31,26 +42,26 @@ func (m *Manager) AddForward(ctx context.Context, name string, guestPort, hostPo
 			return forward.Decl{}, err
 		}
 	}
-	vm, unlock, err := m.store.LockVMRecord(ctx, name)
+	vm, unlock, err := m.lockForwardVM(ctx, name)
 	if err != nil {
 		return forward.Decl{}, err
 	}
 	defer unlock()
 	var f forward.Decl
 	err = m.store.WithGlobalVM(name, vm.ID, func() error {
+		reserved, err := m.store.PortReservations("")
+		if err != nil {
+			return err
+		}
 		if auto {
-			hostPort, err = m.allocateAutoPort(protocol, bind)
+			hostPort, err = allocateAutoPort(reserved, protocol, bind)
 			if err != nil {
 				return err
 			}
 		} else if hostPort == 0 {
 			hostPort = guestPort
 		}
-		reserved, err := m.store.PortReserved(protocol, bind, hostPort)
-		if err != nil {
-			return err
-		}
-		if reserved || portBusy(protocol, bind, hostPort) {
+		if reserved.Reserved(protocol, bind, hostPort) || portBusy(protocol, bind, hostPort) {
 			return fmt.Errorf("%s host port %s is unavailable", protocol, forward.Address(bind, hostPort))
 		}
 		f = forward.Decl{Protocol: protocol, GuestPort: guestPort, HostPort: hostPort, Bind: bind}
@@ -66,12 +77,15 @@ func (m *Manager) AddForward(ctx context.Context, name string, guestPort, hostPo
 		return forward.Decl{}, err
 	}
 	if m.IsRunning(vm) {
-		rt := m.store.Runtime(vm)
-		if err := gvproxy.Expose(rt.NetworkSock(), protocol, forward.Address(bind, hostPort), forward.Address(m.GuestTargetIP(vm), guestPort)); err != nil {
-			vm.Network.Forwards = vm.Network.Forwards[:len(vm.Network.Forwards)-1]
-			vm.UpdatedAt = time.Now().UTC()
-			if saveErr := m.store.WithGlobalVM(name, vm.ID, func() error { return m.store.SaveVM(vm) }); saveErr != nil {
-				return forward.Decl{}, fmt.Errorf("could not install forward: %w; additionally failed to roll back VM state: %v", err, saveErr)
+		err := m.executeForwardMutation(vm, forwardMutation{
+			operations: []forwardOperation{{endpoint: f, guestTargetIP: m.GuestTargetIP(vm)}},
+		})
+		releaseSafe, err := m.recoverLiveForwardMutation(vm, err)
+		if err != nil {
+			if releaseSafe {
+				vm.Network.Forwards = vm.Network.Forwards[:len(vm.Network.Forwards)-1]
+				vm.UpdatedAt = time.Now().UTC()
+				err = errors.Join(err, m.store.WithGlobalVM(name, vm.ID, func() error { return m.store.SaveVM(vm) }))
 			}
 			return forward.Decl{}, err
 		}
@@ -90,15 +104,17 @@ func (m *Manager) RemoveForward(ctx context.Context, name string, port int, bind
 	if err != nil {
 		return err
 	}
-	vm, unlock, err := m.store.LockVMRecord(ctx, name)
+	vm, unlock, err := m.lockForwardVM(ctx, name)
 	if err != nil {
 		return err
 	}
 	defer unlock()
 	next := make([]forward.Decl, 0, len(vm.Network.Forwards))
+	var removed forward.Decl
 	found := false
 	for _, f := range vm.Network.Forwards {
 		if f.Protocol == protocol && f.HostPort == port && f.Bind == bind {
+			removed = f
 			found = true
 			continue
 		}
@@ -107,29 +123,35 @@ func (m *Manager) RemoveForward(ctx context.Context, name string, port int, bind
 	if !found {
 		return fmt.Errorf("no %s forward %s for VM %q", protocol, forward.Address(bind, port), name)
 	}
-	if m.IsRunning(vm) {
-		if err := gvproxy.Unexpose(m.store.Runtime(vm).NetworkSock(), protocol, forward.Address(bind, port)); err != nil {
+	previous := vm.Network.Forwards
+	commit := func() error {
+		return m.store.WithGlobalVM(name, vm.ID, func() error {
+			vm.Network.Forwards = next
+			vm.UpdatedAt = time.Now().UTC()
+			if err := m.store.SaveVM(vm); err != nil {
+				vm.Network.Forwards = previous
+				return errors.Join(err, m.store.SaveVM(vm))
+			}
+			return nil
+		})
+	}
+	if m.gvproxyMayBeRunning(vm) {
+		err := m.executeForwardMutation(vm, forwardMutation{
+			operations: []forwardOperation{{action: forwardUnexpose, endpoint: removed}},
+			commit:     func([]forwardOutcome) error { return commit() },
+		})
+		_, err = m.recoverLiveForwardMutation(vm, err)
+		if err != nil {
 			return fmt.Errorf("could not remove %s forward: %w", protocol, err)
 		}
-	}
-	previous := vm.Network.Forwards
-	vm.Network.Forwards = next
-	vm.UpdatedAt = time.Now().UTC()
-	if err := m.store.WithGlobalVM(name, vm.ID, func() error { return m.store.SaveVM(vm) }); err != nil {
-		if m.IsRunning(vm) {
-			for _, f := range previous {
-				if f.Protocol == protocol && f.Bind == bind && f.HostPort == port {
-					err = errors.Join(err, gvproxy.Expose(m.store.Runtime(vm).NetworkSock(), protocol, forward.Address(bind, port), forward.Address(m.GuestTargetIP(vm), f.GuestPort)))
-				}
-			}
-		}
+	} else if err := commit(); err != nil {
 		return err
 	}
 	return nil
 }
 
-// ForwardRows returns display rows for SSH, manual, and auto forwards across
-// the given VM names, or across all VMs when args is empty.
+// ForwardRows reports configured forwards and unresolved reservations for the
+// given VM names, or for all VMs when args is empty.
 func (m *Manager) ForwardRows(ctx context.Context, args []string) ([]ForwardRow, error) {
 	var vms []*state.VMRecord
 	if len(args) == 1 {
@@ -156,14 +178,17 @@ func (m *Manager) ForwardRows(ctx context.Context, args []string) ([]ForwardRow,
 		if err != nil {
 			return nil, err
 		}
+		uncertain := m.forwardMutationPending(vm)
 		var installed map[gvproxy.Forward]struct{}
 		var snapshotErr error
-		if running {
+		if running && !uncertain {
 			installed, snapshotErr = gvproxy.Forwards(ctx, m.store.Runtime(vm).NetworkSock())
 		}
-		observation := forwardObservation{running: running, installed: installed, err: snapshotErr}
+		observation := forwardObservation{running: running, uncertain: uncertain, installed: installed, err: snapshotErr}
 		declarations := append([]forward.Decl{{Protocol: "tcp", Bind: vm.Network.SSHBind, HostPort: vm.Network.SSHPort, GuestPort: 22}}, vm.Network.Forwards...)
+		known := make(map[forward.Decl]struct{})
 		for i, f := range declarations {
+			known[f] = struct{}{}
 			kind := "manual"
 			if i == 0 {
 				kind = "ssh"
@@ -172,8 +197,23 @@ func (m *Manager) ForwardRows(ctx context.Context, args []string) ([]ForwardRow,
 			rows = append(rows, ForwardRow{VM: vm.Name, Kind: kind, Bind: f.Bind, HostPort: f.HostPort, GuestPort: f.GuestPort, GuestTargetIP: guestTargetIP, Protocol: f.Protocol, Status: status, Installed: status == "running", Reason: reason})
 		}
 		for _, f := range autoRows {
+			known[f.Endpoint()] = struct{}{}
 			status, reason := observation.autoStatus(f)
 			rows = append(rows, ForwardRow{VM: vm.Name, Kind: "auto", Bind: f.Bind, HostPort: f.HostPort, GuestPort: f.GuestPort, GuestTargetIP: f.GuestTargetIP, Protocol: f.Protocol, Status: status, Installed: status == "active", Offset: f.Offset, Reason: reason})
+		}
+		if uncertain {
+			reservations, err := forward.ReadMutationReservations(m.store.Runtime(vm).ForwardMutation())
+			if err != nil {
+				return nil, err
+			}
+			for _, f := range reservations {
+				if _, represented := known[f]; represented {
+					continue
+				}
+				known[f] = struct{}{}
+				status, reason := observation.status(f, guestTargetIP)
+				rows = append(rows, ForwardRow{VM: vm.Name, Kind: "reservation", Bind: f.Bind, HostPort: f.HostPort, GuestPort: f.GuestPort, GuestTargetIP: guestTargetIP, Protocol: f.Protocol, Status: status, Reason: reason})
+			}
 		}
 	}
 	return rows, nil

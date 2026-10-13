@@ -125,4 +125,62 @@ func TestForwardRowsUsesOneBackendSnapshot(t *testing.T) {
 	if requests.Load() != 1 {
 		t.Fatalf("TCP-only snapshot requests: %d", requests.Load())
 	}
+	autoRows := []RuntimeAutoForward{
+		{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 40004, GuestPort: 8080, GuestTargetIP: m.GuestTargetIP(rec), Status: forward.ReservationActive},
+		{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 40005, GuestPort: 8080, GuestTargetIP: m.GuestTargetIP(rec), Status: forward.ReservationActive},
+		{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 40006, GuestPort: 8080, GuestTargetIP: m.GuestTargetIP(rec), Status: forward.ReservationSkipped, Reason: "reserved port"},
+	}
+	if err := m.saveRuntimeAutoForwards(rec, autoRows); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name        string
+		unavailable bool
+		uncertain   bool
+		stopped     bool
+		statuses    []string
+	}{
+		{"running", false, false, false, []string{"active", "unavailable", "skipped"}},
+		{"unavailable", true, false, false, []string{"unavailable", "unavailable", "skipped"}},
+		{"uncertain", false, true, false, []string{"uncertain", "uncertain", "skipped"}},
+		{"stopped", false, false, true, []string{"stopped", "stopped", "skipped"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			unavailable.Store(tc.unavailable)
+			if tc.uncertain {
+				if err := state.WriteJSONAtomic(rt.ForwardMutation(), []forward.Decl{autoRows[0].Endpoint()}); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Remove(rt.ForwardMutation()); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			if tc.stopped {
+				if err := driver.Process.Kill(); err != nil {
+					t.Fatal(err)
+				}
+				_ = driver.Wait()
+			}
+			requests.Store(0)
+			rows, err := m.ForwardRows(context.Background(), []string{rec.Name})
+			if err != nil || len(rows) != 5 {
+				t.Fatalf("forward status: %#v %v", rows, err)
+			}
+			for i, status := range tc.statuses {
+				row := rows[i+2]
+				if row.Status != status || row.Installed != (status == "active") {
+					t.Fatalf("auto forward %d: %#v, want %s", i, row, status)
+				}
+			}
+			if rows[4].Reason != "reserved port" {
+				t.Fatalf("skipped reason: %#v", rows[4])
+			}
+			wantRequests := int32(1)
+			if tc.uncertain || tc.stopped {
+				wantRequests = 0
+			}
+			if requests.Load() != wantRequests {
+				t.Fatalf("snapshot requests: %d, want %d", requests.Load(), wantRequests)
+			}
+		})
+	}
 }

@@ -171,12 +171,12 @@ func (s *Store) DeleteVM(vm *VMRecord) error {
 
 // AllocateSSHPort returns the lowest free port in [SSHLow, SSHHigh] not reserved by another VM or in use on the host.
 func (s *Store) AllocateSSHPort() (int, error) {
+	reserved, err := s.PortReservations("")
+	if err != nil {
+		return 0, err
+	}
 	for p := SSHLow; p <= SSHHigh; p++ {
-		reserved, err := s.PortReserved("tcp", "127.0.0.1", p)
-		if err != nil {
-			return 0, err
-		}
-		if reserved {
+		if reserved.Reserved("tcp", "127.0.0.1", p) {
 			continue
 		}
 		if ok, _ := s.portAvailable("127.0.0.1", p); !ok {
@@ -203,29 +203,4 @@ func (s *Store) EnsureSSHPortAvailable(port int) error {
 		return fmt.Errorf("SSH port %d: %s", port, reason)
 	}
 	return nil
-}
-
-// PortReserved checks overlapping binds within one transport; SSH reserves only TCP.
-func (s *Store) PortReserved(protocol, bind string, port int) (bool, error) {
-	protocol, err := forward.NormalizeProtocol(protocol)
-	if err != nil {
-		return false, err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	vms, err := s.listVMsLocked()
-	if err != nil {
-		return false, err
-	}
-	for _, vm := range vms {
-		if protocol == "tcp" && forward.BindsConflict(bind, vm.Network.SSHBind) && vm.Network.SSHPort == port {
-			return true, nil
-		}
-		for _, f := range vm.Network.Forwards {
-			if f.Protocol == protocol && f.HostPort == port && forward.BindsConflict(bind, f.Bind) {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
 }

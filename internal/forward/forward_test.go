@@ -64,7 +64,7 @@ func TestPlanAutoSelectionOffsetAndConflicts(t *testing.T) {
 
 func TestPlanAutoKeepsExistingInstalledPortWithoutAvailabilityCheck(t *testing.T) {
 	report := PortsReport{SchemaVersion: 1, GeneratedAt: time.Now().UTC(), Listeners: []Listener{{Proto: "tcp", Addr: "0.0.0.0", Port: 8080}}}
-	existing := []RuntimeAuto{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 8080, GuestPort: 8080, Installed: true}}
+	existing := []RuntimeAuto{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 8080, GuestPort: 8080, Status: "active"}}
 	rows := mustPlanAuto(t, VMPlanConfig{GuestTargetIP: "192.168.127.3"}, report, existing, PlanOptions{
 		HostPortAvailable: func(string, int) (bool, string) { return false, "host port is already in use" },
 	})
@@ -104,7 +104,7 @@ func TestPlanAutoPrefersForwardableDuplicateGuestPort(t *testing.T) {
 func TestRuntimeStateRoundTripAndPaths(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "auto-forwards.json")
-	rows := []RuntimeAuto{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 18080, GuestPort: 8080, GuestTargetIP: "192.168.127.3", Status: "active", Installed: true}}
+	rows := []RuntimeAuto{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 18080, GuestPort: 8080, GuestTargetIP: "192.168.127.3", Status: "active"}}
 	if err := WriteRuntimeState(path, rows); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestRuntimeStateRoundTripAndPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].HostPort != 18080 || !got[0].Installed {
+	if len(got) != 1 || got[0].HostPort != 18080 || !got[0].Installed() {
 		t.Fatalf("unexpected rows: %#v", got)
 	}
 	info, err := os.Stat(path)
@@ -127,6 +127,44 @@ func TestRuntimeStateRoundTripAndPaths(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("state file was not removed: %v", err)
+	}
+}
+
+func TestRuntimeReservationJSONCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		input   string
+		state   ReservationState
+		invalid bool
+	}{
+		{`{"installed":true}`, ReservationActive, false},
+		{`{"installed":false}`, ReservationSkipped, false},
+		{`{"status":"active","installed":true}`, ReservationActive, false},
+		{`{"status":"pending","installed":false}`, "", true},
+		{`{"status":"uncertain","installed":false}`, "", true},
+		{`{"status":"skipped","installed":false}`, ReservationSkipped, false},
+		{`{"status":"active"}`, ReservationActive, false},
+		{`{"status":"active","installed":false}`, "", true},
+		{`{"status":"unknown"}`, "", true},
+	} {
+		var row RuntimeAuto
+		err := json.Unmarshal([]byte(tc.input), &row)
+		if (err != nil) != tc.invalid || row.Status != tc.state {
+			t.Fatalf("%s: %#v %v", tc.input, row, err)
+		}
+		if tc.invalid {
+			continue
+		}
+		data, err := json.Marshal(row)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var output struct {
+			Status    ReservationState
+			Installed bool
+		}
+		if err := json.Unmarshal(data, &output); err != nil || output.Status != tc.state || output.Installed != (tc.state == ReservationActive) {
+			t.Fatalf("encoded reservation: %s %v", data, err)
+		}
 	}
 }
 
@@ -198,14 +236,15 @@ func TestValidateReportAndListenerForwardable(t *testing.T) {
 	}
 }
 
-func assertRow(t *testing.T, row RuntimeAuto, status string, hostPort int, reason string) {
+func assertRow(t *testing.T, plan AutoPlan, status string, hostPort int, reason string) {
 	t.Helper()
+	row := plan.Preview()
 	if row.Status != status || row.HostPort != hostPort || (reason != "" && !strings.Contains(row.Reason, reason)) {
 		t.Fatalf("row = %#v, want status=%s hostPort=%d reason~=%q", row, status, hostPort, reason)
 	}
 }
 
-func mustPlanAuto(t *testing.T, cfg VMPlanConfig, report PortsReport, existing []RuntimeAuto, opts PlanOptions) []RuntimeAuto {
+func mustPlanAuto(t *testing.T, cfg VMPlanConfig, report PortsReport, existing []RuntimeAuto, opts PlanOptions) []AutoPlan {
 	t.Helper()
 	rows, err := PlanAuto(cfg, report, existing, opts)
 	if err != nil {

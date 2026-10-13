@@ -159,11 +159,15 @@ func forwardDiscoverCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		var preview []vm.RuntimeAutoForward
+		var preview []forward.Row
 		if vmRec.Network.AutoForward {
-			preview, err = deps.vm.PlanAutoForwards(vmRec, *report, runtimeForwards)
+			plans, err := deps.vm.PlanAutoForwards(vmRec, *report, runtimeForwards)
 			if err != nil {
 				return err
+			}
+			preview = make([]forward.Row, 0, len(plans))
+			for _, plan := range plans {
+				preview = append(preview, plan.Preview())
 			}
 		}
 		autoBind := vmRec.Network.AutoForwardBind

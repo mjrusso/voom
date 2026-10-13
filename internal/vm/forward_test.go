@@ -96,7 +96,7 @@ func TestManualForwardMutationsAndCleanup(t *testing.T) {
 			key := row["protocol"] + "/" + row["local"]
 			if strings.HasSuffix(r.URL.Path, "/unexpose") {
 				if rejectRemoval {
-					w.WriteHeader(500)
+					w.WriteHeader(400)
 					return
 				}
 				delete(installed, key)
