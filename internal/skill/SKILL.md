@@ -124,8 +124,9 @@ reconfigure the VM afterward unless the user requested that operation.
 
 ### Reach a guest service from the host
 
-Verify the image capabilities, enable automatic forwarding if needed, and poll
-the effective forwarding state:
+Automatic forwarding discovers TCP listeners only. For a TCP service, verify
+the image capabilities, enable automatic forwarding if needed, and poll the
+effective forwarding state:
 
 ```bash
 voom forward auto enable <name> --output json
@@ -138,6 +139,40 @@ Exposing a service beyond loopback requires explicit user intent.
 Enabling automatic forwarding starts the watcher but does not wait for its
 first reconciliation. Repeat `voom forward list <name> --output json` until the
 expected installed row appears or the operation reaches its deadline.
+
+For a UDP service, add a manual forward using the gvproxy bundled with Voom:
+
+```bash
+voom forward add <name> 5353 --protocol udp --host-port 15353 --bind 127.0.0.1 --output json
+voom forward list <name> --output json
+```
+
+Manual forwards default to TCP. TCP and UDP can share a host address and port.
+When removing a manual forward, match its protocol, bind address, and host port:
+
+```bash
+voom forward remove <name> 15353 --protocol udp --bind 127.0.0.1 --output json
+```
+
+### Handle a forwarding failure
+
+After a forwarding error, inspect `voom info <name> --output json` and
+`voom forward list <name> --output json` before retrying. Read each forwarding
+row's `status` and `reason`; a saved declaration or reserved port does not mean
+the forward is installed.
+
+If a forwarding mutation's outcome is unknown, Voom tries to stop gvproxy.
+Once its termination is confirmed, Voom stops the VM because its networking
+is gone and clears runtime forwarding reservations. Saved forwarding
+configuration is preserved for the next start. If termination cannot be
+confirmed, Voom keeps the affected ports reserved. Unresolved endpoints can
+appear as `reservation` rows with `uncertain` status. Report that state; do not
+treat it as guest boot delay or delete runtime records to free the ports.
+
+A rejected automatic forward or a failure to save it before installation can
+leave the VM running. Check its observed state instead of assuming every
+forwarding error stopped it. Restart an existing VM only when authorized by
+the user's request.
 
 ### Configure an explicit proxy attachment
 
@@ -231,8 +266,8 @@ voom console <name>
 - Track which VMs were created during the current task. Existing VMs may hold
   active user work.
 - Inspect existing VMs freely. Before `stop`, `remove`, `disk reset`, `rename`,
-  resource changes, USB assignment changes, or egress configuration changes on
-  one, require explicit authorization for that operation.
+  resource changes, USB or PCI assignment changes, or egress configuration
+  changes on one, require explicit authorization for that operation.
 - A user request such as "stop my Voom VM named build" is authorization to
   stop that VM, but not to remove or reset it.
 - Use `--force` only when removing a VM created during the current task or when
