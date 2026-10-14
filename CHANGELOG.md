@@ -2,21 +2,23 @@
 
 ## Unreleased
 
+## v1.4.0 - 2026-10-14
+
 - Add UDP port forwarding with `voom forward add --protocol udp`. TCP remains
   the default. TCP and UDP can use the same host address and port.
-- If Voom cannot confirm whether a port forward was added or removed, try to stop
-  gvproxy so an outstanding request cannot later change forwarding or keep a host
-  port bound. Once gvproxy is confirmed stopped, stop the VM because its networking
-  is gone, and clear uncertain runtime forwarding state and automatic-forward
-  reservations. Preserve saved forwarding configuration for the next start. If
-  termination cannot be confirmed, keep the affected host ports reserved.
-- Avoid assigning SSH ports that are reserved by automatic forwards.
-- Keep VMs running when an automatic forward cannot be saved before installation,
-  or when gvproxy rejects a forward without installing it.
 - Add shell completion for commands, VM names, and image names. Nix packages
   include completion files for Bash, Fish, and Zsh.
 - Add command aliases: `shutdown` for `stop`, `reboot` for `restart`, `inspect`
   for `info`, `image info` for `image inspect`, and `delete` for `remove`.
+- Avoid assigning SSH ports that are reserved by automatic forwards.
+- Keep VMs running when an automatic forward cannot be saved before installation,
+  or when gvproxy rejects a forward without installing it.
+- When a port-forward request's outcome is unknown, Voom attempts to stop gvproxy
+  to prevent the request from completing later. Once gvproxy is confirmed stopped,
+  Voom stops the VM because its networking is gone and releases runtime forwarding
+  reservations. Saved forwarding configuration is kept for the next start. If
+  Voom cannot confirm that gvproxy has stopped, the affected host ports remain
+  reserved.
 
 ## v1.3.0 - 2026-10-09
 
