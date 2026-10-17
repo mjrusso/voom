@@ -94,10 +94,10 @@ func ImageFormatFromDisk(path string) string {
 	return InferFormat(path)
 }
 
-// DiskExtension returns the VM disk file extension for the given driver ("img" for vfkit, "qcow2" otherwise).
+// DiskExtension returns the VM disk file extension for the given driver ("raw" for vfkit, "qcow2" otherwise).
 func DiskExtension(driver string) string {
 	if driver == "vfkit" {
-		return "img"
+		return "raw"
 	}
 	return "qcow2"
 }

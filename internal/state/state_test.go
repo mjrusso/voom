@@ -159,9 +159,9 @@ func TestImportImageParsesBootspecMetadata(t *testing.T) {
 	}
 }
 
-func TestDiskExtensionUsesImgForVFKit(t *testing.T) {
-	if got := DiskExtension("vfkit"); got != "img" {
-		t.Fatalf("DiskExtension(vfkit) = %q, want img", got)
+func TestDiskExtensionUsesRawForVFKit(t *testing.T) {
+	if got := DiskExtension("vfkit"); got != "raw" {
+		t.Fatalf("DiskExtension(vfkit) = %q, want raw", got)
 	}
 	if got := DiskExtension("qemu"); got != "qcow2" {
 		t.Fatalf("DiskExtension(qemu) = %q, want qcow2", got)

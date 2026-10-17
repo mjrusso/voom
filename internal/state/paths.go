@@ -1,6 +1,7 @@
 package state
 
 import (
+	"os"
 	"path/filepath"
 )
 
@@ -49,9 +50,19 @@ func (s *Store) ImageDiskPath(im *ImageRecord) string {
 	return filepath.Join(s.ImageDir(im.ID), im.Disk)
 }
 
-// VMDiskPath returns the on-disk path to the VM's disk file, with extension chosen by driver.
+// VMDiskPath returns the VM's persistent boot disk path.
 func (s *Store) VMDiskPath(vm *VMRecord) string {
-	return filepath.Join(s.VMDir(vm.ID), "disk."+DiskExtension(vm.Driver))
+	path := filepath.Join(s.VMDir(vm.ID), "disk."+DiskExtension(vm.Driver))
+	if vm.Driver == "vfkit" {
+		// Existing Linux VMs keep their disk.img path through reset and restart.
+		if _, err := os.Lstat(path); os.IsNotExist(err) {
+			legacy := filepath.Join(s.VMDir(vm.ID), "disk.img")
+			if _, err := os.Lstat(legacy); err == nil {
+				return legacy
+			}
+		}
+	}
+	return path
 }
 
 // LogPath returns the path for the given log kind (serial, qemu, vfkit, gvproxy, share-mount)

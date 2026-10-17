@@ -324,7 +324,9 @@ On `aarch64` QEMU hosts, Voom looks for UEFI firmware in this order:
 
 Set `VOOM_QEMU_AARCH64_UEFI=/path/to/firmware.fd` when your distribution stores
 firmware elsewhere. On MacOS, vfkit uses direct boot metadata from the imported
-image or a bootable disk image.
+image or a bootable disk image. New vfkit VMs use `disk.raw`; existing Linux
+VMs using `disk.img` keep that filename. Both contain raw disks, and image
+import accepts either extension.
 
 | Host OS | Host arch       | Image system    | Driver | Disk format |
 |---------|-----------------|-----------------|--------|-------------|

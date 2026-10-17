@@ -502,8 +502,11 @@ func TestCreateUsesVFKitDiskExtension(t *testing.T) {
 	if _, err := os.Stat(st.VMDiskPath(vmRec)); err != nil {
 		t.Fatalf("expected vfkit VM disk at %s: %v", st.VMDiskPath(vmRec), err)
 	}
-	if _, err := os.Stat(filepath.Join(st.VMDir(vmRec.ID), "disk.raw")); !os.IsNotExist(err) {
-		t.Fatalf("unexpected raw disk path for vfkit VM: %v", err)
+	if _, err := os.Stat(filepath.Join(st.VMDir(vmRec.ID), "disk.raw")); err != nil {
+		t.Fatalf("expected raw disk path for vfkit VM: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(st.VMDir(vmRec.ID), "disk.img")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected legacy disk path for new vfkit VM: %v", err)
 	}
 }
 
