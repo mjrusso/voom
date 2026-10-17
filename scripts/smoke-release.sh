@@ -36,3 +36,7 @@ test -x "$tmp/gvproxy"
 "$tmp/voom" --help >/dev/null
 "$tmp/gvproxy" -capabilities | grep -q '"guest-isolation-v1":1'
 "$tmp/gvproxy" -capabilities | grep -q '"udp-forward-v1":1'
+
+if [[ "$os/$arch" == darwin/arm64 ]]; then
+  "$tmp/voom-macos-identity" --self-test
+fi

@@ -19,3 +19,4 @@ Inspect guest-reported state
 
 * [voom](voom.md)	 - Magic-free local VMs
 * [voom guest ports](voom_guest_ports.md)	 - Show guest listeners
+* [voom guest verify-macos](voom_guest_verify-macos.md)	 - Collect macOS guest identity, boot, SSH, and Nix-daemon evidence

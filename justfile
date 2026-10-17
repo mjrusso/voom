@@ -9,6 +9,7 @@ dev: check
 build:
     mkdir -p {{bin_dir}}
     go build -o {{bin_dir}}/{{binary}} ./cmd/{{binary}}
+    @if [ "$(uname -s)/$(uname -m)" = Darwin/arm64 ]; then scripts/build-macos-identity.sh {{bin_dir}}/voom-macos-identity; fi
 
 docs:
     go run ./cmd/gen-docs

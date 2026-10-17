@@ -53,7 +53,7 @@ func (s *Store) ImageDiskPath(im *ImageRecord) string {
 // VMDiskPath returns the VM's persistent boot disk path.
 func (s *Store) VMDiskPath(vm *VMRecord) string {
 	path := filepath.Join(s.VMDir(vm.ID), "disk."+DiskExtension(vm.Driver))
-	if vm.Driver == "vfkit" {
+	if vm.Driver == "vfkit" && vm.MacOS == nil {
 		// Existing Linux VMs keep their disk.img path through reset and restart.
 		if _, err := os.Lstat(path); os.IsNotExist(err) {
 			legacy := filepath.Join(s.VMDir(vm.ID), "disk.img")

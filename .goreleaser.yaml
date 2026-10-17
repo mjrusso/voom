@@ -4,6 +4,7 @@ before:
   hooks:
     - go mod tidy
     - scripts/prepare-gvproxy-release.sh
+    - scripts/build-macos-identity.sh .release/native/darwin_arm64/voom-macos-identity
 builds:
   - id: voom
     main: ./cmd/voom
@@ -45,6 +46,9 @@ archives:
         dst: NOTICE.gvproxy
       - src: .release/gvproxy-licenses/{{ .Os }}_{{ .Arch }}/**/*
         dst: THIRD_PARTY_LICENSES
+      - src: .release/native/{{ .Os }}_{{ .Arch }}/voom-macos-identity*
+        dst: .
+        strip_parent: true
       - README.md
       - CHANGELOG.md
 checksum:

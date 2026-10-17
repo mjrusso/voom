@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/mjrusso/voom/internal/driver/qemu"
 	"github.com/mjrusso/voom/internal/driver/vfkit"
@@ -41,7 +42,7 @@ func (m *Manager) vfkitArgs(vm *state.VMRecord, im *state.ImageRecord, shares []
 	for _, sh := range shares {
 		vshares = append(vshares, vfkit.Share{MountTag: sh.Tag, SharedDir: sh.HostPath, Readonly: sh.Readonly})
 	}
-	return vfkit.Args(vfkit.ArgsConfig{
+	config := vfkit.ArgsConfig{
 		CPUs:       vm.Resources.CPUs,
 		MemoryMiB:  vm.Resources.MemoryMiB,
 		KernelPath: kernelPath,
@@ -55,7 +56,14 @@ func (m *Manager) vfkitArgs(vm *state.VMRecord, im *state.ImageRecord, shares []
 		RestSock:   m.store.Runtime(vm).VFKitRestSock(),
 		EFIStore:   m.store.Runtime(vm).EFIStore(),
 		Shares:     vshares,
-	})
+	}
+	if vm.MacOS != nil {
+		config.MachineIdentifier = filepath.Join(m.store.VMDir(vm.ID), "MachineIdentifier")
+		config.HardwareModel = filepath.Join(m.store.VMDir(vm.ID), "HardwareModel")
+		config.AuxiliaryStorage = filepath.Join(m.store.VMDir(vm.ID), "AuxiliaryStorage")
+		config.SeedImage = ""
+	}
+	return vfkit.Args(config)
 }
 
 // ResolveAarch64UEFI locates a usable aarch64 UEFI firmware blob, honoring the

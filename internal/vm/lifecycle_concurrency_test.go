@@ -216,6 +216,17 @@ func TestCleanupReleasesGlobal(t *testing.T) {
 	for _, action := range []string{"remove", "reset"} {
 		t.Run(action, func(t *testing.T) {
 			st := lifecycleTestStore(t)
+			if action == "reset" {
+				im := &state.ImageRecord{SchemaVersion: 1, ID: "image1", Name: "reset-source"}
+				if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(im.ID), "image.json"), im); err != nil {
+					t.Fatal(err)
+				}
+				idx := st.IndexSnapshot()
+				idx.Images[im.Name] = im.ID
+				if err := st.SetIndexSnapshot(idx); err != nil {
+					t.Fatal(err)
+				}
+			}
 			record, err := st.LoadVM("a")
 			if err != nil {
 				t.Fatal(err)
@@ -265,7 +276,7 @@ func TestCleanupReleasesGlobal(t *testing.T) {
 				case "remove":
 					done <- manager.Remove(ctx, "a")
 				case "reset":
-					done <- manager.ResetDisk(ctx, "a", "missing-image")
+					done <- manager.ResetDisk(ctx, "a", "reset-source")
 				}
 			}()
 			select {

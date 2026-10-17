@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -28,5 +28,5 @@ jobs:
       - run: nix develop .#ci -c goreleaser release --clean --release-notes /tmp/voom-release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: scripts/verify-release-archives.sh dist
-      - run: scripts/smoke-release.sh dist
+      - run: nix develop .#ci -c scripts/verify-release-archives.sh dist
+      - run: nix develop .#ci -c scripts/smoke-release.sh dist

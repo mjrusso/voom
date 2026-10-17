@@ -10,10 +10,12 @@ voom image import <name> <path> [flags]
 
 ```
       --arch string             image architecture/system
-      --format string           image format: qcow2 or raw
+      --experimental-macos      import an experimental macOS bundle
+      --format string           image format: qcow2, raw, or macos-bundle
   -h, --help                    help for import
       --install-guest-helpers   install voom guest helpers via cloud-init (enables shares + auto-discover)
       --meta string             metadata sidecar path
+      --ssh-identity string     path to the existing private key authorized in the guest
       --ssh-user string         SSH login user (overrides sidecar user)
 ```
 

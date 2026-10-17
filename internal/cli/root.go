@@ -105,6 +105,7 @@ func addCommands(root *cobra.Command) {
 
 func debugCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "debug", Short: "Debug voom internals"}
+	cmd.AddCommand(macOSCloneProbeCommand())
 	cmd.AddCommand(&cobra.Command{
 		Use:   "paths",
 		Short: "Print resolved directories",
@@ -123,6 +124,7 @@ func debugCommand() *cobra.Command {
 
 func guestCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "guest", Short: "Inspect guest-reported state"}
+	cmd.AddCommand(macOSGuestCheckCommand())
 	cmd.AddCommand(&cobra.Command{Use: "ports <name>", ValidArgsFunction: completeVMNames, Short: "Show guest listeners", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {

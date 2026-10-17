@@ -45,19 +45,22 @@ type Share struct {
 
 // ArgsConfig is the structured input used to build vfkit command-line arguments.
 type ArgsConfig struct {
-	CPUs       int
-	MemoryMiB  int
-	KernelPath string
-	InitrdPath string
-	KernelCmd  string
-	BootDisk   string
-	SeedImage  string
-	NetSock    string
-	MAC        string
-	SerialLog  string
-	RestSock   string
-	EFIStore   string
-	Shares     []Share
+	CPUs              int
+	MemoryMiB         int
+	KernelPath        string
+	InitrdPath        string
+	KernelCmd         string
+	BootDisk          string
+	SeedImage         string
+	NetSock           string
+	MAC               string
+	SerialLog         string
+	RestSock          string
+	MachineIdentifier string
+	HardwareModel     string
+	AuxiliaryStorage  string
+	EFIStore          string
+	Shares            []Share
 }
 
 // Args returns the vfkit command-line arguments for the supplied configuration.
@@ -66,7 +69,9 @@ func Args(c ArgsConfig) []string {
 		"--cpus", strconv.Itoa(c.CPUs),
 		"--memory", strconv.Itoa(c.MemoryMiB),
 	}
-	if c.KernelPath != "" {
+	if c.MachineIdentifier != "" {
+		args = append(args, "--bootloader", "macos,machineIdentifierPath="+c.MachineIdentifier+",hardwareModelPath="+c.HardwareModel+",auxImagePath="+c.AuxiliaryStorage)
+	} else if c.KernelPath != "" {
 		args = append(args, "--kernel", c.KernelPath)
 		if c.InitrdPath != "" {
 			args = append(args, "--initrd", c.InitrdPath)
@@ -80,11 +85,15 @@ func Args(c ArgsConfig) []string {
 	args = append(args,
 		"--device", "virtio-blk,path="+c.BootDisk,
 		"--device", "virtio-net,unixSocketPath="+c.NetSock+",mac="+c.MAC,
-		"--device", "virtio-serial,logFilePath="+c.SerialLog,
 		"--device", "virtio-rng",
 		"--restful-uri", "unix://"+c.RestSock,
 	)
-	if c.SeedImage != "" {
+	if c.MachineIdentifier == "" {
+		args = append(args, "--device", "virtio-serial,logFilePath="+c.SerialLog)
+	} else {
+		args = append(args, "--device", "virtio-gpu,width=1280,height=800", "--device", "virtio-input,keyboard", "--device", "virtio-input,pointing", "--gui")
+	}
+	if c.SeedImage != "" && c.MachineIdentifier == "" {
 		args = append(args, "--device", "virtio-blk,path="+c.SeedImage+",readonly")
 	}
 	for _, sh := range c.Shares {

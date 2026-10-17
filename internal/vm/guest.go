@@ -72,8 +72,14 @@ func RequireGuestPortReport(im *state.ImageRecord, feature string) error {
 // identity) used to connect to the VM.
 func SSHBaseArgs(vm *state.VMRecord) []string {
 	args := []string{"-p", strconv.Itoa(vm.Network.SSHPort), "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"}
+	if vm.MacOS != nil {
+		args = append(args, "-F", "/dev/null")
+	}
 	if vm.Access.SSHIdentityPath != "" {
 		args = append(args, "-i", vm.Access.SSHIdentityPath)
+		if vm.MacOS != nil {
+			args = append(args, "-o", "IdentitiesOnly=yes")
+		}
 	}
 	return args
 }

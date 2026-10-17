@@ -36,6 +36,29 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 	if err := host.ValidateHostImage(im.Arch, im.Format, driver); err != nil {
 		return nil, err
 	}
+	if cpus == 0 {
+		cpus = 4
+		if im.MacOS != nil {
+			cpus = im.MacOS.CPUs
+		}
+	}
+	if mem == 0 {
+		mem = 4096
+		if im.MacOS != nil {
+			mem = im.MacOS.MemoryMiB
+		}
+	}
+	if cpus < 1 || mem < 1 {
+		return nil, errors.New("CPU and memory allocations must be positive")
+	}
+	if im.MacOS != nil {
+		if err := im.MacOS.ValidateResources(cpus, mem); err != nil {
+			return nil, err
+		}
+		if err := im.MacOS.ValidateStorage(m.store.ImageDir(im.ID)); err != nil {
+			return nil, err
+		}
+	}
 	id, err := state.NewID()
 	if err != nil {
 		return nil, err
@@ -54,6 +77,11 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 		Access:        state.VMAccess{SSHUser: im.Metadata.SSHUser, SSHIdentityPath: im.Metadata.SSHIdentityPath, NixosTargetUser: im.Metadata.NixosTargetUser},
 		Network:       state.VMNetwork{SSHPort: sshPort, SSHBind: "127.0.0.1"},
 	}
+	if im.MacOS != nil {
+		platform := *im.MacOS
+		vm.MacOS = &platform
+		vm.SchemaVersion = im.SchemaVersion
+	}
 	if vm.Access.SSHUser == "" {
 		vm.Access.SSHUser = "root"
 	}
@@ -69,13 +97,23 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 			_ = os.RemoveAll(m.store.VMDir(id))
 		}
 	}()
-	if err := state.CopyFile(ctx, m.store.ImageDiskPath(im), m.store.VMDiskPath(vm)); err != nil {
+	if im.MacOS != nil {
+		vm.MacOS, err = im.MacOS.CopyVM(ctx, m.store.ImageDir(im.ID), m.store.VMDir(id))
+	} else {
+		err = state.CopyFile(ctx, m.store.ImageDiskPath(im), m.store.VMDiskPath(vm))
+	}
+	if err != nil {
 		return nil, err
 	}
 	if err := m.store.WithGlobal(func() error {
 		idx := m.store.IndexSnapshot()
 		if idx.Images[imageName] != im.ID {
 			return fmt.Errorf("image %q changed while creating VM", imageName)
+		}
+		if vm.MacOS != nil {
+			if err := m.store.CheckMacOSIdentityAvailable(vm.MacOS); err != nil {
+				return err
+			}
 		}
 		var err error
 		if sshPort == 0 {
@@ -147,10 +185,23 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.
 			retErr = errors.Join(retErr, fmt.Errorf("cleaning up failed clone: %w", err))
 		}
 	}()
-	if err := state.CopyFile(ctx, m.store.VMDiskPath(src), m.store.VMDiskPath(&clone)); err != nil {
+	if src.MacOS != nil {
+		if err := state.WaitMacOSStorage(ctx, m.store.VMDir(src.ID)); err != nil {
+			return nil, err
+		}
+		clone.MacOS, err = src.MacOS.CopyVM(ctx, m.store.VMDir(src.ID), m.store.VMDir(id))
+	} else {
+		err = state.CopyFile(ctx, m.store.VMDiskPath(src), m.store.VMDiskPath(&clone))
+	}
+	if err != nil {
 		return nil, err
 	}
 	if err := m.store.WithGlobalVM(srcName, src.ID, func() error {
+		if clone.MacOS != nil {
+			if err := m.store.CheckMacOSIdentityAvailable(clone.MacOS); err != nil {
+				return err
+			}
+		}
 		port, err := m.store.AllocateSSHPort()
 		if err != nil {
 			return err
@@ -196,6 +247,9 @@ func (m *Manager) GrowDisk(ctx context.Context, name, amount string) error {
 		return err
 	}
 	defer unlock()
+	if vm.MacOS != nil {
+		return errors.New("macOS disk growth is not supported")
+	}
 	if m.IsRunning(vm) {
 		return fmt.Errorf("VM %q is running; stop it before growing its disk", name)
 	}
@@ -223,11 +277,17 @@ func (m *Manager) ResetDisk(ctx context.Context, name, imageName string) error {
 		return err
 	}
 	defer unlock()
-	if _, err := m.stopRuntime(ctx, vm); err != nil {
-		return err
+	if vm.MacOS != nil {
+		return errors.New("macOS reset is not supported")
 	}
 	im, err := m.store.LoadImage(imageName)
 	if err != nil {
+		return err
+	}
+	if im.MacOS != nil {
+		return errors.New("resetting to a macOS image is not supported")
+	}
+	if _, err := m.stopRuntime(ctx, vm); err != nil {
 		return err
 	}
 	if err := host.ValidateHostImage(im.Arch, im.Format, vm.Driver); err != nil {
@@ -273,6 +333,11 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		return nil, err
 	}
 	defer unlock()
+	if vm.MacOS != nil {
+		if err := vm.MacOS.ValidateStorage(m.store.VMDir(vm.ID)); err != nil {
+			return nil, err
+		}
+	}
 	if m.IsRunning(vm) {
 		return vm, nil
 	}
@@ -293,6 +358,11 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	}
 	if err := host.ValidateHostImage(vm.Arch, state.ImageFormatFromDisk(m.store.VMDiskPath(vm)), vm.Driver); err != nil {
 		return nil, err
+	}
+	if vm.MacOS != nil {
+		if err := state.WaitMacOSStorage(ctx, m.store.VMDir(vm.ID)); err != nil {
+			return nil, err
+		}
 	}
 	requiredCapabilities := []string{gvproxy.GuestIsolationCapability}
 	for _, f := range vm.Network.Forwards {
@@ -343,7 +413,7 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	if err != nil {
 		return nil, err
 	}
-	if vm.Driver == "vfkit" && im.Metadata.KernelPath == "" {
+	if vm.MacOS == nil && vm.Driver == "vfkit" && im.Metadata.KernelPath == "" {
 		if err := image.ValidateVFKitBootDisk(m.store.VMDiskPath(vm)); err != nil {
 			return nil, err
 		}
@@ -392,11 +462,13 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	for _, p := range rt.DriverSockets() {
 		_ = os.Remove(p)
 	}
-	if err := m.WriteSeedImage(vm); err != nil {
-		return nil, err
-	}
-	if err := m.WriteControlFiles(vm); err != nil {
-		return nil, err
+	if vm.MacOS == nil {
+		if err := m.WriteSeedImage(vm); err != nil {
+			return nil, err
+		}
+		if err := m.WriteControlFiles(vm); err != nil {
+			return nil, err
+		}
 	}
 	if vm.Network.Egress.IsEnabled() {
 		if _, err := publishEgress(rt, egressCA); err != nil {
@@ -576,7 +648,11 @@ func (m *Manager) stopVMProcesses(ctx context.Context, vm *state.VMRecord) error
 			}
 		case "vfkit":
 			_ = vfkit.Stop(rt.VFKitRestSock(), false)
-			_ = waitFor(ctx, func() bool { return !process.Alive(pid) }, driverStopTimeout)
+			timeout := driverStopTimeout
+			if vm.MacOS != nil {
+				timeout = 60 * time.Second
+			}
+			_ = waitFor(ctx, func() bool { return !process.Alive(pid) }, timeout)
 		}
 	}
 	_, driverErr := stopService(runtimeService{

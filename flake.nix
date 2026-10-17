@@ -22,6 +22,19 @@
           inherit gvproxyLicenses gvproxySource;
           gvproxyNotice = ./nix/NOTICE.gvproxy;
         };
+        macosIdentity = pkgs.stdenv.mkDerivation {
+          pname = "voom-macos-identity";
+          inherit version;
+          src = ./native/macos-identity;
+          buildPhase = ''
+            $CC -fobjc-arc -Wall -Wextra -Werror -mmacosx-version-min=12.0 \
+              -framework Foundation -framework Virtualization main.m -o voom-macos-identity
+          '';
+          doCheck = true;
+          checkPhase = "./voom-macos-identity --self-test";
+          installPhase = "install -Dm755 voom-macos-identity $out/bin/voom-macos-identity";
+        };
+        hasMacOSIdentity = system == "aarch64-darwin";
         voom = pkgs.buildGoModule {
           pname = "voom";
           inherit version;
@@ -40,6 +53,7 @@
               --fish <($out/bin/voom completion fish) \
               --zsh <($out/bin/voom completion zsh)
             ln -s ${gvproxy}/bin/gvproxy $out/bin/gvproxy
+            ${pkgs.lib.optionalString hasMacOSIdentity "ln -s ${macosIdentity}/bin/voom-macos-identity $out/bin/voom-macos-identity"}
             mkdir -p $out/share/licenses
             ln -s ${gvproxy}/share/licenses/gvproxy $out/share/licenses/gvproxy
           '';

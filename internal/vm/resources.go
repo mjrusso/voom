@@ -21,6 +21,11 @@ func (m *Manager) SetCPUs(ctx context.Context, name string, cpus int) (*state.VM
 	if m.IsRunning(vm) {
 		return nil, false, fmt.Errorf("VM %q is running; stop it before changing CPU allocation", name)
 	}
+	if vm.MacOS != nil {
+		if err := vm.MacOS.ValidateResources(cpus, vm.Resources.MemoryMiB); err != nil {
+			return nil, false, err
+		}
+	}
 	if vm.Resources.CPUs == cpus {
 		return vm, false, nil
 	}
@@ -44,6 +49,11 @@ func (m *Manager) SetMemory(ctx context.Context, name string, memoryMiB int) (*s
 	defer unlock()
 	if m.IsRunning(vm) {
 		return nil, false, fmt.Errorf("VM %q is running; stop it before changing memory allocation", name)
+	}
+	if vm.MacOS != nil {
+		if err := vm.MacOS.ValidateResources(vm.Resources.CPUs, memoryMiB); err != nil {
+			return nil, false, err
+		}
 	}
 	if vm.Resources.MemoryMiB == memoryMiB {
 		return vm, false, nil

@@ -30,4 +30,9 @@ for archive in "$dist"/voom_*.tar.gz; do
   test -f "$tmp/CHANGELOG.md"
   test -x "$tmp/voom"
   test -x "$tmp/gvproxy"
+  if [[ "$archive" == */voom_darwin_arm64.tar.gz ]]; then
+    test -x "$tmp/voom-macos-identity"
+  else
+    test ! -e "$tmp/voom-macos-identity"
+  fi
 done

@@ -29,6 +29,7 @@ type ImageRecord struct {
 	Format        string            `json:"format"`
 	Disk          string            `json:"disk"`
 	CreatedAt     time.Time         `json:"createdAt"`
+	MacOS         *MacOSPlatform    `json:"macos,omitempty"`
 	Metadata      ImageMetadata     `json:"metadata"`
 	Capabilities  ImageCapabilities `json:"capabilities"`
 }
@@ -59,24 +60,38 @@ type ImageCapabilities struct {
 
 // VMRecord is the on-disk record describing a managed VM.
 type VMRecord struct {
-	SchemaVersion int          `json:"schemaVersion"`
-	ID            string       `json:"id"`
-	Name          string       `json:"name"`
-	Driver        string       `json:"driver"`
-	Arch          string       `json:"arch"`
-	CreatedAt     time.Time    `json:"createdAt"`
-	UpdatedAt     time.Time    `json:"updatedAt"`
-	Image         VMImageRef   `json:"image"`
-	Resources     VMResources  `json:"resources"`
-	Access        VMAccess     `json:"access"`
-	Network       VMNetwork    `json:"network"`
-	Shares        []share.Decl `json:"shares"`
-	USBDevices    []usb.Decl   `json:"usbDevices,omitempty"`
-	PCIDevices    []pci.Decl   `json:"pciDevices,omitempty"`
-	Nixos         *NixOSSwitch `json:"nixos,omitempty"`
+	SchemaVersion int            `json:"schemaVersion"`
+	ID            string         `json:"id"`
+	Name          string         `json:"name"`
+	Driver        string         `json:"driver"`
+	Arch          string         `json:"arch"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	UpdatedAt     time.Time      `json:"updatedAt"`
+	Image         VMImageRef     `json:"image"`
+	MacOS         *MacOSPlatform `json:"macos,omitempty"`
+	Resources     VMResources    `json:"resources"`
+	Access        VMAccess       `json:"access"`
+	Network       VMNetwork      `json:"network"`
+	Shares        []share.Decl   `json:"shares"`
+	USBDevices    []usb.Decl     `json:"usbDevices,omitempty"`
+	PCIDevices    []pci.Decl     `json:"pciDevices,omitempty"`
+	Nixos         *NixOSSwitch   `json:"nixos,omitempty"`
 }
 
 func (vm *VMRecord) validate() error {
+	if vm.Arch == "aarch64-darwin" {
+		if vm.Driver != "vfkit" || vm.MacOS == nil {
+			return fmt.Errorf("macOS guests require vfkit and platform metadata")
+		}
+		if err := vm.MacOS.ValidateResources(vm.Resources.CPUs, vm.Resources.MemoryMiB); err != nil {
+			return err
+		}
+		if len(vm.Shares) > 0 || len(vm.USBDevices) > 0 || len(vm.PCIDevices) > 0 || vm.Network.AutoForward || vm.Network.Egress != nil || vm.Nixos != nil {
+			return fmt.Errorf("macOS guests do not support shares, USB, PCI, auto-forwarding, egress, or NixOS switching")
+		}
+	} else if vm.MacOS != nil {
+		return fmt.Errorf("macOS platform metadata requires an aarch64-darwin guest")
+	}
 	if err := usb.ValidateAssignments(vm.USBDevices); err != nil {
 		return fmt.Errorf("VM %q: %w", vm.Name, err)
 	}

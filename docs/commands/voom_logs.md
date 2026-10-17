@@ -10,7 +10,7 @@ voom logs <name> [flags]
 
 ```
   -h, --help          help for logs
-      --kind string   log kind: serial, qemu, vfkit, gvproxy, share-mount (default "serial")
+      --kind string   log kind: serial, qemu, vfkit, gvproxy, share-mount (macOS defaults to vfkit) (default "serial")
 ```
 
 ### Options inherited from parent commands

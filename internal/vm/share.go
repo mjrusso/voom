@@ -26,6 +26,9 @@ func (m *Manager) AddShare(ctx context.Context, name, tag, hostPath, guestPath s
 		return share.Decl{}, err
 	}
 	defer unlock()
+	if vm.MacOS != nil {
+		return share.Decl{}, fmt.Errorf("shares are not supported for macOS guests")
+	}
 	if m.IsRunning(vm) {
 		return share.Decl{}, fmt.Errorf("VM %q is running; stop or restart the VM before changing shares", vm.Name)
 	}

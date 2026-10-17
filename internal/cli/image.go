@@ -73,6 +73,9 @@ func imageInspectCommand() *cobra.Command {
 			}
 			sort.Strings(refs)
 			out := map[string]any{"image": im, "diskPath": deps.store.ImageDiskPath(im), "referencedBy": refs}
+			if im.MacOS != nil {
+				out["platformStateDir"] = deps.store.ImageDir(im.ID)
+			}
 			if outputFormat(cmd) == "json" {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
 			}
@@ -80,14 +83,17 @@ func imageInspectCommand() *cobra.Command {
 				im.Name, im.ID, im.Arch, im.Format, deps.store.ImageDiskPath(im), im.CreatedAt.Format(time.RFC3339), im.Metadata.Source, im.Metadata.SSHUser,
 				im.Metadata.KernelPath, im.Metadata.InitrdPath, im.Metadata.InitPath, strings.Join(im.Metadata.KernelCmdline, " "),
 				im.Capabilities.ControlShare, im.Capabilities.GuestPortReport, im.Capabilities.GuestShareMount, im.Capabilities.NixosSwitch, strings.Join(refs, ","))
+			if im.MacOS != nil {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "system: %s\nboot: macos\nimage-macos: %s (%s)\nbaked-resources: %d CPUs, %dMiB\napple-identity: %s\nplatform-state: %s\n", im.Arch, im.MacOS.Version, im.MacOS.Build, im.MacOS.CPUs, im.MacOS.MemoryMiB, im.MacOS.IdentitySHA256, deps.store.ImageDir(im.ID))
+			}
 			return nil
 		},
 	}
 }
 
 func imageImportCommand() *cobra.Command {
-	var metaPath, arch, format, sshUser string
-	var installGuestHelpers bool
+	var metaPath, arch, format, sshUser, sshIdentity string
+	var installGuestHelpers, experimentalMacOS bool
 	cmd := &cobra.Command{
 		Use:               "import <name> <path>",
 		ValidArgsFunction: completeImageImport,
@@ -103,6 +109,8 @@ func imageImportCommand() *cobra.Command {
 			}
 			im, err := deps.store.ImportImage(cmd.Context(), state.ImportOptions{
 				Name:                args[0],
+				ExperimentalMacOS:   experimentalMacOS,
+				SSHIdentityPath:     sshIdentity,
 				Src:                 args[1],
 				MetaPath:            metaPath,
 				Arch:                arch,
@@ -122,9 +130,11 @@ func imageImportCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&metaPath, "meta", "", "metadata sidecar path")
 	cmd.Flags().StringVar(&arch, "arch", "", "image architecture/system")
-	cmd.Flags().StringVar(&format, "format", "", "image format: qcow2 or raw")
+	cmd.Flags().StringVar(&format, "format", "", "image format: qcow2, raw, or macos-bundle")
 	cmd.Flags().StringVar(&sshUser, "ssh-user", "", "SSH login user (overrides sidecar user)")
 	cmd.Flags().BoolVar(&installGuestHelpers, "install-guest-helpers", false, "install voom guest helpers via cloud-init (enables shares + auto-discover)")
+	cmd.Flags().BoolVar(&experimentalMacOS, "experimental-macos", false, "import an experimental macOS bundle")
+	cmd.Flags().StringVar(&sshIdentity, "ssh-identity", "", "path to the existing private key authorized in the guest")
 	return cmd
 }
 
