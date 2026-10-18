@@ -15,6 +15,7 @@ mkdir -p "$source_target"
 cp -R "$source_path/." "$source_target/"
 chmod -R u+w "$source_target"
 
+unset DEVELOPER_DIR SDKROOT
 export DEVELOPER_DIR SDKROOT
 DEVELOPER_DIR="$(/usr/bin/xcode-select --print-path)"
 SDKROOT="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"

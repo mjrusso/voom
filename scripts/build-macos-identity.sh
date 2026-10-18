@@ -7,6 +7,7 @@ if [[ "$(uname -s)" != Darwin ]]; then
   exit 1
 fi
 mkdir -p "$(dirname "$output")"
+unset DEVELOPER_DIR SDKROOT
 export DEVELOPER_DIR SDKROOT
 DEVELOPER_DIR="$(/usr/bin/xcode-select --print-path)"
 SDKROOT="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"
