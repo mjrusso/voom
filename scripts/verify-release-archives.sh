@@ -30,4 +30,17 @@ for archive in "$dist"/voom_*.tar.gz; do
   test -f "$tmp/CHANGELOG.md"
   test -x "$tmp/voom"
   test -x "$tmp/gvproxy"
+  if [[ "$archive" == */voom_darwin_*.tar.gz ]]; then
+    test -x "$tmp/vfkit"
+    test -f "$tmp/LICENSE.vfkit"
+    test -f "$tmp/NOTICE.vfkit"
+    test -f "$tmp/THIRD_PARTY_LICENSES.vfkit/github.com/Code-Hex/vz/v3/LICENSE"
+  else
+    test ! -e "$tmp/vfkit"
+  fi
+  if [[ "$archive" == */voom_darwin_arm64.tar.gz ]]; then
+    test -x "$tmp/voom-macos-identity"
+  else
+    test ! -e "$tmp/voom-macos-identity"
+  fi
 done

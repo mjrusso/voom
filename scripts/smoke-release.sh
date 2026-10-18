@@ -36,3 +36,14 @@ test -x "$tmp/gvproxy"
 "$tmp/voom" --help >/dev/null
 "$tmp/gvproxy" -capabilities | grep -q '"guest-isolation-v1":1'
 "$tmp/gvproxy" -capabilities | grep -q '"udp-forward-v1":1'
+
+if [[ "$os" == darwin ]]; then
+  "$tmp/vfkit" --capabilities | grep -q '"gui-lifecycle-v1":1'
+  "$tmp/vfkit" --capabilities | grep -q '"virtiofs-readonly-v1":1'
+  /usr/bin/codesign --verify --strict "$tmp/vfkit"
+  /usr/bin/codesign --display --entitlements :- "$tmp/vfkit" 2>/dev/null | grep -q '<key>com.apple.security.virtualization</key>'
+fi
+
+if [[ "$os/$arch" == darwin/arm64 ]]; then
+  "$tmp/voom-macos-identity" --self-test
+fi

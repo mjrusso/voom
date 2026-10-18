@@ -1,0 +1,206 @@
+diff --git a/cmd/vfkit/main.go b/cmd/vfkit/main.go
+index 397996b..7b6efea 100644
+--- a/cmd/vfkit/main.go
++++ b/cmd/vfkit/main.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ //go:build darwin
+ 
+ /*
+@@ -190,6 +191,7 @@ func runVFKit(vmConfig *config.VirtualMachine, opts *cmdline.Options) error {
+ 	// Do not enable the rests server if user sets scheme to None
+ 	if opts.RestfulURI != cmdline.DefaultRestfulURI {
+ 		restVM := restvf.NewVzVirtualMachine(vfVM)
++		restVM.GUI = opts.UseGUI
+ 		srv, err := rest.NewServer(restVM, restVM, opts.RestfulURI)
+ 		if err != nil {
+ 			return err
+@@ -216,10 +218,10 @@ func runVFKit(vmConfig *config.VirtualMachine, opts *cmdline.Options) error {
+ 
+ 	}
+ 	util.SetupExitSignalHandling(shutdownFunc)
+-	return runVirtualMachine(vmConfig, vfVM)
++	return runVirtualMachine(vmConfig, vfVM, opts)
+ }
+ 
+-func runVirtualMachine(vmConfig *config.VirtualMachine, vm *vf.VirtualMachine) error {
++func runVirtualMachine(vmConfig *config.VirtualMachine, vm *vf.VirtualMachine, opts *cmdline.Options) error {
+ 	if vm.Config().Ignition != nil {
+ 		go func() {
+ 			if err := startIgnitionProvisionerServer(vm, vmConfig.Ignition.ConfigPath, vmConfig.Ignition.VsockPort); err != nil {
+@@ -284,7 +286,11 @@ func runVirtualMachine(vmConfig *config.VirtualMachine, vm *vf.VirtualMachine) e
+ 	for _, gpuDev := range vmConfig.VirtioGPUDevices() {
+ 		if gpuDev.UsesGUI {
+ 			runtime.LockOSThread()
+-			err := vm.StartGraphicApplication(float64(gpuDev.Width), float64(gpuDev.Height))
++			options := []vz.StartGraphicApplicationOption{vz.WithKeepRunningOnClose(opts.GUIKeepRunning)}
++			if opts.GUITitle != "" {
++				options = append(options, vz.WithWindowTitle(opts.GUITitle))
++			}
++			err := vm.StartGraphicApplication(float64(gpuDev.Width), float64(gpuDev.Height), options...)
+ 			runtime.UnlockOSThread()
+ 			if err != nil {
+ 				return err
+diff --git a/cmd/vfkit/root.go b/cmd/vfkit/root.go
+index c7672c6..2f471f7 100644
+--- a/cmd/vfkit/root.go
++++ b/cmd/vfkit/root.go
+@@ -1,6 +1,8 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package main
+ 
+ import (
++	"encoding/json"
+ 	"fmt"
+ 	"os"
+ 
+@@ -17,7 +19,13 @@ var rootCmd = &cobra.Command{
+ 	Short: "vfkit is a simple hypervisor using Apple's Virtualization framework",
+ 	Long: `A hypervisor written in Go using Apple's Virtualization framework to run virtual machines.
+                 Complete documentation is available at https://github.com/crc-org/vfkit`,
+-	RunE: func(_ *cobra.Command, _ []string) error {
++	RunE: func(cmd *cobra.Command, _ []string) error {
++		if opts.Capabilities {
++			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]int{"gui-lifecycle-v1": 1, "virtiofs-readonly-v1": 1})
++		}
++		if (opts.GUIKeepRunning || opts.GUITitle != "") && !opts.UseGUI {
++			return fmt.Errorf("--gui-title and --gui-keep-running require --gui")
++		}
+ 		// if vfkit stop execution by itself, i.e. when VM stops by guest OS
+ 		// we need to call ExecuteExitHandlers to clean up
+ 		defer util.ExecuteExitHandlers()
+diff --git a/pkg/cmdline/cmdline.go b/pkg/cmdline/cmdline.go
+index 70011df..0c890f8 100644
+--- a/pkg/cmdline/cmdline.go
++++ b/pkg/cmdline/cmdline.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package cmdline
+ 
+ import (
+@@ -22,7 +23,10 @@ type Options struct {
+ 
+ 	LogLevel string
+ 
+-	UseGUI bool
++	UseGUI         bool
++	GUITitle       string
++	GUIKeepRunning bool
++	Capabilities   bool
+ 
+ 	IgnitionPath string
+ 
+@@ -42,6 +46,9 @@ func AddFlags(cmd *cobra.Command, opts *Options) {
+ 
+ 	cmd.Flags().VarP(&opts.Bootloader, "bootloader", "b", "bootloader configuration")
+ 	cmd.Flags().BoolVar(&opts.UseGUI, "gui", false, "display the contents of the virtual machine onto a graphical user interface")
++	cmd.Flags().StringVar(&opts.GUITitle, "gui-title", "", "graphics window title")
++	cmd.Flags().BoolVar(&opts.GUIKeepRunning, "gui-keep-running", false, "hide the window on close and request guest shutdown on Quit")
++	cmd.Flags().BoolVar(&opts.Capabilities, "capabilities", false, "print Voom extension capabilities as JSON and exit")
+ 
+ 	cmd.MarkFlagsMutuallyExclusive("kernel", "bootloader")
+ 	cmd.MarkFlagsMutuallyExclusive("initrd", "bootloader")
+diff --git a/pkg/rest/rest.go b/pkg/rest/rest.go
+index d9803e8..ccabf96 100644
+--- a/pkg/rest/rest.go
++++ b/pkg/rest/rest.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package rest
+ 
+ import (
+@@ -101,6 +102,9 @@ func NewServer(inspector VirtualMachineInspector, stateHandler VirtualMachineSta
+ 	r.GET("/vm/state", stateHandler.GetVMState)
+ 	r.POST("/vm/state", stateHandler.SetVMState)
+ 	r.GET("/vm/inspect", inspector.Inspect)
++	if display, ok := inspector.(interface{ ShowDisplay(*gin.Context) }); ok {
++		r.POST("/vm/display", display.ShowDisplay)
++	}
+ 	return &s, nil
+ }
+ 
+diff --git a/pkg/rest/rest_test.go b/pkg/rest/rest_test.go
+index fd6bffe..6e6663d 100644
+--- a/pkg/rest/rest_test.go
++++ b/pkg/rest/rest_test.go
+@@ -1,10 +1,14 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package rest
+ 
+ import (
+ 	"fmt"
++	"net/http"
++	"net/http/httptest"
+ 	"net/url"
+ 	"testing"
+ 
++	"github.com/gin-gonic/gin"
+ 	"github.com/stretchr/testify/assert"
+ )
+ 
+@@ -153,3 +157,26 @@ func TestToRestScheme(t *testing.T) {
+ 		})
+ 	}
+ }
++
++type displayVM struct {
++	shows     int
++	mutations int
++}
++
++func (v *displayVM) Inspect(c *gin.Context)     { c.Status(http.StatusOK) }
++func (v *displayVM) GetVMState(c *gin.Context)  { c.Status(http.StatusOK) }
++func (v *displayVM) SetVMState(c *gin.Context)  { v.mutations++; c.Status(http.StatusAccepted) }
++func (v *displayVM) ShowDisplay(c *gin.Context) { v.shows++; c.Status(http.StatusAccepted) }
++
++func TestDisplayEndpointDoesNotChangeVMState(t *testing.T) {
++	vm := &displayVM{}
++	server, err := NewServer(vm, vm, "unix:///tmp/vfkit-test.sock")
++	if err != nil {
++		t.Fatal(err)
++	}
++	response := httptest.NewRecorder()
++	server.router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/vm/display", nil))
++	if response.Code != http.StatusAccepted || vm.shows != 1 || vm.mutations != 0 {
++		t.Fatalf("display request: status=%d show=%d state changes=%d", response.Code, vm.shows, vm.mutations)
++	}
++}
+diff --git a/pkg/rest/vf/vm_config.go b/pkg/rest/vf/vm_config.go
+index add379b..b2fe2c6 100644
+--- a/pkg/rest/vf/vm_config.go
++++ b/pkg/rest/vf/vm_config.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package rest
+ 
+ import (
+@@ -11,10 +12,11 @@ import (
+ 
+ type VzVirtualMachine struct {
+ 	*vf.VirtualMachine
++	GUI bool
+ }
+ 
+ func NewVzVirtualMachine(vm *vf.VirtualMachine) *VzVirtualMachine {
+-	return &VzVirtualMachine{vm}
++	return &VzVirtualMachine{VirtualMachine: vm}
+ }
+ 
+ // Inspect returns information about the virtual machine like hw resources
+@@ -60,3 +62,16 @@ func (vm *VzVirtualMachine) SetVMState(c *gin.Context) {
+ 	}
+ 	c.Status(http.StatusAccepted)
+ }
++
++// ShowDisplay focuses the existing window without starting or restarting a VM.
++func (vm *VzVirtualMachine) ShowDisplay(c *gin.Context) {
++	if !vm.GUI {
++		c.JSON(http.StatusConflict, gin.H{"error": "GUI is not enabled"})
++		return
++	}
++	if err := vm.ShowGraphicApplication(); err != nil {
++		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
++		return
++	}
++	c.Status(http.StatusAccepted)
++}

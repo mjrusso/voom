@@ -9,6 +9,8 @@ dev: check
 build:
     mkdir -p {{bin_dir}}
     go build -o {{bin_dir}}/{{binary}} ./cmd/{{binary}}
+    @if [ "$(uname -s)/$(uname -m)" = Darwin/arm64 ]; then scripts/build-macos-identity.sh {{bin_dir}}/voom-macos-identity; fi
+    @if [ "$(uname -s)" = Darwin ]; then nix build path:.#vfkit --out-link {{bin_dir}}/vfkit-package && ln -sfn vfkit-package/bin/vfkit {{bin_dir}}/vfkit; fi
 
 docs:
     go run ./cmd/gen-docs

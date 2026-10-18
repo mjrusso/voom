@@ -1,0 +1,270 @@
+diff --git a/virtualization.go b/virtualization.go
+index 0eab2bd..185c05b 100644
+--- a/virtualization.go
++++ b/virtualization.go
+@@ -382,8 +382,9 @@ func (v *VirtualMachine) Stop() error {
+ }
+ 
+ type startGraphicApplicationOptions struct {
+-	title            string
+-	enableController bool
++	title              string
++	enableController   bool
++	keepRunningOnClose bool
+ }
+ 
+ // StartGraphicApplicationOption is an option for display graphics start.
+@@ -405,6 +406,25 @@ func WithController(enable bool) StartGraphicApplicationOption {
+ 	}
+ }
+ 
++// WithKeepRunningOnClose hides the window on close and requests guest shutdown on Quit.
++func WithKeepRunningOnClose(enable bool) StartGraphicApplicationOption {
++	return func(options *startGraphicApplicationOptions) error {
++		options.keepRunningOnClose = enable
++		return nil
++	}
++}
++
++// ShowGraphicApplication shows the existing graphics window from any goroutine.
++func (v *VirtualMachine) ShowGraphicApplication() error {
++	if err := macOSAvailable(12); err != nil {
++		return err
++	}
++	if !bool(C.showVirtualMachineWindow(objc.Ptr(v))) {
++		return fmt.Errorf("virtual machine graphics window is unavailable")
++	}
++	return nil
++}
++
+ // StartGraphicApplication starts an application to display graphics of the VM.
+ //
+ // You must to call runtime.LockOSThread before calling this method.
+@@ -429,6 +449,7 @@ func (v *VirtualMachine) StartGraphicApplication(width, height float64, opts ...
+ 		C.double(height),
+ 		windowTitle.CString(),
+ 		C.bool(defaultOpts.enableController),
++		C.bool(defaultOpts.keepRunningOnClose),
+ 	)
+ 	return nil
+ }
+diff --git a/virtualization_12.h b/virtualization_12.h
+index dd679a7..c5e1f8a 100644
+--- a/virtualization_12.h
++++ b/virtualization_12.h
+@@ -45,4 +45,5 @@ void setKeyboardsVZVirtualMachineConfiguration(void *config,
+ void setAudioDevicesVZVirtualMachineConfiguration(void *config,
+     void *audioDevices);
+ 
+-void startVirtualMachineWindow(void *machine, void *queue, double width, double height, const char *title, bool enableController);
+\ No newline at end of file
++void startVirtualMachineWindow(void *machine, void *queue, double width, double height, const char *title, bool enableController, bool keepRunningOnClose);
++bool showVirtualMachineWindow(void *machine);
+\ No newline at end of file
+diff --git a/virtualization_12.m b/virtualization_12.m
+index 1ab6b52..12acdc6 100644
+--- a/virtualization_12.m
++++ b/virtualization_12.m
+@@ -343,7 +343,7 @@ void *newVZUSBKeyboardConfiguration()
+     RAISE_UNSUPPORTED_MACOS_EXCEPTION();
+ }
+ 
+-void startVirtualMachineWindow(void *machine, void *queue, double width, double height, const char *title, bool enableController)
++void startVirtualMachineWindow(void *machine, void *queue, double width, double height, const char *title, bool enableController, bool keepRunningOnClose)
+ {
+     // Create a shared app instance.
+     // This will initialize the global variable
+@@ -358,7 +358,8 @@ void startVirtualMachineWindow(void *machine, void *queue, double width, double
+                            windowWidth:(CGFloat)width
+                           windowHeight:(CGFloat)height
+                            windowTitle:windowTitle
+-                      enableController:enableController] autorelease];
++                      enableController:enableController
++                    keepRunningOnClose:keepRunningOnClose] autorelease];
+ 
+             NSApp.delegate = appDelegate;
+             [NSApp run];
+@@ -367,3 +368,24 @@ void startVirtualMachineWindow(void *machine, void *queue, double width, double
+     }
+     RAISE_UNSUPPORTED_MACOS_EXCEPTION();
+ }
++
++bool showVirtualMachineWindow(void *machine)
++{
++    if (@available(macOS 12, *)) {
++        if (NSApp == nil) return false;
++        __block BOOL shown = NO;
++        void (^show)(void) = ^{
++            if ([NSApp.delegate isKindOfClass:[AppDelegate class]]) {
++                AppDelegate *delegate = (AppDelegate *)NSApp.delegate;
++                if ([delegate ownsVirtualMachine:(VZVirtualMachine *)machine]) {
++                    [delegate showWindow];
++                    shown = YES;
++                }
++            }
++        };
++        if ([NSThread isMainThread]) show();
++        else dispatch_sync(dispatch_get_main_queue(), show);
++        return shown;
++    }
++    return false;
++}
+diff --git a/virtualization_view.h b/virtualization_view.h
+index 3b81b28..e77944f 100644
+--- a/virtualization_view.h
++++ b/virtualization_view.h
+@@ -31,5 +31,8 @@ API_AVAILABLE(macos(12.0))
+                            windowWidth:(CGFloat)windowWidth
+                           windowHeight:(CGFloat)windowHeight
+                            windowTitle:(NSString *)windowTitle
+-                      enableController:(BOOL)enableController;
++                      enableController:(BOOL)enableController
++                    keepRunningOnClose:(BOOL)keepRunningOnClose;
++- (BOOL)ownsVirtualMachine:(VZVirtualMachine *)machine;
++- (void)showWindow;
+ @end
+\ No newline at end of file
+diff --git a/virtualization_view.m b/virtualization_view.m
+index b57defc..c068477 100644
+--- a/virtualization_view.m
++++ b/virtualization_view.m
+@@ -29,18 +29,18 @@
+ 
+ - (void)terminate:(id)sender
+ {
++    if ([self.delegate respondsToSelector:@selector(applicationShouldTerminate:)] &&
++        [self.delegate applicationShouldTerminate:self] != NSTerminateNow) {
++        return;
++    }
+     shouldKeepRunning = NO;
+-
+-    // We should call this method if we want to use `applicationWillTerminate` method.
+-    //
+-    // [[NSNotificationCenter defaultCenter]
+-    //     postNotificationName:NSApplicationWillTerminateNotification
+-    //                   object:NSApp];
+-
+-    // This method is used to end up the event loop.
+-    // If no events are coming, the event loop will always be in a waiting state.
+-    [self postEvent:self.currentEvent atStart:NO];
++    // A REST shutdown while hidden may have no current AppKit event.
++    NSEvent *wake = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
++                                     location:NSZeroPoint modifierFlags:0 timestamp:0
++                                 windowNumber:0 context:nil subtype:0 data1:0 data2:0];
++    [self postEvent:wake atStart:NO];
+ }
++
+ @end
+ 
+ @implementation AboutViewController
+@@ -172,6 +172,9 @@
+     NSWindow *_window;
+     NSToolbar *_toolbar;
+     BOOL _enableController;
++    BOOL _keepRunningOnClose;
++    BOOL _quitRequested;
++    NSUInteger _quitGeneration;
+     // Overlay for pause mode.
+     NSVisualEffectView *_pauseOverlayView;
+     // Zoom function properties.
+@@ -187,6 +190,7 @@
+                           windowHeight:(CGFloat)windowHeight
+                            windowTitle:(NSString *)windowTitle
+                       enableController:(BOOL)enableController
++                    keepRunningOnClose:(BOOL)keepRunningOnClose
+ {
+     self = [super init];
+     _virtualMachine = virtualMachine;
+@@ -209,6 +213,7 @@
+     _window = [self createMainWindowWithTitle:windowTitle width:windowWidth height:windowHeight];
+     _toolbar = [self createCustomToolbar];
+     _enableController = enableController;
++    _keepRunningOnClose = keepRunningOnClose;
+     [_virtualMachine addObserver:self
+                       forKeyPath:@"state"
+                          options:NSKeyValueObservingOptionNew
+@@ -287,7 +292,8 @@
+             }
+             // Terminating GUI Application from Guest and Host.
+             // See: https://github.com/Code-Hex/vz/issues/150
+-            if (newState == VZVirtualMachineStateStopped) {
++            if (newState == VZVirtualMachineStateStopped ||
++                (_keepRunningOnClose && newState == VZVirtualMachineStateError)) {
+                 [NSApp terminate:nil];
+             }
+         });
+@@ -395,9 +401,73 @@ static NSString *const Space2ToolbarIdentifier = @"Space2";
+     [NSApp activateIgnoringOtherApps:YES];
+ }
+ 
++- (BOOL)ownsVirtualMachine:(VZVirtualMachine *)machine
++{
++    return _virtualMachine == machine;
++}
++
++- (void)showWindow
++{
++    [NSApp unhide:nil];
++    [_window deminiaturize:nil];
++    [_window makeKeyAndOrderFront:nil];
++    [NSApp activateIgnoringOtherApps:YES];
++}
++
++- (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag
++{
++    [self showWindow];
++    return YES;
++}
++
++- (BOOL)windowShouldClose:(NSWindow *)sender
++{
++    if (!_keepRunningOnClose) return YES;
++    [sender orderOut:nil];
++    return NO;
++}
++
+ - (void)windowWillClose:(NSNotification *)notification
+ {
+-    [NSApp performSelectorOnMainThread:@selector(terminate:) withObject:self waitUntilDone:NO];
++    if (!_keepRunningOnClose) [NSApp terminate:nil];
++}
++
++- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender
++{
++    if (!_keepRunningOnClose) return NSTerminateNow;
++    __block VZVirtualMachineState state;
++    dispatch_sync(_queue, ^{ state = _virtualMachine.state; });
++    if (state == VZVirtualMachineStateStopped || state == VZVirtualMachineStateError) {
++        return NSTerminateNow;
++    }
++    if (_quitRequested) return NSTerminateCancel;
++    _quitRequested = YES;
++    NSUInteger generation = ++_quitGeneration;
++    dispatch_async(_queue, ^{
++        NSError *error = nil;
++        BOOL accepted = [_virtualMachine requestStopWithError:&error];
++        if (!accepted) {
++            NSString *message = error ? error.localizedDescription : @"The guest did not accept shutdown.";
++            dispatch_async(dispatch_get_main_queue(), ^{
++                _quitRequested = NO;
++                [self showWindow];
++                NSAlert *alert = [[[NSAlert alloc] init] autorelease];
++                alert.messageText = @"Unable to shut down the virtual machine";
++                alert.informativeText = message;
++                [alert beginSheetModalForWindow:_window completionHandler:nil];
++            });
++        }
++    });
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
++        if (!_quitRequested || generation != _quitGeneration) return;
++        _quitRequested = NO;
++        [self showWindow];
++        NSAlert *alert = [[[NSAlert alloc] init] autorelease];
++        alert.messageText = @"The virtual machine is still shutting down";
++        alert.informativeText = @"Shut down from inside the guest, or retry Quit. The virtual machine has not been force stopped.";
++        [alert beginSheetModalForWindow:_window completionHandler:nil];
++    });
++    return NSTerminateCancel;
+ }
+ 
+ - (void)setupGraphicWindow

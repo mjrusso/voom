@@ -1,0 +1,107 @@
+diff --git a/pkg/config/json_test.go b/pkg/config/json_test.go
+index fa7b9cc..439a69f 100644
+--- a/pkg/config/json_test.go
++++ b/pkg/config/json_test.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package config
+ 
+ import (
+@@ -232,7 +233,7 @@ var jsonStabilityTests = map[string]jsonStabilityTest{
+ 	},
+ 	"VirtioFs": {
+ 		obj:          &VirtioFs{},
+-		expectedJSON: `{"kind":"virtiofs","mountTag":"MountTag","sharedDir":"SharedDir"}`,
++		expectedJSON: `{"kind":"virtiofs","mountTag":"MountTag","sharedDir":"SharedDir","readOnly":true}`,
+ 	},
+ 	"VirtioGPU": {
+ 		obj:          &VirtioGPU{},
+diff --git a/pkg/config/virtio.go b/pkg/config/virtio.go
+index ebdcd11..7edc3da 100644
+--- a/pkg/config/virtio.go
++++ b/pkg/config/virtio.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package config
+ 
+ import (
+@@ -74,6 +75,7 @@ type DirectorySharingConfig struct {
+ type VirtioFs struct {
+ 	DirectorySharingConfig
+ 	SharedDir string `json:"sharedDir"`
++	ReadOnly  bool   `json:"readOnly,omitempty"`
+ }
+ 
+ // RosettaShare configures rosetta support in the guest to run Intel binaries on Apple CPUs
+@@ -734,16 +736,24 @@ func (dev *VirtioFs) ToCmdLine() ([]string, error) {
+ 	if dev.SharedDir == "" {
+ 		return nil, fmt.Errorf("virtio-fs needs the path to the directory to share")
+ 	}
++	device := fmt.Sprintf("virtio-fs,sharedDir=%s", dev.SharedDir)
+ 	if dev.MountTag != "" {
+-		return []string{"--device", fmt.Sprintf("virtio-fs,sharedDir=%s,mountTag=%s", dev.SharedDir, dev.MountTag)}, nil
++		device += ",mountTag=" + dev.MountTag
+ 	}
+-
+-	return []string{"--device", fmt.Sprintf("virtio-fs,sharedDir=%s", dev.SharedDir)}, nil
++	if dev.ReadOnly {
++		device += ",readonly"
++	}
++	return []string{"--device", device}, nil
+ }
+ 
+ func (dev *VirtioFs) FromOptions(options []option) error {
+ 	for _, option := range options {
+ 		switch option.key {
++		case "readonly":
++			if option.value != "" {
++				return fmt.Errorf("virtio-fs readonly does not take a value")
++			}
++			dev.ReadOnly = true
+ 		case "sharedDir":
+ 			dev.SharedDir = option.value
+ 		case "mountTag":
+diff --git a/pkg/config/virtio_test.go b/pkg/config/virtio_test.go
+index 08dee81..2a8d039 100644
+--- a/pkg/config/virtio_test.go
++++ b/pkg/config/virtio_test.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package config
+ 
+ import (
+@@ -482,3 +483,16 @@ func TestVirtioDevices(t *testing.T) {
+ 		}
+ 	})
+ }
++
++func TestVirtioFsReadOnlyRoundTrip(t *testing.T) {
++	device, err := deviceFromCmdLine("virtio-fs,sharedDir=/tmp/source,mountTag=src,readonly")
++	require.NoError(t, err)
++	share, ok := device.(*VirtioFs)
++	require.True(t, ok)
++	require.True(t, share.ReadOnly)
++	args, err := share.ToCmdLine()
++	require.NoError(t, err)
++	require.Equal(t, []string{"--device", "virtio-fs,sharedDir=/tmp/source,mountTag=src,readonly"}, args)
++	_, err = deviceFromCmdLine("virtio-fs,sharedDir=/tmp/source,readonly=false")
++	require.Error(t, err)
++}
+diff --git a/pkg/vf/virtio.go b/pkg/vf/virtio.go
+index f24679c..2330420 100644
+--- a/pkg/vf/virtio.go
++++ b/pkg/vf/virtio.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package vf
+ 
+ import (
+@@ -191,7 +192,7 @@ func (dev *VirtioFs) toVz() (vz.DirectorySharingDeviceConfiguration, error) {
+ 		mountTag = filepath.Base(dev.SharedDir)
+ 	}
+ 
+-	sharedDir, err := vz.NewSharedDirectory(dev.SharedDir, false)
++	sharedDir, err := vz.NewSharedDirectory(dev.SharedDir, dev.ReadOnly)
+ 	if err != nil {
+ 		return nil, err
+ 	}
