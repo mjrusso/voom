@@ -97,7 +97,7 @@ func tableWriter(cmd *cobra.Command) *tabwriter.Writer {
 func addCommands(root *cobra.Command) {
 	root.AddCommand(newVersionCommand(), newSkillCommand(), doctorCommand(), debugCommand(), guestCommand())
 	root.AddCommand(imageCommand(), createCommand(), cloneCommand(), startCommand(), stopCommand(), restartCommand())
-	root.AddCommand(sshCommand(), sshConfigCommand(), consoleCommand(), logsCommand(), infoCommand())
+	root.AddCommand(guiCommand(), sshCommand(), sshConfigCommand(), consoleCommand(), logsCommand(), infoCommand())
 	root.AddCommand(listCommand(), renameCommand(), removeCommand(), diskCommand(), resourcesCommand(), forwardCommand(), shareCommand(), usbCommand(), pciCommand(), nixosCommand())
 	root.AddCommand(configCommand())
 	root.AddCommand(eventsCommand())
@@ -105,6 +105,7 @@ func addCommands(root *cobra.Command) {
 
 func debugCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "debug", Short: "Debug voom internals"}
+	cmd.AddCommand(macOSCloneProbeCommand(), runtimeWatchCommand())
 	cmd.AddCommand(&cobra.Command{
 		Use:   "paths",
 		Short: "Print resolved directories",

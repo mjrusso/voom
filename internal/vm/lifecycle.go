@@ -16,11 +16,27 @@ import (
 	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/host"
-	"github.com/mjrusso/voom/internal/image"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/share"
 	"github.com/mjrusso/voom/internal/state"
 )
+
+func vmFromImage(record state.VMRecord, image *state.ImageRecord) *state.VMRecord {
+	record.Image = state.VMImageRef{ID: image.ID, Name: image.Name}
+	record.Arch = image.Arch
+	record.MacOS = image.MacOS
+	record.Access = state.VMAccess{SSHUser: image.Metadata.SSHUser, SSHIdentityPath: image.Metadata.SSHIdentityPath}
+	if record.Access.SSHUser == "" {
+		record.Access.SSHUser = "root"
+	}
+	if image.MacOS == nil {
+		record.Access.NixosTargetUser = image.Metadata.NixosTargetUser
+		if record.Access.NixosTargetUser == "" {
+			record.Access.NixosTargetUser = record.Access.SSHUser
+		}
+	}
+	return &record
+}
 
 // Create provisions a new VM record from the named image, allocating storage,
 // an SSH port, and registering it in the store. The disk copy honors ctx
@@ -36,30 +52,40 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 	if err := host.ValidateHostImage(im.Arch, im.Format, driver); err != nil {
 		return nil, err
 	}
+	if cpus == 0 {
+		cpus = 4
+		if im.MacOS != nil {
+			cpus = im.MacOS.CPUs
+		}
+	}
+	if mem == 0 {
+		mem = 4096
+		if im.MacOS != nil {
+			mem = im.MacOS.MemoryMiB
+		}
+	}
+	if cpus < 1 || mem < 1 {
+		return nil, errors.New("CPU and memory allocations must be positive")
+	}
+	if im.MacOS != nil {
+		if err := im.MacOS.ValidateResources(cpus, mem); err != nil {
+			return nil, err
+		}
+		if err := im.MacOS.ValidateStorage(m.store.ImageDir(im.ID)); err != nil {
+			return nil, err
+		}
+	}
 	id, err := state.NewID()
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
-	vm := &state.VMRecord{
-		SchemaVersion: state.SchemaVersion,
-		ID:            id,
-		Name:          name,
-		Driver:        driver,
-		Arch:          im.Arch,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		Image:         state.VMImageRef{ID: im.ID, Name: im.Name},
-		Resources:     state.VMResources{CPUs: cpus, MemoryMiB: mem},
-		Access:        state.VMAccess{SSHUser: im.Metadata.SSHUser, SSHIdentityPath: im.Metadata.SSHIdentityPath, NixosTargetUser: im.Metadata.NixosTargetUser},
-		Network:       state.VMNetwork{SSHPort: sshPort, SSHBind: "127.0.0.1"},
-	}
-	if vm.Access.SSHUser == "" {
-		vm.Access.SSHUser = "root"
-	}
-	if vm.Access.NixosTargetUser == "" {
-		vm.Access.NixosTargetUser = vm.Access.SSHUser
-	}
+	vm := vmFromImage(state.VMRecord{
+		ID: id, Name: name, Driver: driver,
+		CreatedAt: now, UpdatedAt: now,
+		Resources: state.VMResources{CPUs: cpus, MemoryMiB: mem},
+		Network:   state.VMNetwork{SSHPort: sshPort, SSHBind: "127.0.0.1"},
+	}, im)
 	if err := os.MkdirAll(m.store.VMDir(id), 0o755); err != nil {
 		return nil, err
 	}
@@ -69,13 +95,19 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 			_ = os.RemoveAll(m.store.VMDir(id))
 		}
 	}()
-	if err := state.CopyFile(ctx, m.store.ImageDiskPath(im), m.store.VMDiskPath(vm)); err != nil {
+	vm, err = m.store.CopyStorageGeneration(ctx, vm, im.MacOS, m.store.ImageDiskPath(im))
+	if err != nil {
 		return nil, err
 	}
 	if err := m.store.WithGlobal(func() error {
 		idx := m.store.IndexSnapshot()
 		if idx.Images[imageName] != im.ID {
 			return fmt.Errorf("image %q changed while creating VM", imageName)
+		}
+		if vm.MacOS != nil {
+			if err := m.store.CheckMacOSIdentityAvailable(vm.MacOS); err != nil {
+				return err
+			}
 		}
 		var err error
 		if sshPort == 0 {
@@ -147,10 +179,22 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.
 			retErr = errors.Join(retErr, fmt.Errorf("cleaning up failed clone: %w", err))
 		}
 	}()
-	if err := state.CopyFile(ctx, m.store.VMDiskPath(src), m.store.VMDiskPath(&clone)); err != nil {
+	if src.MacOS != nil {
+		if err := state.WaitMacOSStorage(ctx, m.store.VMStorageDir(src)); err != nil {
+			return nil, err
+		}
+	}
+	staged, err := m.store.CopyStorageGeneration(ctx, &clone, src.MacOS, m.store.VMDiskPath(src))
+	if err != nil {
 		return nil, err
 	}
+	clone = *staged
 	if err := m.store.WithGlobalVM(srcName, src.ID, func() error {
+		if clone.MacOS != nil {
+			if err := m.store.CheckMacOSIdentityAvailable(clone.MacOS); err != nil {
+				return err
+			}
+		}
 		port, err := m.store.AllocateSSHPort()
 		if err != nil {
 			return err
@@ -182,6 +226,11 @@ func (m *Manager) Remove(ctx context.Context, name string) error {
 			return err
 		}
 	}
+	if vm.MacOS != nil {
+		if err := state.WaitMacOSStorage(ctx, m.store.VMStorageDir(vm)); err != nil {
+			return err
+		}
+	}
 	if err := m.store.DeleteVM(vm); err != nil {
 		return err
 	}
@@ -196,6 +245,9 @@ func (m *Manager) GrowDisk(ctx context.Context, name, amount string) error {
 		return err
 	}
 	defer unlock()
+	if vm.MacOS != nil {
+		return errors.New("macOS disk growth is not supported")
+	}
 	if m.IsRunning(vm) {
 		return fmt.Errorf("VM %q is running; stop it before growing its disk", name)
 	}
@@ -223,46 +275,32 @@ func (m *Manager) ResetDisk(ctx context.Context, name, imageName string) error {
 		return err
 	}
 	defer unlock()
-	if _, err := m.stopRuntime(ctx, vm); err != nil {
-		return err
-	}
 	im, err := m.store.LoadImage(imageName)
 	if err != nil {
 		return err
 	}
-	if err := host.ValidateHostImage(im.Arch, im.Format, vm.Driver); err != nil {
+	if (vm.MacOS == nil) != (im.MacOS == nil) {
+		return errors.New("reset cannot change between Linux and macOS guests")
+	}
+	if err := validateImageFeatures(vm, im); err != nil {
 		return err
 	}
-	candidate := *vm
-	candidate.Image = state.VMImageRef{ID: im.ID, Name: im.Name}
-	candidate.Arch = im.Arch
-	candidate.Access = state.VMAccess{SSHUser: im.Metadata.SSHUser, SSHIdentityPath: im.Metadata.SSHIdentityPath, NixosTargetUser: im.Metadata.NixosTargetUser}
-	if candidate.Access.SSHUser == "" {
-		candidate.Access.SSHUser = "root"
-	}
-	if candidate.Access.NixosTargetUser == "" {
-		candidate.Access.NixosTargetUser = candidate.Access.SSHUser
-	}
-	disk := m.store.VMDiskPath(vm)
-	stagedDisk := disk + ".reset"
-	if err := state.CopyFile(ctx, m.store.ImageDiskPath(im), stagedDisk); err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(stagedDisk) }()
-	candidate.UpdatedAt = time.Now().UTC()
-	if err := m.store.WithGlobalVM(name, vm.ID, func() error {
-		if m.store.IndexSnapshot().Images[imageName] != im.ID {
-			return fmt.Errorf("image %q changed while resetting VM", imageName)
-		}
-		if err := os.Rename(stagedDisk, disk); err != nil {
+	if im.MacOS != nil {
+		if err := im.MacOS.ValidateResources(vm.Resources.CPUs, vm.Resources.MemoryMiB); err != nil {
 			return err
 		}
-		return m.store.SaveVM(&candidate)
-	}); err != nil {
+		if err := im.MacOS.ValidateStorage(m.store.ImageDir(im.ID)); err != nil {
+			return err
+		}
+	} else if err := host.ValidateHostImage(im.Arch, im.Format, vm.Driver); err != nil {
 		return err
 	}
-	*vm = candidate
-	return nil
+	candidate := vmFromImage(*vm, im)
+	if _, err := m.stopRuntime(ctx, vm); err != nil {
+		return err
+	}
+	candidate.UpdatedAt = time.Now().UTC()
+	return m.store.ReplaceStorage(ctx, vm, candidate, m.store.ImageDiskPath(im))
 }
 
 // Start boots the named VM, launching gvproxy and the driver process and
@@ -273,6 +311,11 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		return nil, err
 	}
 	defer unlock()
+	if vm.MacOS != nil {
+		if err := vm.MacOS.ValidateStorage(m.store.VMStorageDir(vm)); err != nil {
+			return nil, err
+		}
+	}
 	if m.IsRunning(vm) {
 		return vm, nil
 	}
@@ -291,7 +334,7 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	if _, err := m.stopRuntime(ctx, vm); err != nil {
 		return nil, err
 	}
-	if err := host.ValidateHostImage(vm.Arch, state.ImageFormatFromDisk(m.store.VMDiskPath(vm)), vm.Driver); err != nil {
+	if err := m.prepareGuestStorage(ctx, vm); err != nil {
 		return nil, err
 	}
 	requiredCapabilities := []string{gvproxy.GuestIsolationCapability}
@@ -317,47 +360,16 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	if err != nil {
 		return nil, err
 	}
-	switch vm.Driver {
-	case "qemu":
-		err = host.RequireExe(qemu.ExecutableName(vm.Arch))
-		if err == nil && len(vm.USBDevices) > 0 {
-			err = qemu.RequireUSB(vm.Arch)
-		}
-		if err == nil && len(vm.PCIDevices) > 0 {
-			err = qemu.RequireVFIO(vm.Arch)
-		}
-		if err != nil {
-			return nil, err
-		}
-		if err := host.RequireExe("qemu-img"); err != nil {
-			return nil, err
-		}
-	case "vfkit":
-		if err := host.RequireExe("vfkit"); err != nil {
-			return nil, err
-		}
-	default:
-		return nil, fmt.Errorf("unsupported driver %q", vm.Driver)
+	driverExe, err := requireDriver(ctx, vm)
+	if err != nil {
+		return nil, err
 	}
 	im, err := m.store.LoadImageByID(vm.Image.ID)
 	if err != nil {
 		return nil, err
 	}
-	if vm.Driver == "vfkit" && im.Metadata.KernelPath == "" {
-		if err := image.ValidateVFKitBootDisk(m.store.VMDiskPath(vm)); err != nil {
-			return nil, err
-		}
-	}
-	if vm.Driver == "qemu" && (im.Capabilities.ControlShare || len(vm.Shares) > 0) {
-		if err := host.RequireExe("virtiofsd"); err != nil {
-			return nil, err
-		}
-	}
-	if len(vm.Shares) > 0 && !im.Capabilities.ControlShare {
-		return nil, fmt.Errorf("share mounting unavailable for image %q: controlShare capability is false; import an image with the reserved voom-control share enabled", im.Name)
-	}
-	if len(vm.Shares) > 0 && !im.Capabilities.GuestShareMount {
-		return nil, fmt.Errorf("share mounting unavailable for image %q: guestShareMount capability is false; import an image with guest share-mount support", im.Name)
+	if err := m.validateGuestImage(vm, im); err != nil {
+		return nil, err
 	}
 	usbBindings, err := m.prepareUSBDevices(vm)
 	if err != nil {
@@ -392,10 +404,7 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	for _, p := range rt.DriverSockets() {
 		_ = os.Remove(p)
 	}
-	if err := m.WriteSeedImage(vm); err != nil {
-		return nil, err
-	}
-	if err := m.WriteControlFiles(vm); err != nil {
+	if err := m.prepareGuestFiles(vm, im); err != nil {
 		return nil, err
 	}
 	if vm.Network.Egress.IsEnabled() {
@@ -457,7 +466,7 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 			return nil, err
 		}
 		if err := m.withUSBStartReservation(ctx, vm, func() error {
-			return m.startRecorded(qemu.ExecutableName(vm.Arch), qargs, m.store.LogPath(vm, "qemu"), rt.VMProcessRecord())
+			return process.StartRecorded(driverExe, qargs, m.store.LogPath(vm, "qemu"), rt.VMProcessRecord())
 		}); err != nil {
 			return nil, err
 		}
@@ -465,17 +474,19 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 			return nil, m.driverStartError(vm, "qemu")
 		}
 	case "vfkit":
-		if err := m.startRecorded("vfkit", m.vfkitArgs(vm, im, virtiofsShares), m.store.LogPath(vm, "vfkit"), rt.VMProcessRecord()); err != nil {
+		vargs, err := m.vfkitArgs(vm, im, virtiofsShares)
+		if err != nil {
+			return nil, err
+		}
+		if err := process.StartRecorded(driverExe, vargs, m.store.LogPath(vm, "vfkit"), rt.VMProcessRecord()); err != nil {
 			return nil, err
 		}
 		if err := waitFor(ctx, func() bool { return m.IsRunning(vm) && socketExists(rt.VFKitRestSock()) }, driverStartTimeout); err != nil {
 			return nil, m.driverStartError(vm, "vfkit")
 		}
 	}
-	if vm.Network.AutoForward && im.Capabilities.GuestPortReport && im.Capabilities.ControlShare {
-		if err := m.StartAutoForwardWatcher(vm); err != nil {
-			return nil, err
-		}
+	if err := m.startGuestWatchers(vm, im); err != nil {
+		return nil, err
 	}
 	started = true
 	m.emitVM("start", vm, nil)
@@ -500,6 +511,11 @@ func (m *Manager) stopLocked(ctx context.Context, vm *state.VMRecord) (runtimeSt
 	stop, err := m.stopRuntime(ctx, vm)
 	if err != nil {
 		return stop, err
+	}
+	if vm.MacOS != nil {
+		if err := state.WaitMacOSStorage(ctx, m.store.VMStorageDir(vm)); err != nil {
+			return stop, err
+		}
 	}
 	if stop.changed {
 		m.emitVM("stop", vm, nil)
@@ -565,6 +581,9 @@ func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeS
 func (m *Manager) stopVMProcesses(ctx context.Context, vm *state.VMRecord) error {
 	rt := m.store.Runtime(vm)
 	var failures []error
+	if err := m.stopRuntimeWatcher(vm); err != nil {
+		failures = append(failures, err)
+	}
 	if err := m.StopAutoForwardWatcher(vm); err != nil {
 		failures = append(failures, err)
 	}
@@ -576,7 +595,11 @@ func (m *Manager) stopVMProcesses(ctx context.Context, vm *state.VMRecord) error
 			}
 		case "vfkit":
 			_ = vfkit.Stop(rt.VFKitRestSock(), false)
-			_ = waitFor(ctx, func() bool { return !process.Alive(pid) }, driverStopTimeout)
+			timeout := driverStopTimeout
+			if vm.MacOS != nil {
+				timeout = 60 * time.Second
+			}
+			_ = waitFor(ctx, func() bool { return !process.Alive(pid) }, timeout)
 		}
 	}
 	_, driverErr := stopService(runtimeService{
@@ -637,6 +660,7 @@ func hasRuntimeState(vm *state.VMRecord, rt state.RuntimeLayout) bool {
 	if process.HasRecord(rt.VMProcessRecord()) ||
 		process.HasRecord(rt.GVProxyProcessRecord()) ||
 		process.HasRecord(rt.AutoForwardProcessRecord()) ||
+		process.HasRecord(rt.RuntimeWatcherProcessRecord()) ||
 		len(rt.FindVirtiofsd()) > 0 {
 		return true
 	}

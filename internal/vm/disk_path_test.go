@@ -40,7 +40,7 @@ func TestLegacyVFKitDiskCanGrowAndCloneToRaw(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonical := filepath.Join(st.VMDir(clone.ID), "disk.raw")
+	canonical := filepath.Join(st.VMStorageDir(clone), "disk.raw")
 	if got := st.VMDiskPath(clone); got != canonical {
 		t.Fatalf("new clone disk resolved to %s", got)
 	}

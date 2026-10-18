@@ -42,7 +42,14 @@ func createCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			vmRec, err := deps.vm.Create(cmd.Context(), args[0], imageName, driver, cpus, mem, sshPort)
+			requestedCPUs := cpus
+			if !cmd.Flags().Changed("cpus") {
+				requestedCPUs = 0
+			}
+			if !cmd.Flags().Changed("memory") {
+				mem = 0
+			}
+			vmRec, err := deps.vm.Create(cmd.Context(), args[0], imageName, driver, requestedCPUs, mem, sshPort)
 			if err != nil {
 				return err
 			}
@@ -56,8 +63,8 @@ func createCommand() *cobra.Command {
 	cmd.Flags().StringVar(&imageName, "image", "", "image name")
 	_ = cmd.RegisterFlagCompletionFunc("image", completeImageFlag)
 	cmd.Flags().StringVar(&driver, "driver", "auto", "driver: auto, qemu, or vfkit")
-	cmd.Flags().IntVar(&cpus, "cpus", 4, "CPU count")
-	cmd.Flags().StringVar(&memory, "memory", "4096MiB", "memory size")
+	cmd.Flags().IntVar(&cpus, "cpus", 4, "CPU count (defaults to image allocation for macOS)")
+	cmd.Flags().StringVar(&memory, "memory", "4096MiB", "memory size (defaults to image allocation for macOS)")
 	cmd.Flags().IntVar(&sshPort, "ssh-port", 0, "explicit host SSH port (0 = auto-allocate)")
 	return cmd
 }
@@ -205,7 +212,10 @@ func sshConfigCommand() *cobra.Command {
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Host voom-%s\n  HostName %s\n  Port %d\n  User %s\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n", vmRec.Name, vmRec.Network.SSHBind, vmRec.Network.SSHPort, vmRec.Access.SSHUser)
 		if vmRec.Access.SSHIdentityPath != "" {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  IdentityFile %s\n", vmRec.Access.SSHIdentityPath)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  IdentityFile %s\n", strconv.Quote(vmRec.Access.SSHIdentityPath))
+			if vmRec.MacOS != nil {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  IdentitiesOnly yes")
+			}
 		}
 		return nil
 	}}
@@ -220,6 +230,9 @@ func consoleCommand() *cobra.Command {
 		vmRec, err := deps.store.LoadVM(args[0])
 		if err != nil {
 			return err
+		}
+		if vmRec.MacOS != nil {
+			return fmt.Errorf("macOS guests have no serial console; use the vfkit window, 'voom ssh %s', or 'voom logs %s'", vmRec.Name, vmRec.Name)
 		}
 		c := exec.CommandContext(cmd.Context(), "tail", "-n", "+1", "-F", deps.store.LogPath(vmRec, "serial"))
 		c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -238,6 +251,9 @@ func logsCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if vmRec.MacOS != nil && !cmd.Flags().Changed("kind") {
+			kind = "vfkit"
+		}
 		b, err := os.ReadFile(deps.store.LogPath(vmRec, kind))
 		if os.IsNotExist(err) {
 			return fmt.Errorf("log %q is not available for VM %q", kind, vmRec.Name)
@@ -248,7 +264,7 @@ func logsCommand() *cobra.Command {
 		_, err = cmd.OutOrStdout().Write(b)
 		return err
 	}}
-	cmd.Flags().StringVar(&kind, "kind", "serial", "log kind: serial, qemu, vfkit, gvproxy, share-mount")
+	cmd.Flags().StringVar(&kind, "kind", "serial", "log kind: serial, qemu, vfkit, gvproxy, auto-forward, share-mount, runtime-watch (macOS defaults to vfkit)")
 	return cmd
 }
 
@@ -263,6 +279,9 @@ func infoCommand() *cobra.Command {
 			return err
 		}
 		out := vmInfo{VM: vmRec, Running: deps.vm.IsRunning(vmRec), DiskPath: deps.store.VMDiskPath(vmRec)}
+		if vmRec.MacOS != nil {
+			out.PlatformStateDir = deps.store.VMStorageDir(vmRec)
+		}
 		if usage, err := state.ReadDiskUsage(out.DiskPath); err == nil {
 			out.Disk = &usage
 		} else {
@@ -282,6 +301,12 @@ func infoCommand() *cobra.Command {
 			disk = fmt.Sprintf("%s virtual, %s allocated on host", formatBytes(out.Disk.VirtualBytes), formatBytes(out.Disk.AllocatedBytes))
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\nstatus: %s\nimage: %s\ncpus: %d\nmemory: %dMiB\ndisk: %s\nssh: %s@%s:%d\nforwards: %d\nshares: %d\nusb: %d\npci: %d\n", vmRec.Name, vmRec.ID, vm.Status(out.Running), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, disk, vmRec.Access.SSHUser, vmRec.Network.SSHBind, vmRec.Network.SSHPort, len(vmRec.Network.Forwards), len(vmRec.Shares), len(vmRec.USBDevices), len(vmRec.PCIDevices))
+		if vmRec.MacOS != nil {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "system: %s\nboot: macos\nimage-macos: %s (%s)\napple-identity: %s\nplatform-state: %s\n", vmRec.Arch, vmRec.MacOS.Version, vmRec.MacOS.Build, vmRec.MacOS.IdentitySHA256, out.PlatformStateDir)
+			if vmRec.MacOS.MinimumCPUs != 0 {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "apple-minimum-resources: %d CPUs, %dMiB\n", vmRec.MacOS.MinimumCPUs, vmRec.MacOS.MinimumMemoryMiB)
+			}
+		}
 		for _, device := range out.USBStatus {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "usb-device: %s %s host=%s runtime=%s\n", device.Name, device.Location, device.Host.State, device.Runtime.State)
 			if device.Host.Error != "" {
@@ -304,14 +329,15 @@ func infoCommand() *cobra.Command {
 }
 
 type vmInfo struct {
-	EgressRuntime *vm.EgressRuntime `json:"egressRuntime,omitempty"`
-	VM            *state.VMRecord   `json:"vm"`
-	Running       bool              `json:"running"`
-	DiskPath      string            `json:"diskPath"`
-	Disk          *state.DiskUsage  `json:"disk,omitempty"`
-	DiskError     string            `json:"diskError,omitempty"`
-	USBStatus     []vm.USBStatus    `json:"usbStatus,omitempty"`
-	PCIStatus     []vm.PCIStatus    `json:"pciStatus,omitempty"`
+	PlatformStateDir string            `json:"platformStateDir,omitempty"`
+	EgressRuntime    *vm.EgressRuntime `json:"egressRuntime,omitempty"`
+	VM               *state.VMRecord   `json:"vm"`
+	Running          bool              `json:"running"`
+	DiskPath         string            `json:"diskPath"`
+	Disk             *state.DiskUsage  `json:"disk,omitempty"`
+	DiskError        string            `json:"diskError,omitempty"`
+	USBStatus        []vm.USBStatus    `json:"usbStatus,omitempty"`
+	PCIStatus        []vm.PCIStatus    `json:"pciStatus,omitempty"`
 }
 
 type omittedConfig struct {
@@ -452,7 +478,7 @@ func removeCommand() *cobra.Command {
 func diskCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "disk", Short: "Manage VM disks"}
 	var resetImage string
-	reset := &cobra.Command{Use: "reset <name> --image <image>", ValidArgsFunction: completeVMNames, Short: "Reset VM disk from image", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	reset := &cobra.Command{Use: "reset <name> --image <image>", ValidArgsFunction: completeVMNames, Short: "Reset VM disk from image", Long: "Stop the VM and replace its guest state from an image. This discards guest changes. For macOS, replace the disk and Apple platform files together and generate a fresh Apple identity. Keep the VM name, Voom ID, CPU and memory allocation, SSH port, NIC MAC, shares, and forwarding settings. Reset cannot change between Linux and macOS.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if resetImage == "" {
 			return errors.New("--image is required")
 		}

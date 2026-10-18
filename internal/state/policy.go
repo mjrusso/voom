@@ -63,7 +63,10 @@ func GuestMAC(driver, id string) string {
 }
 
 // ControlShareGuestPath returns the guest-side mount path of the control share.
-func ControlShareGuestPath() string {
+func ControlShareGuestPath(system string) string {
+	if system == "aarch64-darwin" {
+		return "/var/run/voom"
+	}
 	return controlSharePath
 }
 

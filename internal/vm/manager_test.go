@@ -328,7 +328,7 @@ func TestWriteControlFilesIncludesMountsAndControlPaths(t *testing.T) {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.ControlShare.Tag != state.ControlShareTag || payload.ControlShare.GuestPath != state.ControlShareGuestPath() || payload.ControlShare.MountsPath != filepath.Join(state.ControlShareGuestPath(), "mounts.json") {
+	if payload.ControlShare.Tag != state.ControlShareTag || payload.ControlShare.GuestPath != state.ControlShareGuestPath(vmRec.Arch) || payload.ControlShare.MountsPath != filepath.Join(state.ControlShareGuestPath(vmRec.Arch), "mounts.json") {
 		t.Fatalf("unexpected metadata payload: %#v", payload)
 	}
 	mountsRaw, err := os.ReadFile(st.ControlShareMountsPath(vmRec))
@@ -348,7 +348,7 @@ func TestWriteControlFilesIncludesMountsAndControlPaths(t *testing.T) {
 	}
 }
 
-func TestWriteSeedImageCreatesNoCloudDisk(t *testing.T) {
+func TestPrepareLinuxGuestFilesCreatesNoCloudDisk(t *testing.T) {
 	dir := t.TempDir()
 	home := filepath.Join(dir, "home")
 	t.Setenv("HOME", home)
@@ -393,7 +393,7 @@ func TestWriteSeedImageCreatesNoCloudDisk(t *testing.T) {
 	if err := os.MkdirAll(st.Runtime(vmRec).Dir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := mgr.WriteSeedImage(vmRec); err != nil {
+	if err := mgr.prepareGuestFiles(vmRec, im); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(st.SeedImagePath(vmRec)); err != nil {
@@ -502,10 +502,10 @@ func TestCreateUsesVFKitDiskExtension(t *testing.T) {
 	if _, err := os.Stat(st.VMDiskPath(vmRec)); err != nil {
 		t.Fatalf("expected vfkit VM disk at %s: %v", st.VMDiskPath(vmRec), err)
 	}
-	if _, err := os.Stat(filepath.Join(st.VMDir(vmRec.ID), "disk.raw")); err != nil {
+	if _, err := os.Stat(filepath.Join(st.VMStorageDir(vmRec), "disk.raw")); err != nil {
 		t.Fatalf("expected raw disk path for vfkit VM: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(st.VMDir(vmRec.ID), "disk.img")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(st.VMStorageDir(vmRec), "disk.img")); !os.IsNotExist(err) {
 		t.Fatalf("unexpected legacy disk path for new vfkit VM: %v", err)
 	}
 }

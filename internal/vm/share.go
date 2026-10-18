@@ -26,6 +26,13 @@ func (m *Manager) AddShare(ctx context.Context, name, tag, hostPath, guestPath s
 		return share.Decl{}, err
 	}
 	defer unlock()
+	im, err := m.store.LoadImageByID(vm.Image.ID)
+	if err != nil {
+		return share.Decl{}, err
+	}
+	if err := requireShareMount(im); err != nil {
+		return share.Decl{}, err
+	}
 	if m.IsRunning(vm) {
 		return share.Decl{}, fmt.Errorf("VM %q is running; stop or restart the VM before changing shares", vm.Name)
 	}
@@ -74,14 +81,15 @@ func (m *Manager) WriteControlFiles(vm *state.VMRecord) error {
 	if err := os.MkdirAll(controlDir, 0o755); err != nil {
 		return err
 	}
+	guestPath := state.ControlShareGuestPath(vm.Arch)
 	payload := map[string]any{
 		"hostname": hostnameFor(vm.Name),
 		"controlShare": map[string]any{
 			"tag":        state.ControlShareTag,
-			"guestPath":  state.ControlShareGuestPath(),
+			"guestPath":  guestPath,
 			"egressPath": egress.GuestManifest,
-			"portsPath":  filepath.Join(state.ControlShareGuestPath(), "ports.json"),
-			"mountsPath": filepath.Join(state.ControlShareGuestPath(), "mounts.json"),
+			"portsPath":  filepath.Join(guestPath, "ports.json"),
+			"mountsPath": filepath.Join(guestPath, "mounts.json"),
 		},
 	}
 	if err := state.WriteJSONAtomic(filepath.Join(controlDir, "metadata.json"), payload); err != nil {
@@ -198,4 +206,23 @@ func (m *Manager) stopVirtiofsd(rt state.RuntimeLayout) error {
 		}
 	}
 	return errors.Join(failures...)
+}
+
+func requireShareMount(im *state.ImageRecord) error {
+	if !im.Capabilities.ControlShare || !im.Capabilities.GuestShareMount {
+		return fmt.Errorf("share mounting unavailable for image %q: requires controlShare and guestShareMount capabilities; import an image with guest share-mount support", im.Name)
+	}
+	return nil
+}
+
+func validateImageFeatures(vm *state.VMRecord, im *state.ImageRecord) error {
+	if len(vm.Shares) > 0 {
+		if err := requireShareMount(im); err != nil {
+			return err
+		}
+	}
+	if vm.Network.AutoForward {
+		return RequireGuestPortReport(im, "auto-forwarding")
+	}
+	return nil
 }

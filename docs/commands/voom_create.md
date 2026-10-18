@@ -9,11 +9,11 @@ voom create <name> --image <image> [flags]
 ### Options
 
 ```
-      --cpus int        CPU count (default 4)
+      --cpus int        CPU count (defaults to image allocation for macOS) (default 4)
       --driver string   driver: auto, qemu, or vfkit (default "auto")
   -h, --help            help for create
       --image string    image name
-      --memory string   memory size (default "4096MiB")
+      --memory string   memory size (defaults to image allocation for macOS) (default "4096MiB")
       --ssh-port int    explicit host SSH port (0 = auto-allocate)
 ```
 

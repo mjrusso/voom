@@ -125,6 +125,9 @@ func newForwardLifecycleVM(t *testing.T) (*state.Store, *Manager, *state.VMRecor
 	if err := os.MkdirAll(st.VMDir(rec.ID), 0755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(st.VMDiskPath(rec), []byte("guest disk"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.SaveVM(rec); err != nil {
 		t.Fatal(err)
 	}
