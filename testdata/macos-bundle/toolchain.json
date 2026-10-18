@@ -1,0 +1,8 @@
+{
+  "sdkVersion": "27.0",
+  "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx27.0.0",
+  "vfkit": "vfkit version: v0.6.3",
+  "installerSha256": "f9bdf734f3d8f3e11f5cfdd1c7e82aa3effd6338ab38df31cd1aede6372ed30d",
+  "orchestratorSha256": "caf4aeb88d306fe1c8278e7e50f619e700cd32f293398d8c46637ce0d00017bd",
+  "provisionerSha256": "e7524a0a3a5a157da358a9f3261fbdd5903a4d1a47af89a6c6313a72d92adb8d"
+}

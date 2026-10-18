@@ -1,0 +1,16 @@
+{
+  "cpuCount": 4,
+  "memoryMiB": 8192,
+  "diskGiB": 100,
+  "schemaVersion": 1,
+  "system": "aarch64-darwin",
+  "format": "macos-bundle",
+  "target": "aarch64-darwin@vm",
+  "capabilities": {
+    "controlShare": false,
+    "guestPortReport": false,
+    "guestShareMount": false,
+    "nixosSwitch": false
+  },
+  "user": "guest"
+}

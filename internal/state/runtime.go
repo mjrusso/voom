@@ -155,3 +155,8 @@ func (r RuntimeLayout) EgressManifest() string { return filepath.Join(r.dir, "co
 
 // EgressCA returns the public certificate copy in the control share.
 func (r RuntimeLayout) EgressCA() string { return filepath.Join(r.dir, "control", "egress-ca.pem") }
+
+// RuntimeWatcherProcessRecord identifies the per-VM driver-exit watcher.
+func (r RuntimeLayout) RuntimeWatcherProcessRecord() string {
+	return filepath.Join(r.dir, "runtime-watch.process.json")
+}

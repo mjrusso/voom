@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -111,6 +112,20 @@ func System() string {
 
 // ValidateHostImage verifies that an image's arch and disk format are compatible with the host and the requested driver (qemu or vfkit).
 func ValidateHostImage(arch, format, driver string) error {
+	if arch == "aarch64-darwin" {
+		if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" || driver != "vfkit" || format != "raw" {
+			return errors.New("macOS guests require an Apple Silicon Mac, vfkit, and a raw bundle disk")
+		}
+		output, err := exec.Command("/usr/bin/sw_vers", "-productVersion").Output()
+		if err != nil {
+			return fmt.Errorf("checking macOS host version: %w", err)
+		}
+		major, err := strconv.Atoi(strings.Split(strings.TrimSpace(string(output)), ".")[0])
+		if err != nil || major < 27 {
+			return errors.New("macOS guests require macOS 27 or later on the host")
+		}
+		return nil
+	}
 	hostArch := runtime.GOARCH
 	if hostArch == "amd64" {
 		hostArch = "x86_64"
@@ -177,7 +192,7 @@ func ExePath(name string) (string, error) {
 			return override, nil
 		}
 	}
-	if name == "gvproxy" {
+	if name == "gvproxy" || name == "voom-macos-identity" || name == "vfkit" {
 		if executable, err := os.Executable(); err == nil {
 			if path, err := exec.LookPath(filepath.Join(filepath.Dir(executable), name)); err == nil {
 				return path, nil
@@ -192,6 +207,8 @@ func ExeOverrideName(name string) string {
 	switch name {
 	case "gvproxy":
 		return "VOOM_GVPROXY"
+	case "voom-macos-identity":
+		return "VOOM_MACOS_IDENTITY"
 	case "virtiofsd":
 		return "VOOM_VIRTIOFSD"
 	default:

@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	// SchemaVersion is the on-disk schema version this build reads and writes.
-	SchemaVersion = 1
+	// SchemaVersion applies to the index, Linux images, and legacy Linux VMs.
+	SchemaVersion        = 1
+	storageRecordVersion = 2
 	// SSHLow is the inclusive low end of the SSH host-port allocation range.
 	SSHLow = 2222
 	// SSHHigh is the inclusive high end of the SSH host-port allocation range.

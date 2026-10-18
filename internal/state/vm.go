@@ -67,9 +67,6 @@ func (s *Store) loadVMLocked(name string) (*VMRecord, error) {
 	if err := ReadJSON(filepath.Join(s.VMDir(id), "vm.json"), &vm); err != nil {
 		return nil, err
 	}
-	if vm.SchemaVersion != SchemaVersion {
-		return nil, fmt.Errorf("unsupported VM schema version %d", vm.SchemaVersion)
-	}
 	if vm.Name != name || vm.ID != id {
 		return nil, fmt.Errorf("VM index mismatch for %q", name)
 	}
@@ -84,9 +81,6 @@ func (s *Store) LoadVMByID(id string) (*VMRecord, error) {
 	var vm VMRecord
 	if err := ReadJSON(filepath.Join(s.VMDir(id), "vm.json"), &vm); err != nil {
 		return nil, err
-	}
-	if vm.SchemaVersion != SchemaVersion {
-		return nil, fmt.Errorf("unsupported VM schema version %d", vm.SchemaVersion)
 	}
 	if err := vm.validate(); err != nil {
 		return nil, err

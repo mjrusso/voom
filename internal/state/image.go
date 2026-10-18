@@ -23,15 +23,27 @@ type ImportOptions struct {
 	Format              string
 	SSHUser             string
 	InstallGuestHelpers bool
+	SSHIdentityPath     string
 }
 
-// ImportImage copies the disk at opts.Src into the store, parses optional metadata, and registers a new image by name.
+// ImportImage copies a disk or macOS bundle into the store and registers it by name.
 // The copy honors ctx cancellation; on cancel the partially-written disk is removed and the image is not registered.
 func (s *Store) ImportImage(ctx context.Context, opts ImportOptions) (*ImageRecord, error) {
+	if opts.SSHIdentityPath != "" {
+		path, err := filepath.Abs(opts.SSHIdentityPath)
+		if err != nil {
+			return nil, err
+		}
+		opts.SSHIdentityPath = path
+	}
 	name, src, metaPath := opts.Name, opts.Src, opts.MetaPath
 	arch, format, sshUser := opts.Arch, opts.Format, opts.SSHUser
-	if _, err := os.Stat(src); err != nil {
+	info, err := os.Stat(src)
+	if err != nil {
 		return nil, err
+	}
+	if info.IsDir() {
+		return s.importMacOSImage(ctx, opts)
 	}
 	meta := ImageMetadata{Source: "manual-import"}
 	caps := ImageCapabilities{}
@@ -120,6 +132,9 @@ func (s *Store) ImportImage(ctx context.Context, opts ImportOptions) (*ImageReco
 	if arch == "" {
 		return nil, errors.New("--arch is required when metadata does not declare system")
 	}
+	if strings.HasSuffix(arch, "-darwin") {
+		return nil, errors.New("macOS images must be imported as complete bundles")
+	}
 	if err := ValidateImageArch(arch); err != nil {
 		return nil, err
 	}
@@ -131,6 +146,9 @@ func (s *Store) ImportImage(ctx context.Context, opts ImportOptions) (*ImageReco
 	}
 	if meta.NixosTargetUser == "" {
 		meta.NixosTargetUser = meta.SSHUser
+	}
+	if opts.SSHIdentityPath != "" {
+		meta.SSHIdentityPath = opts.SSHIdentityPath
 	}
 	if opts.InstallGuestHelpers {
 		meta.InstallGuestHelpers = true
@@ -165,22 +183,7 @@ func (s *Store) ImportImage(ctx context.Context, opts ImportOptions) (*ImageReco
 			im.Metadata.KernelCmdline = append([]string{}, boot.KernelCmdline...)
 		}
 	}
-	if err := WriteJSONAtomic(filepath.Join(s.ImageDir(id), "image.json"), im); err != nil {
-		return nil, err
-	}
-	if err := s.WithGlobal(func() error {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if _, ok := s.index.Images[name]; ok {
-			return fmt.Errorf("image %q already exists", name)
-		}
-		s.index.Images[name] = id
-		if err := s.saveIndexLocked(); err != nil {
-			delete(s.index.Images, name)
-			return err
-		}
-		return nil
-	}); err != nil {
+	if err := s.registerImage(im); err != nil {
 		return nil, err
 	}
 	committed = true
@@ -234,8 +237,18 @@ func (s *Store) LoadImageByID(id string) (*ImageRecord, error) {
 	if err := ReadJSON(filepath.Join(s.ImageDir(id), "image.json"), &im); err != nil {
 		return nil, err
 	}
-	if im.SchemaVersion != SchemaVersion {
-		return nil, fmt.Errorf("unsupported image schema version %d", im.SchemaVersion)
+	if err := validateRecordVersion(im.SchemaVersion, im.MacOS != nil); err != nil {
+		return nil, err
+	}
+	if im.Arch == "aarch64-darwin" {
+		if im.MacOS == nil || im.Format != "raw" || im.Disk != "disk.raw" || !validMacOSCapabilities(im.Capabilities) || im.Metadata.InstallGuestHelpers {
+			return nil, errors.New("invalid macOS image record")
+		}
+		if err := im.MacOS.validate(); err != nil {
+			return nil, err
+		}
+	} else if im.MacOS != nil {
+		return nil, errors.New("macOS platform metadata requires an aarch64-darwin image")
 	}
 	return &im, nil
 }
@@ -332,4 +345,23 @@ func containsKernelArg(args []string, prefix string) bool {
 		}
 	}
 	return false
+}
+
+func (s *Store) registerImage(im *ImageRecord) error {
+	if err := WriteJSONAtomic(filepath.Join(s.ImageDir(im.ID), "image.json"), im); err != nil {
+		return err
+	}
+	return s.WithGlobal(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if _, ok := s.index.Images[im.Name]; ok {
+			return fmt.Errorf("image %q already exists", im.Name)
+		}
+		s.index.Images[im.Name] = im.ID
+		if err := s.saveIndexLocked(); err != nil {
+			delete(s.index.Images, im.Name)
+			return err
+		}
+		return nil
+	})
 }
