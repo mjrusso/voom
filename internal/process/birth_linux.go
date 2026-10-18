@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 func birth(pid int) (string, error) {
@@ -20,6 +21,9 @@ func birth(pid int) (string, error) {
 		return "", errors.New("kernel boot identity unavailable")
 	}
 	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	if errors.Is(err, os.ErrNotExist) && errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		return "", errProcessExited
+	}
 	if err != nil {
 		return "", err
 	}
@@ -32,7 +36,7 @@ func birth(pid int) (string, error) {
 		return "", errors.New("invalid process stat")
 	}
 	if fields[0] == "Z" {
-		return "", os.ErrNotExist
+		return "", errProcessExited
 	}
 	return boot + ":" + fields[19], nil
 }

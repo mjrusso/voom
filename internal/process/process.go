@@ -100,6 +100,14 @@ func matchesKind(pid int, kind string) (bool, error) {
 		return strings.Contains(base, "gvproxy"), nil
 	case "virtiofsd":
 		return strings.Contains(base, "virtiofsd"), nil
+	case "runtime-watch":
+		parts := bytes.Split(cmdline, []byte{0})
+		for i := 1; i+1 < len(parts); i++ {
+			if string(parts[i]) == "debug" && string(parts[i+1]) == "watch-vm" {
+				return true, nil
+			}
+		}
+		return false, nil
 	case "auto-forward":
 		parts := bytes.Split(cmdline, []byte{0})
 		for i := 1; i+2 < len(parts); i++ {

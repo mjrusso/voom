@@ -98,3 +98,77 @@ func TestConfirmedStopRemovesDeadProcessRecord(t *testing.T) {
 		t.Fatal("dead process record remains")
 	}
 }
+
+func TestObserveRecordDistinguishesExitFromUncertainty(t *testing.T) {
+	for _, mode := range []string{"running", "exited", "wrong-kind", "invalid-record", "reused-pid", "replaced", "removed", "invalid-fingerprint"} {
+		t.Run(mode, func(t *testing.T) {
+			cmd := fakeNamedProcess(t, "gvproxy")
+			path := filepath.Join(t.TempDir(), "process.json")
+			if err := Record(path, cmd.Process.Pid); err != nil {
+				t.Fatal(err)
+			}
+			fingerprint, err := RecordFingerprint(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			kind := "gvproxy"
+			want := RecordRunning
+			wantError := false
+			switch mode {
+			case "exited":
+				if err := cmd.Process.Kill(); err != nil {
+					t.Fatal(err)
+				}
+				_, _ = cmd.Process.Wait()
+				want = RecordExited
+			case "wrong-kind":
+				kind, want, wantError = "vfkit", RecordUnknown, true
+			case "invalid-record":
+				if err := os.WriteFile(path, []byte("unknown identity"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				fingerprint, err = RecordFingerprint(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want, wantError = RecordUnknown, true
+			case "reused-pid":
+				data, err := json.Marshal(processRecord{Version: recordVersion, PID: cmd.Process.Pid, Birth: "different birth"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				fingerprint, err = RecordFingerprint(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want = RecordExited
+			case "replaced":
+				other := fakeNamedProcess(t, "gvproxy")
+				if err := Record(path, other.Process.Pid); err != nil {
+					t.Fatal(err)
+				}
+				want = RecordChanged
+			case "removed":
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				want = RecordChanged
+			case "invalid-fingerprint":
+				fingerprint, want, wantError = "not-an-identity", RecordUnknown, true
+			}
+			observed, err := ObserveRecord(path, kind, fingerprint)
+			if observed.State != want || (err != nil) != wantError {
+				t.Fatalf("observation = %+v %v; want state %d, error %v", observed, err, want, wantError)
+			}
+			if mode == "running" && (observed.PID != cmd.Process.Pid || observed.Fingerprint != fingerprint) {
+				t.Fatalf("observation lost running identity: %+v", observed)
+			}
+			if mode != "exited" && !Alive(cmd.Process.Pid) {
+				t.Fatal("observation signaled the live process")
+			}
+		})
+	}
+}

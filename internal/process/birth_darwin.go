@@ -5,7 +5,6 @@ package process
 import (
 	"errors"
 	"fmt"
-	"os"
 
 	"golang.org/x/sys/unix"
 )
@@ -20,13 +19,13 @@ func birth(pid int) (string, error) {
 		missing = errors.Is(unix.Kill(pid, 0), unix.ESRCH)
 	}
 	if missing {
-		return "", os.ErrNotExist
+		return "", errProcessExited
 	}
 	if err != nil {
 		return "", err
 	}
 	if int(info.Proc.P_pid) != pid || info.Proc.P_stat == darwinZombieState {
-		return "", os.ErrNotExist
+		return "", errProcessExited
 	}
 	started := info.Proc.P_starttime
 	if started.Sec <= 0 || started.Usec < 0 {
