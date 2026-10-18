@@ -7,17 +7,31 @@ nix develop
 ```
 
 The `default` shell includes everything in the CI shell (`go`, `git`, `just`,
-`goreleaser`, `golangci-lint`, `actionlint`, and the pinned `gvproxy`) plus `gopls` and platform-specific
-notification helpers. `nix develop .#ci` is the minimal shell that CI uses.
+`goreleaser`, `golangci-lint`, `actionlint`, and the pinned `gvproxy`) plus
+`gopls` and platform-specific notification helpers. `nix develop .#ci` is the minimal shell that CI uses.
 
-Before committing changes, run:
+On a Mac with Apple's SDK, run the full check suite before committing:
 
 ```sh
 just ci
 ```
 
-Build a local binary with `just build` and try the `./bin/voom` binary. You can
-use disposable directories so local tests do not touch your normal voom state:
+On Linux, run `just check` and `nix flake check --show-trace`. Release archive
+creation and native signing checks require a Mac and run on macOS CI.
+
+Build a local binary with `just build` and try `./bin/voom`. On macOS this also
+builds the identity helper (Apple Silicon) and the pinned, patched vfkit through
+Nix. vfkit is ad-hoc signed with its virtualization entitlement.
+
+Voom patches vfkit v0.6.4. `nix/vfkit-source.nix` pins the upstream commit and
+vendors dependencies; patches under `nix/patches/` extend vfkit and Code-Hex/vz.
+Nix packages and release archives use the same source. The share patch adds host-side
+read-only directory exports and the `virtiofs-readonly-v1` capability. Release
+preparation requires a Mac with Apple's SDK and ad-hoc signs both Darwin architectures.
+The release smoke check verifies vfkit's capabilities and signature. To test
+window close/reopen, Quit, and Force Quit, use a logged-in graphical Mac session.
+
+Use disposable directories so local tests do not touch your normal voom state:
 
 ```sh
 export VOOM_CONFIG_DIR="$PWD/.voom-test/config"
@@ -110,7 +124,7 @@ handlers.
 - `internal/forward` — manual forward declarations, auto-forward state and
   reconciliation, bind-address normalization, gvproxy expose/unexpose plans.
 
-Driver packages expose narrow argument-building / control APIs consumed by
+Driver packages build launch arguments and provide control APIs for
 `internal/vm`. Do not put QEMU or vfkit launch argument construction in command
 handlers.
 
@@ -170,7 +184,8 @@ export VOOM_RUNTIME_DIR="$HOME/voom-test/runtime"
 - `pname = "voom"`, `subPackages = [ "cmd/voom" ]`;
 - version ldflags injected via package path
   `github.com/mjrusso/voom/internal/cli`;
-- no `postInstall` symlink.
+- sibling helper symlinks for gvproxy on all platforms, vfkit on Darwin, and
+  the Apple identity helper on Darwin arm64, with bundled helper licenses.
 
 After Go dependency changes, update `vendorHash` in `flake.nix`:
 
@@ -181,8 +196,8 @@ After Go dependency changes, update `vendorHash` in `flake.nix`:
 Two dev shells are exposed:
 
 - `devShells.ci` — minimal: `go`, `git`, `just`, `goreleaser`, `golangci-lint`,
-  `actionlint`, and the pinned private-transport `gvproxy`.
-- `devShells.default` — CI shell plus `gopls` and platform niceties
+  `actionlint`, and Voom's pinned `gvproxy` build.
+- `devShells.default` — CI shell plus `gopls` and notification tools
   (`inotify-tools` / `libnotify` on Linux; `terminal-notifier` on Darwin).
 
 ## CI
@@ -192,7 +207,7 @@ pushes to `main`:
 
 1. `check` — `nix develop .#ci -c just check` on Ubuntu and MacOS.
 2. `release-snapshot` — `nix develop .#ci -c just release-snapshot-check`.
-   This stays on Ubuntu because the release workflow publishes from Ubuntu.
+   This runs on macOS to compile and sign vfkit and the native identity helper.
 3. `nix` — `nix develop .#ci -c just nix-check` on Ubuntu and MacOS. The
    recipe runs `nix flake check --show-trace`, `nix build .#voom`, asserts
    `result/bin/voom` is executable, and runs `nix run .#voom -- version`.
@@ -285,7 +300,9 @@ dist/checksums.txt
 
 Each archive contains `LICENSE`, `LICENSE.gvproxy`, `NOTICE.gvproxy`,
 `THIRD_PARTY_LICENSES`, `README.md`, `CHANGELOG.md`, `voom`, and `gvproxy`.
-Verify with `sha256sum -c checksums.txt`.
+Darwin archives also contain vfkit and its license notices; Darwin arm64 includes
+`voom-macos-identity`. The native preparation scripts build those helpers before
+GoReleaser assembles the archives. Verify with `sha256sum -c checksums.txt`.
 
 ## Egress transport development
 

@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+> [!IMPORTANT]
+>
+> Voom's macOS image records and new VM records on both systems use schema 2. Earlier experimental
+> macOS VMs without storage generations must be recreated from their imported
+> images. Older Voom versions cannot read schema 2 records and may fail to list
+> VMs or images when they are present. Linux images remain schema 1; existing
+> Linux VM records remain readable and move to schema 2 on reset.
+
+- Run macOS guests on Apple Silicon: import a baked image bundle, create, clone,
+  start, stop, connect over SSH, and reset the guest. Host and guest require
+  macOS 27 or later, with a graphical login session on the host. Nix is optional.
+  Create, clone, and reset assign fresh Apple identities; restarts preserve them.
+  SSH host keys, users, and credentials are copied with the disk.
+- Include patched vfkit 0.6.4 and the Apple identity helper in macOS release
+  archives and Nix packages. vfkit has an ad-hoc signature and the virtualization
+  entitlement; running it requires neither Xcode nor a Developer ID certificate.
+- Keep a macOS VM running when its window closes. Reopen it through the Dock or
+  `voom gui`. Quit requests guest shutdown; Force Quit stops the VM immediately.
+  Voom removes network helpers after confirming vfkit exited. If process
+  inspection fails, Voom keeps the helpers and logs the error.
+- Support directory shares and automatic TCP forwarding for macOS images with
+  the required guest services. Enforce read-only shares on the host for both
+  Linux and macOS. Reject share declarations when the image lacks mount support.
+- Reset Linux and macOS guests through one storage transaction so disk contents
+  and image/access metadata stay consistent after failures. macOS reset replaces
+  the Apple platform files too and can repair missing boot files. Reset rejects
+  images that cannot support the VM's shares or automatic forwarding before
+  stopping it. macOS stop, reset, and removal wait for storage locks to release.
+- Allow macOS CPU and memory allocations down to Apple's minimums when the image
+  records them. The baked allocation remains the default and, for older images
+  without minimums, the minimum.
+- Add `voom guest verify` for Linux and macOS. Check SSH, guest health, mounts,
+  and configured services; check Nix when detected or required by `nixosSwitch`.
+  Fail if the VM runtime or configuration changes during verification. JSON
+  retains check output and errors. Keep `guest verify-macos` as an older name
+  for the macOS check.
+- Check vfkit compatibility in `voom doctor`. Add `voom debug helpers` to show
+  the executable paths Voom selects.
+- Use `disk.raw` for new vfkit VMs. Existing Linux VMs retain `disk.img` until
+  reset; both contain raw disks, and image import accepts either extension.
+
+Mac testing is still needed for reset boots, GUI behavior, shares, forwarding,
+and recovery. See the [validation checklist](README.md#scope-and-remaining-mac-validation).
+
 ## v1.4.0 - 2026-10-14
 
 - Add UDP port forwarding with `voom forward add --protocol udp`. TCP remains
