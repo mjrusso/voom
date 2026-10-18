@@ -4,7 +4,7 @@ Check guest health and configured services
 
 ### Synopsis
 
-Check a running Linux or macOS guest over SSH. Verify guest health, mounts, and the services enabled by the image and VM configuration. Check Nix when detected; images with nixosSwitch require it. JSON output includes each check's output and errors. The command runs once without waiting for boot or changing the guest. Test restart, clone, reset, GUI, and forwarded traffic separately.
+Check a running Linux or MacOS guest over SSH. Verify guest health, mounts, and the services enabled by the image and VM configuration. Check Nix when detected; images with nixosSwitch require it. JSON output includes each check's output and errors. The command runs once without waiting for boot or changing the guest. Test restart, clone, reset, GUI, and forwarded traffic separately.
 
 ```
 voom guest verify <name> [flags]

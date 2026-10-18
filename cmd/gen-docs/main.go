@@ -40,7 +40,7 @@ func normalizeMarkdown(root string) error {
 		if err != nil {
 			return err
 		}
-		trimmed := strings.TrimRight(string(b), "\n") + "\n"
+		trimmed := strings.TrimRight(strings.ReplaceAll(string(b), "macOS", "MacOS"), "\n") + "\n"
 		return os.WriteFile(path, []byte(trimmed), 0o644)
 	})
 }

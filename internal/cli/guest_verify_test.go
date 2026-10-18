@@ -43,7 +43,7 @@ func TestGuestVerifyLinuxAndMacOSCompatibilityRestriction(t *testing.T) {
 		t.Fatalf("stopped evidence: %+v", report)
 	}
 	if err := runCmdErr("guest", "verify-macos", "linux"); err == nil || !strings.Contains(err.Error(), "use guest verify for Linux") {
-		t.Fatalf("macOS compatibility command: %v", err)
+		t.Fatalf("MacOS compatibility command: %v", err)
 	}
 	if err := runCmdErr("guest", "verify", "linux", "--timeout", "0s"); err == nil || !strings.Contains(err.Error(), "positive") {
 		t.Fatalf("invalid timeout: %v", err)

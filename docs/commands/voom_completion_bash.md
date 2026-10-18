@@ -19,7 +19,7 @@ To load completions for every new session, execute once:
 
 	voom completion bash > /etc/bash_completion.d/voom
 
-#### macOS:
+#### MacOS:
 
 	voom completion bash > $(brew --prefix)/etc/bash_completion.d/voom
 

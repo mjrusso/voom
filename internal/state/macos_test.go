@@ -17,7 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func macOSBundle(t *testing.T) string {
+func macosBundle(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	for _, name := range []string{"image.json", "restore.json", "toolchain.json"} {
@@ -39,7 +39,7 @@ func macOSBundle(t *testing.T) string {
 
 func TestImportMacOSBundle(t *testing.T) {
 	st, _ := newTestStore(t)
-	src := macOSBundle(t)
+	src := macosBundle(t)
 	im, err := st.ImportImage(context.Background(), ImportOptions{Name: "macos", Src: src, SSHIdentityPath: "/keys/guest"})
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestMacOSBundleRejectsInvalidInputsWithoutRegistration(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			st, _ := newTestStore(t)
-			dir := macOSBundle(t)
+			dir := macosBundle(t)
 			if tt.change != nil {
 				tt.change(t, dir)
 			}
@@ -122,7 +122,7 @@ func TestCancelledMacOSImportLeavesNoImage(t *testing.T) {
 	st, _ := newTestStore(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := st.ImportImage(ctx, ImportOptions{Name: "cancelled", Src: macOSBundle(t)}); err == nil {
+	if _, err := st.ImportImage(ctx, ImportOptions{Name: "cancelled", Src: macosBundle(t)}); err == nil {
 		t.Fatal("cancelled import succeeded")
 	}
 	entries, err := os.ReadDir(filepath.Dir(st.ImageDir("unused")))
@@ -133,7 +133,7 @@ func TestCancelledMacOSImportLeavesNoImage(t *testing.T) {
 
 func TestMacOSStorageValidationDetectsMissingAndReplacedPlatformState(t *testing.T) {
 	st, _ := newTestStore(t)
-	im, err := st.ImportImage(context.Background(), ImportOptions{Name: "mac", Src: macOSBundle(t)})
+	im, err := st.ImportImage(context.Background(), ImportOptions{Name: "mac", Src: macosBundle(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestMacOSStorageLocksBlockImportAndHonorCancellation(t *testing.T) {
 		return
 	}
 	st, _ := newTestStore(t)
-	src := macOSBundle(t)
+	src := macosBundle(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestMacOSStorageLocksBlockImportAndHonorCancellation$")
@@ -229,7 +229,7 @@ func TestMacOSStorageLocksBlockImportAndHonorCancellation(t *testing.T) {
 
 func TestMacOSGenerationStateRejectsUnsafePathsAndOldSchemas(t *testing.T) {
 	st, _ := newTestStore(t)
-	im, err := st.ImportImage(context.Background(), ImportOptions{Name: "mac", Src: macOSBundle(t)})
+	im, err := st.ImportImage(context.Background(), ImportOptions{Name: "mac", Src: macosBundle(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestMacOSBundleGuestServiceCapabilities(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st, _ := newTestStore(t)
-			source := macOSBundle(t)
+			source := macosBundle(t)
 			path := filepath.Join(source, "image.json")
 			var manifest map[string]any
 			if err := ReadJSON(path, &manifest); err != nil {
@@ -325,7 +325,7 @@ func TestMacOSRestoreResourceMinimums(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st, _ := newTestStore(t)
-			source := macOSBundle(t)
+			source := macosBundle(t)
 			if err := os.WriteFile(filepath.Join(source, "restore.json"), []byte(tc.restore), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -367,7 +367,7 @@ func TestMacOSImportDerivesMetadataFromStagedBundle(t *testing.T) {
 	for _, version := range []string{"27.9", "26.0"} {
 		t.Run(version, func(t *testing.T) {
 			st, _ := newTestStore(t)
-			src := macOSBundle(t)
+			src := macosBundle(t)
 			originalCopy := cloneCopy
 			t.Cleanup(func() { cloneCopy = originalCopy })
 			cloneCopy = func(ctx context.Context, from, to string) error {
@@ -391,7 +391,7 @@ func TestMacOSImportDerivesMetadataFromStagedBundle(t *testing.T) {
 			im, err := st.ImportImage(context.Background(), ImportOptions{Name: "changing", Src: src})
 			if version == "26.0" {
 				if err == nil {
-					t.Fatal("invalid staged macOS version was registered")
+					t.Fatal("invalid staged MacOS version was registered")
 				}
 				entries, err := os.ReadDir(filepath.Dir(st.ImageDir("unused")))
 				if err != nil || len(entries) != 0 || len(st.IndexSnapshot().Images) != 0 {

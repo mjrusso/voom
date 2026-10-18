@@ -16,7 +16,7 @@ import (
 )
 
 func TestShowGUIUsesExistingRuntimeWithoutRestart(t *testing.T) {
-	st, vm, _ := macOSResetFixture(t)
+	st, vm, _ := macosResetFixture(t)
 	manager := New(st)
 	if err := manager.ShowGUI(context.Background(), vm.Name); err == nil || !strings.Contains(err.Error(), "not running") {
 		t.Fatalf("stopped VM display accepted: %v", err)
@@ -51,7 +51,7 @@ func TestShowGUIUsesExistingRuntimeWithoutRestart(t *testing.T) {
 func TestRuntimeWatcherCleansOnlyTheExitedDriverGeneration(t *testing.T) {
 	for _, replacement := range []bool{false, true} {
 		t.Run(map[bool]string{false: "exited", true: "replaced"}[replacement], func(t *testing.T) {
-			st, vm, _ := macOSResetFixture(t)
+			st, vm, _ := macosResetFixture(t)
 			driver := fakeNamedVMProcess(t, "vfkit")
 			rt := st.Runtime(vm)
 			writeProcessRecord(t, rt.VMProcessRecord(), driver)
@@ -88,7 +88,7 @@ func TestRuntimeWatcherCleansOnlyTheExitedDriverGeneration(t *testing.T) {
 }
 
 func TestRuntimeWatcherCancellationAndUnknownIdentityRetainState(t *testing.T) {
-	st, vm, _ := macOSResetFixture(t)
+	st, vm, _ := macosResetFixture(t)
 	rt := st.Runtime(vm)
 	driver := fakeNamedVMProcess(t, "vfkit")
 	writeProcessRecord(t, rt.VMProcessRecord(), driver)
@@ -131,7 +131,7 @@ func TestRuntimeWatcherCancellationAndUnknownIdentityRetainState(t *testing.T) {
 }
 
 func TestRuntimeWatcherWaitsForVMLockBeforeCleanup(t *testing.T) {
-	st, vm, _ := macOSResetFixture(t)
+	st, vm, _ := macosResetFixture(t)
 	rt := st.Runtime(vm)
 	driver := fakeNamedVMProcess(t, "vfkit")
 	writeProcessRecord(t, rt.VMProcessRecord(), driver)
@@ -184,7 +184,7 @@ func TestRuntimeWatcherSubprocessCleansUpWithoutStoppingItself(t *testing.T) {
 		}
 		return
 	}
-	st, vm, _ := macOSResetFixture(t)
+	st, vm, _ := macosResetFixture(t)
 	rt := st.Runtime(vm)
 	driver := fakeNamedVMProcess(t, "vfkit")
 	writeProcessRecord(t, rt.VMProcessRecord(), driver)
@@ -216,7 +216,7 @@ func TestRuntimeWatcherSubprocessCleansUpWithoutStoppingItself(t *testing.T) {
 }
 
 func TestExitedRuntimeCleanupRetainsNetworkWhenDriverInspectionFails(t *testing.T) {
-	st, vm, _ := macOSResetFixture(t)
+	st, vm, _ := macosResetFixture(t)
 	rt := st.Runtime(vm)
 	driver := fakeNamedVMProcess(t, "vfkit")
 	writeProcessRecord(t, rt.VMProcessRecord(), driver)

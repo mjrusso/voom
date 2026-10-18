@@ -21,7 +21,7 @@ To load completions for every new session, execute once:
 
 	voom completion zsh > "${fpath[1]}/_voom"
 
-#### macOS:
+#### MacOS:
 
 	voom completion zsh > $(brew --prefix)/share/zsh/site-functions/_voom
 

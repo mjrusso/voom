@@ -26,7 +26,7 @@ type ImportOptions struct {
 	SSHIdentityPath     string
 }
 
-// ImportImage copies a disk or macOS bundle into the store and registers it by name.
+// ImportImage copies a disk or MacOS bundle into the store and registers it by name.
 // The copy honors ctx cancellation; on cancel the partially-written disk is removed and the image is not registered.
 func (s *Store) ImportImage(ctx context.Context, opts ImportOptions) (*ImageRecord, error) {
 	if opts.SSHIdentityPath != "" {
@@ -133,7 +133,7 @@ func (s *Store) ImportImage(ctx context.Context, opts ImportOptions) (*ImageReco
 		return nil, errors.New("--arch is required when metadata does not declare system")
 	}
 	if strings.HasSuffix(arch, "-darwin") {
-		return nil, errors.New("macOS images must be imported as complete bundles")
+		return nil, errors.New("MacOS images must be imported as complete bundles")
 	}
 	if err := ValidateImageArch(arch); err != nil {
 		return nil, err
@@ -242,13 +242,13 @@ func (s *Store) LoadImageByID(id string) (*ImageRecord, error) {
 	}
 	if im.Arch == "aarch64-darwin" {
 		if im.MacOS == nil || im.Format != "raw" || im.Disk != "disk.raw" || !validMacOSCapabilities(im.Capabilities) || im.Metadata.InstallGuestHelpers {
-			return nil, errors.New("invalid macOS image record")
+			return nil, errors.New("invalid MacOS image record")
 		}
 		if err := im.MacOS.validate(); err != nil {
 			return nil, err
 		}
 	} else if im.MacOS != nil {
-		return nil, errors.New("macOS platform metadata requires an aarch64-darwin image")
+		return nil, errors.New("MacOS platform metadata requires an aarch64-darwin image")
 	}
 	return &im, nil
 }

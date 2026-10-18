@@ -120,18 +120,18 @@ func TestMacOSImportInspectionDiagnosticsAndAccess(t *testing.T) {
 	if err := os.MkdirAll(st.CacheVMDir(record), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(st.LogPath(record, "vfkit"), []byte("macOS driver log\n"), 0o600); err != nil {
+	if err := os.WriteFile(st.LogPath(record, "vfkit"), []byte("MacOS driver log\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if out := runCmd(t, "logs", "mac"); out != "macOS driver log\n" {
-		t.Fatalf("wrong default macOS log: %s", out)
+	if out := runCmd(t, "logs", "mac"); out != "MacOS driver log\n" {
+		t.Fatalf("wrong default MacOS log: %s", out)
 	}
 	if err := runCmdErr("console", "mac"); err == nil || !strings.Contains(err.Error(), "no serial console") {
-		t.Fatalf("macOS serial console accepted: %v", err)
+		t.Fatalf("MacOS serial console accepted: %v", err)
 	}
 	for _, check := range doctor.StateDiagnostics(st) {
 		if !check.OK {
-			t.Fatalf("valid macOS state reported unhealthy: %+v", check)
+			t.Fatalf("valid MacOS state reported unhealthy: %+v", check)
 		}
 	}
 	if err := os.Remove(filepath.Join(st.VMStorageDir(record), "AuxiliaryStorage")); err != nil {
@@ -144,7 +144,7 @@ func TestMacOSImportInspectionDiagnosticsAndAccess(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("doctor missed missing macOS auxiliary storage")
+		t.Fatal("doctor missed missing MacOS auxiliary storage")
 	}
 	if err := os.WriteFile(filepath.Join(st.ImageDir(im.ID), "MachineIdentifier"), []byte("changed"), 0o600); err != nil {
 		t.Fatal(err)
@@ -156,6 +156,6 @@ func TestMacOSImportInspectionDiagnosticsAndAccess(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("doctor missed changed macOS image identity")
+		t.Fatal("doctor missed changed MacOS image identity")
 	}
 }

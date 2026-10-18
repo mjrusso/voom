@@ -9,7 +9,7 @@ import (
 )
 
 func TestMacOSCloneProbeCopiesIndependentCompleteBundle(t *testing.T) {
-	source := macOSBundle(t)
+	source := macosBundle(t)
 	destination := filepath.Join(t.TempDir(), "probe")
 	report, err := PrepareMacOSCloneProbe(context.Background(), source, destination, false)
 	if err != nil {
@@ -18,7 +18,7 @@ func TestMacOSCloneProbeCopiesIndependentCompleteBundle(t *testing.T) {
 	if report.FreshIdentity || report.SourceIdentitySHA256 != report.CloneIdentitySHA256 || report.HardwareModelSHA256 == "" || report.AuxiliaryStorageSHA256 == "" {
 		t.Fatalf("unexpected control report: %+v", report)
 	}
-	for _, name := range macOSBundleFiles() {
+	for _, name := range macosBundleFiles() {
 		original, err := os.ReadFile(filepath.Join(source, name))
 		if err != nil {
 			t.Fatal(err)
@@ -54,7 +54,7 @@ func TestMacOSCloneProbeCopiesIndependentCompleteBundle(t *testing.T) {
 }
 
 func TestMacOSCloneProbePreservesExistingDestinationAndCleansCancelledCopy(t *testing.T) {
-	source := macOSBundle(t)
+	source := macosBundle(t)
 	destination := t.TempDir()
 	marker := filepath.Join(destination, "keep")
 	if err := os.WriteFile(marker, []byte("keep"), 0o600); err != nil {
@@ -78,7 +78,7 @@ func TestMacOSCloneProbePreservesExistingDestinationAndCleansCancelledCopy(t *te
 }
 
 func TestMacOSCloneProbeRejectsDestinationInsideSource(t *testing.T) {
-	source := macOSBundle(t)
+	source := macosBundle(t)
 	alias := filepath.Join(t.TempDir(), "source-alias")
 	if err := os.Symlink(source, alias); err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestFreshMacOSIdentityProbeRequiresSupportedHost(t *testing.T) {
 		t.Skip("native identity generation is exercised with a real bundle on the Mac")
 	}
 	destination := filepath.Join(t.TempDir(), "probe")
-	if _, err := PrepareMacOSCloneProbe(context.Background(), macOSBundle(t), destination, true); err == nil {
+	if _, err := PrepareMacOSCloneProbe(context.Background(), macosBundle(t), destination, true); err == nil {
 		t.Fatal("native identity generation accepted an unsupported host")
 	}
 	if _, err := os.Stat(destination); !os.IsNotExist(err) {

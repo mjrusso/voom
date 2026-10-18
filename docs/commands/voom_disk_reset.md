@@ -4,7 +4,7 @@ Reset VM disk from image
 
 ### Synopsis
 
-Stop the VM and replace its guest state from an image. This discards guest changes. For macOS, replace the disk and Apple platform files together and generate a fresh Apple identity. Keep the VM name, Voom ID, CPU and memory allocation, SSH port, NIC MAC, shares, and forwarding settings. Reset cannot change between Linux and macOS.
+Stop the VM and replace its guest state from an image. This discards guest changes. For MacOS, replace the disk and Apple platform files together and generate a fresh Apple identity. Keep the VM name, Voom ID, CPU and memory allocation, SSH port, NIC MAC, shares, and forwarding settings. Reset cannot change between Linux and MacOS.
 
 ```
 voom disk reset <name> --image <image> [flags]

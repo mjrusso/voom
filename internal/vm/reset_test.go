@@ -91,17 +91,17 @@ func TestImageAccessDefaults(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		metadata state.ImageMetadata
-		macOS    bool
+		macos    bool
 		want     state.VMAccess
 	}{
 		{name: "Linux root default", want: state.VMAccess{SSHUser: "root", NixosTargetUser: "root"}},
 		{name: "Linux login user", metadata: state.ImageMetadata{SSHUser: "debian", SSHIdentityPath: "/keys/debian"}, want: state.VMAccess{SSHUser: "debian", SSHIdentityPath: "/keys/debian", NixosTargetUser: "debian"}},
 		{name: "Linux explicit target", metadata: state.ImageMetadata{SSHUser: "debian", NixosTargetUser: "root"}, want: state.VMAccess{SSHUser: "debian", NixosTargetUser: "root"}},
-		{name: "macOS has no NixOS target", macOS: true, metadata: state.ImageMetadata{SSHUser: "alice", SSHIdentityPath: "/keys/alice", NixosTargetUser: "root"}, want: state.VMAccess{SSHUser: "alice", SSHIdentityPath: "/keys/alice"}},
+		{name: "MacOS has no NixOS target", macos: true, metadata: state.ImageMetadata{SSHUser: "alice", SSHIdentityPath: "/keys/alice", NixosTargetUser: "root"}, want: state.VMAccess{SSHUser: "alice", SSHIdentityPath: "/keys/alice"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			image := &state.ImageRecord{ID: "new", Name: "new", Metadata: tc.metadata}
-			if tc.macOS {
+			if tc.macos {
 				image.MacOS = &state.MacOSPlatform{}
 			}
 			for _, original := range []state.VMRecord{{}, {Access: state.VMAccess{SSHUser: "old", SSHIdentityPath: "/keys/old", NixosTargetUser: "old-target"}}} {

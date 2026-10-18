@@ -1,10 +1,10 @@
 ## voom debug macos-clone-bundle
 
-Copy a macOS bundle for identity testing
+Copy a MacOS bundle for identity testing
 
 ### Synopsis
 
-Copy a stopped macOS image bundle without importing or booting it. The destination must be new and its parent directory must exist. With --fresh-identity, use the packaged Apple identity helper to replace the copied machine identifier. The disk, hardware model, and auxiliary storage stay paired. Normal create, clone, and macOS disk reset always generate a fresh identifier.
+Copy a stopped MacOS image bundle without importing or booting it. The destination must be new and its parent directory must exist. With --fresh-identity, use the packaged Apple identity helper to replace the copied machine identifier. The disk, hardware model, and auxiliary storage stay paired. Normal create, clone, and MacOS disk reset always generate a fresh identifier.
 
 ```
 voom debug macos-clone-bundle <source-bundle> <destination> [flags]

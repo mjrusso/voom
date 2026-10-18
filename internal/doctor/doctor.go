@@ -84,7 +84,7 @@ func Run(all bool) []Check {
 		return checks
 	}
 	if (all && runtime.GOOS == "darwin") || hasMacOSGuests(st) {
-		add("macos-host", false, host.ValidateHostImage("aarch64-darwin", "raw", "vfkit"), "Apple Silicon host running macOS 27 or later")
+		add("macos-host", false, host.ValidateHostImage("aarch64-darwin", "raw", "vfkit"), "Apple Silicon host running MacOS 27 or later")
 		add("macos-identity", false, host.RequireExe("voom-macos-identity"), "found")
 	}
 	if runtime.GOOS == "linux" && (all || hasUSBDevices(st)) {
@@ -124,7 +124,7 @@ func StateDiagnostics(st *state.Store) []Check {
 	vmMgr := vm.New(st)
 	index := st.IndexSnapshot()
 	vmSeenIDs := map[string]string{}
-	macOSIdentities := map[string]string{}
+	macosIdentities := map[string]string{}
 	var usbInventory *usb.Inventory
 	var usbInventoryErr error
 	usbScanned := false
@@ -145,10 +145,10 @@ func StateDiagnostics(st *state.Store) []Check {
 				out = append(out, Check{"macos-storage-" + name, "warn", false, err.Error()})
 			}
 			identity := vmRec.MacOS.IdentitySHA256
-			if prev := macOSIdentities[identity]; prev != "" {
+			if prev := macosIdentities[identity]; prev != "" {
 				out = append(out, Check{"macos-identity-" + name, "warn", false, "Apple identity shared by " + prev + " and " + name})
 			}
-			macOSIdentities[identity] = name
+			macosIdentities[identity] = name
 		}
 		out = append(out, egressDiagnostics(st, vmMgr, vmRec)...)
 		if runtime.GOOS == "linux" {

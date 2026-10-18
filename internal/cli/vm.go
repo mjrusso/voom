@@ -63,8 +63,8 @@ func createCommand() *cobra.Command {
 	cmd.Flags().StringVar(&imageName, "image", "", "image name")
 	_ = cmd.RegisterFlagCompletionFunc("image", completeImageFlag)
 	cmd.Flags().StringVar(&driver, "driver", "auto", "driver: auto, qemu, or vfkit")
-	cmd.Flags().IntVar(&cpus, "cpus", 4, "CPU count (defaults to image allocation for macOS)")
-	cmd.Flags().StringVar(&memory, "memory", "4096MiB", "memory size (defaults to image allocation for macOS)")
+	cmd.Flags().IntVar(&cpus, "cpus", 4, "CPU count (defaults to image allocation for MacOS)")
+	cmd.Flags().StringVar(&memory, "memory", "4096MiB", "memory size (defaults to image allocation for MacOS)")
 	cmd.Flags().IntVar(&sshPort, "ssh-port", 0, "explicit host SSH port (0 = auto-allocate)")
 	return cmd
 }
@@ -232,7 +232,7 @@ func consoleCommand() *cobra.Command {
 			return err
 		}
 		if vmRec.MacOS != nil {
-			return fmt.Errorf("macOS guests have no serial console; use the vfkit window, 'voom ssh %s', or 'voom logs %s'", vmRec.Name, vmRec.Name)
+			return fmt.Errorf("MacOS guests have no serial console; use the vfkit window, 'voom ssh %s', or 'voom logs %s'", vmRec.Name, vmRec.Name)
 		}
 		c := exec.CommandContext(cmd.Context(), "tail", "-n", "+1", "-F", deps.store.LogPath(vmRec, "serial"))
 		c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -264,7 +264,7 @@ func logsCommand() *cobra.Command {
 		_, err = cmd.OutOrStdout().Write(b)
 		return err
 	}}
-	cmd.Flags().StringVar(&kind, "kind", "serial", "log kind: serial, qemu, vfkit, gvproxy, auto-forward, share-mount, runtime-watch (macOS defaults to vfkit)")
+	cmd.Flags().StringVar(&kind, "kind", "serial", "log kind: serial, qemu, vfkit, gvproxy, auto-forward, share-mount, runtime-watch (MacOS defaults to vfkit)")
 	return cmd
 }
 
@@ -478,7 +478,7 @@ func removeCommand() *cobra.Command {
 func diskCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "disk", Short: "Manage VM disks"}
 	var resetImage string
-	reset := &cobra.Command{Use: "reset <name> --image <image>", ValidArgsFunction: completeVMNames, Short: "Reset VM disk from image", Long: "Stop the VM and replace its guest state from an image. This discards guest changes. For macOS, replace the disk and Apple platform files together and generate a fresh Apple identity. Keep the VM name, Voom ID, CPU and memory allocation, SSH port, NIC MAC, shares, and forwarding settings. Reset cannot change between Linux and macOS.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	reset := &cobra.Command{Use: "reset <name> --image <image>", ValidArgsFunction: completeVMNames, Short: "Reset VM disk from image", Long: "Stop the VM and replace its guest state from an image. This discards guest changes. For MacOS, replace the disk and Apple platform files together and generate a fresh Apple identity. Keep the VM name, Voom ID, CPU and memory allocation, SSH port, NIC MAC, shares, and forwarding settings. Reset cannot change between Linux and MacOS.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if resetImage == "" {
 			return errors.New("--image is required")
 		}

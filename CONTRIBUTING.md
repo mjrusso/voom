@@ -17,9 +17,9 @@ just ci
 ```
 
 On Linux, run `just check` and `nix flake check --show-trace`. Release archive
-creation and native signing checks require a Mac and run on macOS CI.
+creation and native signing checks require a Mac and run on MacOS CI.
 
-Build a local binary with `just build` and try `./bin/voom`. On macOS this also
+Build a local binary with `just build` and try `./bin/voom`. On MacOS this also
 builds the identity helper (Apple Silicon) and the pinned, patched vfkit through
 Nix. vfkit is ad-hoc signed with its virtualization entitlement.
 
@@ -207,7 +207,7 @@ pushes to `main`:
 
 1. `check` — `nix develop .#ci -c just check` on Ubuntu and MacOS.
 2. `release-snapshot` — `nix develop .#ci -c just release-snapshot-check`.
-   This runs on macOS to compile and sign vfkit and the native identity helper.
+   This runs on MacOS to compile and sign vfkit and the native identity helper.
 3. `nix` — `nix develop .#ci -c just nix-check` on Ubuntu and MacOS. The
    recipe runs `nix flake check --show-trace`, `nix build .#voom`, asserts
    `result/bin/voom` is executable, and runs `nix run .#voom -- version`.

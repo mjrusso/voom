@@ -29,7 +29,7 @@ voom [flags]
 * [voom events](voom_events.md)	 - Stream VM, forward, and egress change events
 * [voom forward](voom_forward.md)	 - Manage guest port forwards
 * [voom guest](voom_guest.md)	 - Inspect guest-reported state
-* [voom gui](voom_gui.md)	 - Show or focus a running macOS VM's display
+* [voom gui](voom_gui.md)	 - Show or focus a running MacOS VM's display
 * [voom image](voom_image.md)	 - Manage images
 * [voom info](voom_info.md)	 - Inspect a VM
 * [voom list](voom_list.md)	 - List VMs

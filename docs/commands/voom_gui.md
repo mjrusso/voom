@@ -1,10 +1,10 @@
 ## voom gui
 
-Show or focus a running macOS VM's display
+Show or focus a running MacOS VM's display
 
 ### Synopsis
 
-Show or focus the existing display of a running macOS VM. Closing the window keeps the VM running. This command does not start or restart a VM.
+Show or focus the existing display of a running MacOS VM. Closing the window keeps the VM running. This command does not start or restart a VM.
 
 ```
 voom gui <name> [flags]

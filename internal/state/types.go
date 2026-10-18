@@ -94,16 +94,16 @@ func (vm *VMRecord) validate() error {
 	}
 	if vm.Arch == "aarch64-darwin" {
 		if vm.Driver != "vfkit" || vm.MacOS == nil {
-			return fmt.Errorf("macOS guests require vfkit and platform metadata")
+			return fmt.Errorf("MacOS guests require vfkit and platform metadata")
 		}
 		if err := vm.MacOS.ValidateResources(vm.Resources.CPUs, vm.Resources.MemoryMiB); err != nil {
 			return err
 		}
 		if len(vm.USBDevices) > 0 || len(vm.PCIDevices) > 0 || vm.Network.Egress != nil || vm.Nixos != nil {
-			return fmt.Errorf("macOS guests do not support USB, PCI, egress, or NixOS switching")
+			return fmt.Errorf("MacOS guests do not support USB, PCI, egress, or NixOS switching")
 		}
 	} else if vm.MacOS != nil {
-		return fmt.Errorf("macOS platform metadata requires an aarch64-darwin guest")
+		return fmt.Errorf("MacOS platform metadata requires an aarch64-darwin guest")
 	}
 	if err := usb.ValidateAssignments(vm.USBDevices); err != nil {
 		return fmt.Errorf("VM %q: %w", vm.Name, err)

@@ -20,7 +20,7 @@ func (m *Manager) ShowGUI(ctx context.Context, name string) error {
 	}
 	defer unlock()
 	if vm.MacOS == nil {
-		return errors.New("graphical display control requires a macOS guest")
+		return errors.New("graphical display control requires a MacOS guest")
 	}
 	if !m.IsRunning(vm) {
 		return fmt.Errorf("VM %q is not running; start it first", name)

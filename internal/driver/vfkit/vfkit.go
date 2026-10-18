@@ -85,11 +85,11 @@ func Args(c ArgsConfig) ([]string, error) {
 		"--device", "virtio-blk,path=" + c.BootDisk,
 	}
 	if (c.Linux == nil) == (c.MacOS == nil) {
-		return nil, fmt.Errorf("vfkit requires exactly one Linux or macOS boot configuration")
+		return nil, fmt.Errorf("vfkit requires exactly one Linux or MacOS boot configuration")
 	}
 	if boot := c.MacOS; boot != nil {
 		if boot.MachineIdentifier == "" || boot.HardwareModel == "" || boot.AuxiliaryStorage == "" {
-			return nil, fmt.Errorf("vfkit macOS boot requires machine identifier, hardware model, and auxiliary storage paths")
+			return nil, fmt.Errorf("vfkit MacOS boot requires machine identifier, hardware model, and auxiliary storage paths")
 		}
 		args = append(args,
 			"--bootloader", "macos,machineIdentifierPath="+boot.MachineIdentifier+",hardwareModelPath="+boot.HardwareModel+",auxImagePath="+boot.AuxiliaryStorage,

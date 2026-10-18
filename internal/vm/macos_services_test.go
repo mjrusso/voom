@@ -13,7 +13,7 @@ import (
 )
 
 func TestMacOSGuestServicesShareAndAutoForwardDeclarations(t *testing.T) {
-	st, vm, im := macOSResetFixture(t)
+	st, vm, im := macosResetFixture(t)
 	im.Capabilities = state.ImageCapabilities{ControlShare: true, GuestShareMount: true, GuestPortReport: true}
 	if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(im.ID), "image.json"), im); err != nil {
 		t.Fatal(err)
@@ -49,7 +49,7 @@ func TestMacOSGuestServicesShareAndAutoForwardDeclarations(t *testing.T) {
 		t.Fatalf("stale port report survived guest preparation: %v", err)
 	}
 	if _, err := os.Stat(st.SeedImagePath(vm)); !os.IsNotExist(err) {
-		t.Fatalf("macOS guest preparation created a Linux seed disk: %v", err)
+		t.Fatalf("MacOS guest preparation created a Linux seed disk: %v", err)
 	}
 	var mounts []share.Decl
 	if err := state.ReadJSON(st.ControlShareMountsPath(vm), &mounts); err != nil || len(mounts) != 1 || mounts[0].GuestPath != decl.GuestPath || !mounts[0].Readonly {
@@ -79,11 +79,11 @@ func TestMacOSGuestServicesShareAndAutoForwardDeclarations(t *testing.T) {
 	args := strings.Join(vargs, " ")
 	for _, wanted := range []string{"mountTag=voom-control", "mountTag=src,readonly", "sharedDir=" + decl.HostPath} {
 		if !strings.Contains(args, wanted) {
-			t.Fatalf("missing %q from macOS share arguments: %s", wanted, args)
+			t.Fatalf("missing %q from MacOS share arguments: %s", wanted, args)
 		}
 	}
 	if strings.Contains(args, "seed.img") || strings.Contains(args, "virtio-serial") {
-		t.Fatalf("Linux devices leaked into macOS boot: %s", args)
+		t.Fatalf("Linux devices leaked into MacOS boot: %s", args)
 	}
 	if err := manager.RemoveShare(ctx, vm.Name, "src"); err != nil {
 		t.Fatal(err)
@@ -93,7 +93,7 @@ func TestMacOSGuestServicesShareAndAutoForwardDeclarations(t *testing.T) {
 func TestMacOSResetRejectsMissingGuestServicesBeforeStoppingRuntime(t *testing.T) {
 	for _, feature := range []string{"share", "auto-forward"} {
 		t.Run(feature, func(t *testing.T) {
-			st, vm, image := macOSResetFixture(t)
+			st, vm, image := macosResetFixture(t)
 			if feature == "share" {
 				vm.Shares = []share.Decl{{Tag: "src", HostPath: t.TempDir(), GuestPath: "/Volumes/src"}}
 			} else {

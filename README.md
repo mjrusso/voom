@@ -6,8 +6,8 @@
 
 ---
 
-Voom is a CLI for running and managing Linux and macOS virtual machines. Voom
-supports macOS hosts (via [vfkit](https://github.com/crc-org/vfkit)) and Linux
+Voom is a CLI for running and managing Linux and MacOS virtual machines. Voom
+supports MacOS hosts (via [vfkit](https://github.com/crc-org/vfkit)) and Linux
 hosts (via [QEMU](https://www.qemu.org/)/[KVM](https://linux-kvm.org/)).
 
 Voom has no daemon or user-edited configuration files. Commands manage VM
@@ -34,8 +34,8 @@ see [Vibe's list of VM tools](https://github.com/lynaghk/vibe/#alternatives).
 ## Getting Started
 
 This quickstart runs a Linux guest on Linux or an Apple Silicon Mac. Use an
-off-the-shelf cloud image or a [custom Linux image](#custom-images). For macOS
-guests, see [macOS Guests](#macos-guests).
+off-the-shelf cloud image or a [custom Linux image](#custom-images). For MacOS
+guests, see [MacOS Guests](#macos-guests).
 
 The following examples use official [Debian cloud
 images](https://cloud.debian.org/images/cloud/trixie), in conjunction with the
@@ -110,7 +110,7 @@ voom create deb --image debian13
 ```
 
 Linux VMs default to 4 vCPUs and 4 GiB (4096 MiB) of RAM. Override these values
-with `--cpus` and `--memory` when creating the VM. macOS VMs default to the
+with `--cpus` and `--memory` when creating the VM. MacOS VMs default to the
 allocation recorded in their image.
 
 ### 3. Mount a host directory
@@ -218,7 +218,7 @@ allocations will not take effect until the next time the VM is started.
 
 ## Guest Verification
 
-Use the same command for Linux and macOS guests:
+Use the same command for Linux and MacOS guests:
 
 ```bash
 voom guest verify dev
@@ -227,7 +227,7 @@ voom guest verify dev --output json --timeout 30s
 
 The command checks the driver process, SSH access, OS, architecture, SSH host
 keys, and root access or passwordless sudo. It collects boot information and,
-on macOS, hardware identity. It also checks the services enabled by the image
+on MacOS, hardware identity. It also checks the services enabled by the image
 and VM configuration: control-share mounts, share tags and access modes, recent
 listener reports, and the automatic-forwarding watcher. It does not send test
 traffic through forwarded ports.
@@ -235,7 +235,7 @@ traffic through forwarded ports.
 Nix is optional. Verification checks installed Nix tools, the active system
 link, and the daemon when detected. Missing optional components appear as
 `skipped` in text and `"skipped": true` in JSON. Images with the Linux-only
-`nixosSwitch` capability must pass all Nix checks. macOS updates through
+`nixosSwitch` capability must pass all Nix checks. MacOS updates through
 nixos-config's `voom-update` use SSH instead.
 
 Verification runs once and exits nonzero if a check fails. It does not wait for
@@ -245,24 +245,24 @@ fails with `runtime-consistency`; run it again against the current VM.
 
 JSON output includes each check's output and errors, the driver process
 fingerprint, and the storage generation when present. `guest verify-macos` is
-an older, macOS-only name for the command. A successful check does not prove
+an older, MacOS-only name for the command. A successful check does not prove
 that restart, clone, reset, GUI, or forwarded traffic works; test those
 operations separately.
 
-## macOS Guests
+## MacOS Guests
 
-macOS guests require an Apple Silicon Mac running macOS 27 or later and a logged-in
-graphical session. Voom includes its patched vfkit 0.6.4 build in macOS release
+MacOS guests require an Apple Silicon Mac running MacOS 27 or later and a logged-in
+graphical session. Voom includes its patched vfkit 0.6.4 build in MacOS release
 archives and Nix packages; a separate vfkit installation is unnecessary.
 
 ### Bake an image
 
 Build an image with
-[`nixos-config`'s macOS image builder](https://github.com/mjrusso/nixos-config#macos-vm-images).
+[`nixos-config`'s MacOS image builder](https://github.com/mjrusso/nixos-config#macos-vm-images).
 It installs from an Apple restore image (IPSW), configures the guest, and exports
 the complete
 bundle Voom imports. Building requires Nix and an Xcode toolchain with the
-macOS 27 SDK.
+MacOS 27 SDK.
 Running the finished image with Voom requires neither Xcode nor the builder.
 
 1. Set up a personal configuration flake using nixos-config's
@@ -285,7 +285,7 @@ leaving `~/vms/golden-aarch64-darwin` by default. Use `--output PATH` to choose
 another bundle directory. Keep the disk and Apple platform files together.
 
 This builder installs Nix, nix-darwin, Home Manager, and Voom's guest services.
-Voom can also run macOS images without Nix. Other builders must produce the
+Voom can also run MacOS images without Nix. Other builders must produce the
 [image bundle format](#image-bundle-format) below.
 
 ### Import and run
@@ -306,7 +306,7 @@ voom clone mac-dev mac-copy
 
 `--ssh-identity` takes the private key whose public key is already authorized
 in the guest. Voom records the host path to that key. It does not copy the key
-or change the guest's SSH access. macOS SSH connections ignore host SSH
+or change the guest's SSH access. MacOS SSH connections ignore host SSH
 configuration.
 
 `start` returns when vfkit's control socket is ready. The guest may still be
@@ -334,7 +334,7 @@ Capabilities describe services already installed in the image. `metadataDisk`
 and `nixosSwitch` must remain false; `guestShareMount` and `guestPortReport` each
 require `controlShare`. Bundles with all capabilities false remain supported.
 The `--install-guest-helpers` import flag installs Linux helpers and is rejected
-for macOS bundles.
+for MacOS bundles.
 
 ### Identity and resources
 
@@ -353,7 +353,7 @@ and no larger than the baked allocation. Legacy bundles without minimum
 metadata require at least the baked allocation. Memory minimums are rounded
 up to whole MiB; disk capacity comes from the image.
 
-`info`, `image inspect`, and `doctor` report platform state and source macOS
+`info`, `image inspect`, and `doctor` report platform state and source MacOS
 version/build. Those version fields describe the image and do not track
 subsequent guest OS upgrades.
 
@@ -361,7 +361,7 @@ subsequent guest OS upgrades.
 
 `voom start` opens a window titled with the VM name. Closing the window hides
 it and keeps the VM running. Click its Dock icon or run `voom gui mac-dev` to
-show the same display again. `gui` requires a running macOS VM.
+show the same display again. `gui` requires a running MacOS VM.
 
 Quit (Command-Q or the Dock menu) requests guest shutdown and keeps the app
 responsive while shutdown completes. If the guest refuses shutdown or remains
@@ -373,7 +373,7 @@ in the `runtime-watch` log.
 
 The process name and Dock icon belong to vfkit; the window title uses the VM
 name at startup. Restart a VM to use an updated vfkit build.
-macOS guests require Voom's patched vfkit. An incompatible `VOOM_VFKIT` override
+MacOS guests require Voom's patched vfkit. An incompatible `VOOM_VFKIT` override
 is rejected before starting helpers.
 
 GUI login uses the guest account's password, which Voom does not manage.
@@ -400,7 +400,7 @@ voom forward list mac-dev
 ```
 
 Choose writable guest mount locations such as `/Volumes/project` or a directory
-under `/Users`; macOS's sealed root cannot create arbitrary `/mnt` directories.
+under `/Users`; MacOS's sealed root cannot create arbitrary `/mnt` directories.
 Share changes require a stopped VM. Read-only shares are enforced by Voom's
 patched vfkit on the host and requested read-only in the guest. A conflicting
 existing mount is reported in `/var/log/voom-guest-services.log` inside the guest.
@@ -412,7 +412,7 @@ them. Reports are published atomically; a failed listener scan does not publish
 an empty report. Reset rejects replacement images lacking capabilities needed
 by retained shares or automatic forwarding before stopping the VM.
 
-### Reset a macOS guest
+### Reset a MacOS guest
 
 ```bash
 voom disk reset mac-dev --image macos
@@ -426,12 +426,12 @@ and Apple machine identifier from the selected image. It discards guest changes
 and generates a fresh Apple identity. The VM name, Voom ID, CPU and memory
 allocation, SSH port, NIC MAC, shares, and forwarding settings stay the same.
 An image that cannot support those resources or configured services is rejected
-before shutdown. Reset cannot change a VM between Linux and macOS.
+before shutdown. Reset cannot change a VM between Linux and MacOS.
 
 Reset can repair missing boot files, provided the source image is complete and
 the old runtime has released its storage locks.
 
-On both Linux and macOS, reset copies replacement storage into a new directory,
+On both Linux and MacOS, reset copies replacement storage into a new directory,
 then saves the VM record to select that copy and its image/access metadata.
 A failure before that save leaves the old storage selected, though the VM may
 already be stopped. If the save's outcome is uncertain, Voom keeps both copies.
@@ -439,19 +439,19 @@ The next successful start or reset uses the saved record to remove unused
 storage. Errors during cleanup explicitly say that reset already committed.
 
 Stop, reset, and removal keep the VM's records when Voom cannot confirm that
-the runtime has exited. On macOS, these commands also wait for
+the runtime has exited. On MacOS, these commands also wait for
 Virtualization.framework to release the disk and auxiliary-storage locks.
 
 ### Storage compatibility
 
-New VM records on both platforms and macOS image records use schema 2. New VMs keep
+New VM records on both platforms and MacOS image records use schema 2. New VMs keep
 their boot files in a storage directory selected by the VM record. Existing
 Linux VMs remain readable with schema 1 and move to schema 2 on reset. Linux
 image records remain schema 1.
 These versions describe Voom's stored records; the source bundle's `image.json`
 manifest still uses schema 1.
 
-Earlier experimental macOS VM records without a storage generation are
+Earlier experimental MacOS VM records without a storage generation are
 unsupported. Before upgrading, save any needed guest data and remove those VMs
 with the Voom version that created them. Recreate them from imported images.
 Older released binaries cannot read schema 2 records and may fail to list VMs
@@ -472,7 +472,7 @@ a new `/tmp` directory; the source bundle must be stopped. If shutdown fails,
 the command keeps the VM and its state so you can recover it. A graphical
 login session and an SSH key usable without prompting are required.
 
-Run from the nixos-config checkout, using a Voom checkout with macOS guest support:
+Run from the nixos-config checkout, using a Voom checkout with MacOS guest support:
 
 ```sh
 nix build path:../voom#voom --out-link /tmp/voom-under-test
@@ -490,7 +490,7 @@ vfkit boot during baking does not replace this test of Voom and gvproxy.
 ### Scope and remaining Mac validation
 
 Import, create, SSH, repeated boots, and stopped-VM cloning have passed on
-macOS 27.0.1. The source and clone ran at the same time with distinct Apple
+MacOS 27.0.1. The source and clone ran at the same time with distinct Apple
 identities and independent disk writes. The following still need testing on a
 Mac; automated unit tests do not establish these results:
 
@@ -517,9 +517,9 @@ Mac; automated unit tests do not establish these results:
 
 Keep the host and guest versions, Voom revision, helper versions, image build
 metadata, logs, and `guest verify` JSON with the results. Release archive checks
-and the native identity helper self-test run on macOS CI.
+and the native identity helper self-test run on MacOS CI.
 
-macOS guests have no serial console; use SSH, the window, or `voom logs <name>`
+MacOS guests have no serial console; use SSH, the window, or `voom logs <name>`
 (vfkit logs by default). Egress/Agent Vault attachments, USB, PCI, NixOS
 switching, disk growth, snapshots, and suspend/resume are unsupported.
 
@@ -533,7 +533,7 @@ control directly with vfkit, one copy at a time, with the source stopped.
 
 > [!NOTE]
 >
-> Release and Nix installations include Voom's gvproxy build and, on macOS,
+> Release and Nix installations include Voom's gvproxy build and, on MacOS,
 > its vfkit build. Other host runtime dependencies, such as QEMU and SSH,
 > are not included. See [Host Requirements](#host-requirements).
 
@@ -543,11 +543,11 @@ Download a prebuilt archive for your platform from the [GitHub releases
 page](https://github.com/mjrusso/voom/releases), verify it against
 `checksums.txt`, and extract it into a directory on your `PATH`. Keep `voom`
 and its bundled helpers together. Every platform includes `gvproxy`.
-On macOS, also keep `vfkit` and, on Apple Silicon, `voom-macos-identity` there.
+On MacOS, also keep `vfkit` and, on Apple Silicon, `voom-macos-identity` there.
 
 > [!IMPORTANT]
 >
-> The macOS release binaries are not notarized. If your download is quarantined,
+> The MacOS release binaries are not notarized. If your download is quarantined,
 > Gatekeeper may show _"Apple could not verify ... is free of malware"_. Clear
 > the quarantine attribute from the extracted binaries before running them:
 >
@@ -602,7 +602,7 @@ For instructions on building from source, see
 - **Linux**: `/dev/kvm` access through [KVM](https://linux-kvm.org/),
   [QEMU](https://www.qemu.org/) (`qemu-system-<arch>`, `qemu-img`), and
   [OpenSSH](https://www.openssh.com/) (`ssh`).
-- **macOS**: Voom's bundled [vfkit](https://github.com/crc-org/vfkit) and
+- **MacOS**: Voom's bundled [vfkit](https://github.com/crc-org/vfkit) and
   [OpenSSH](https://www.openssh.com/) (`ssh`). Note that only Apple Silicon is
   supported.
 
@@ -625,8 +625,8 @@ On `aarch64` QEMU hosts, Voom looks for UEFI firmware in this order:
 ```
 
 Set `VOOM_QEMU_AARCH64_UEFI=/path/to/firmware.fd` when your distribution
-stores firmware elsewhere. For Linux guests on macOS, vfkit uses direct kernel
-boot metadata from the imported image or an EFI-bootable disk. macOS guests
+stores firmware elsewhere. For Linux guests on MacOS, vfkit uses direct kernel
+boot metadata from the imported image or an EFI-bootable disk. MacOS guests
 use the disk and Apple platform files from their bundle. New vfkit VMs use
 `disk.raw`; existing Linux VMs using `disk.img` keep that filename until reset.
 Both contain raw disks, and image import accepts either extension.
@@ -715,7 +715,7 @@ For installation instructions, run `voom completion <shell> --help`.
 ## Explicit HTTP proxy attachments
 
 An explicit HTTP proxy attachment connects a Linux VM to an external proxy or
-broker. macOS guests do not support these attachments. The broker can apply
+broker. MacOS guests do not support these attachments. The broker can apply
 VM-specific policy and supply credentials without storing them in the guest.
 Each attachment records a private backend Unix socket on the host:
 
@@ -815,10 +815,10 @@ chmod 0644 ~/.agents/skills/voom/SKILL.md
 Use `voom doctor` to check system dependencies (as per [Host
 Requirements](#host-requirements)), as well as writable directories, port
 availability, LAN exposure, stale process records, and state consistency. On
-macOS, it probes the selected vfkit for GUI lifecycle and read-only sharing
+MacOS, it probes the selected vfkit for GUI lifecycle and read-only sharing
 extensions and reports its resolved path.
 
-`voom logs <name>` defaults to the vfkit log for macOS guests and the serial
+`voom logs <name>` defaults to the vfkit log for MacOS guests and the serial
 log for Linux guests. Pass `--kind` to inspect helper logs (`qemu`, `vfkit`,
 `gvproxy`, `auto-forward`, `share-mount`, `runtime-watch`).
 
@@ -844,7 +844,7 @@ removing retained recovery records.
 
 ## Custom Images
 
-For macOS image building and bundle imports, see [macOS Guests](#macos-guests).
+For MacOS image building and bundle imports, see [MacOS Guests](#macos-guests).
 The cloud-init and sidecar workflow below applies to Linux.
 
 Use `--install-guest-helpers` at import to install integrations on first boot.
@@ -887,9 +887,9 @@ specification.
 
 Voom manages local development VMs through the host's VM stack. Voom does not
 build images or run a persistent background control plane. Release and Nix
-installations bundle gvproxy and, on macOS, patched vfkit; Apple Silicon
+installations bundle gvproxy and, on MacOS, patched vfkit; Apple Silicon
 packages also include the native identity helper. QEMU remains an external
-dependency on Linux. Per-VM watchers manage automatic forwarding and macOS
+dependency on Linux. Per-VM watchers manage automatic forwarding and MacOS
 runtime cleanup while those VMs run.
 
 Images must be explicitly imported, VMs must be created explicitly (referencing
@@ -905,9 +905,9 @@ always opt-in.
 | Cache (logs)                | `$XDG_CACHE_HOME/voom` or `~/.cache/voom`      | `VOOM_CACHE_DIR`   |
 | Runtime (sockets, process records) | `$XDG_RUNTIME_DIR/voom` or `/tmp/voom-$UID` | `VOOM_RUNTIME_DIR` |
 
-Run `voom debug paths` to inspect resolved directories. On macOS, state and
+Run `voom debug paths` to inspect resolved directories. On MacOS, state and
 configuration default to `~/Library/Application Support/voom`, cache to
-`~/Library/Caches/voom`, and runtime to `/tmp/voom-$UID`. macOS uses the same
+`~/Library/Caches/voom`, and runtime to `/tmp/voom-$UID`. MacOS uses the same
 `VOOM_*` overrides and ignores `XDG_*` variables.
 
 For gvproxy, vfkit, and the Apple identity helper, Voom checks an existing
@@ -917,7 +917,7 @@ the sibling helpers; overrides remain available for development. Run
 `voom debug helpers --output json` to see the selected executable paths.
 Startup checks the extensions required by the VM, and `voom doctor` probes
 packaged-helper compatibility. Stock vfkit cannot replace the patched build
-for macOS guests or read-only directory shares. Other runtime overrides include
+for MacOS guests or read-only directory shares. Other runtime overrides include
 `VOOM_VIRTIOFSD` and `VOOM_QEMU_AARCH64_UEFI`.
 
 Set the four directory overrides in the table to disposable directories to
@@ -991,7 +991,7 @@ for a reference implementation.
 
 ### Guest Image Contract
 
-This contract describes Linux images. For macOS, use the
+This contract describes Linux images. For MacOS, use the
 [bundle format and guest services](#macos-guests) described above.
 
 There are two tiers of compatible images:
@@ -1077,7 +1077,7 @@ than silently reallocating.
 
 Auto-forwarding is runtime state, not a manual forward declaration. The guest
 helper writes `ports.json` through the reserved control share: `/run/voom` on
-Linux or `/var/run/voom` on macOS. Voom plans host forwards from fresh reports
+Linux or `/var/run/voom` on MacOS. Voom plans host forwards from fresh reports
 and records installed/skipped rows in
 `<runtime>/vms/<vm-id>/auto-forwards.json`. Rules:
 
@@ -1202,9 +1202,9 @@ share in `vm.json`; append `--ro`/`--readonly` for a read-only mount. The tag
 `voom-control` is reserved. On QEMU, Voom exports each share through a
 `virtiofsd` helper; on vfkit, it attaches native virtio-fs devices. The guest
 mounts declared shares from `/run/voom/mounts.json` on Linux or
-`/var/run/voom/mounts.json` on macOS, delivered over the reserved control share.
+`/var/run/voom/mounts.json` on MacOS, delivered over the reserved control share.
 The image must advertise `controlShare` and `guestShareMount` and provide the
-corresponding services. On both Linux and macOS, `share add` checks these
+corresponding services. On both Linux and MacOS, `share add` checks these
 capabilities before saving the declaration. Adding or removing a share requires
 the VM to be stopped.
 
@@ -1212,7 +1212,7 @@ the VM to be stopped.
 
 USB passthrough provides a VM with direct access to USB devices connected to
 the host. Voom supports USB passthrough from Linux hosts, but does **not**
-support USB passthrough from macOS hosts.
+support USB passthrough from MacOS hosts.
 
 Use these commands to discover, assign, list, and remove USB devices:
 
@@ -1349,7 +1349,7 @@ temp-file-and-rename; partial files are ignored on load.
 <state>/locks/...                           # state and per-VM locks
 ```
 
-macOS image and VM storage also includes `HardwareModel`, `MachineIdentifier`,
+MacOS image and VM storage also includes `HardwareModel`, `MachineIdentifier`,
 and `AuxiliaryStorage`. Imported images preserve `bundle.json`, `restore.json`,
 and `toolchain.json`. New VMs' active disks and any platform files live
 under `<state>/vms/<vm-id>/storage-<generation>/`, selected by `vm.json`.
@@ -1405,7 +1405,7 @@ The initial event taxonomy is:
 | `vm` | `create`, `start`, `stop`, `rm` | An observed VM lifecycle operation completed; cloned VMs use `create` with a `clonedFrom` attribute. |
 | `forward` | `install`, `uninstall`, `skip` | Persisted automatic-forward state changed. |
 
-The macOS runtime watcher emits a `stop` event when cleanup after driver exit
+The MacOS runtime watcher emits a `stop` event when cleanup after driver exit
 changes runtime state. There is no distinct crash event; Linux driver exits
 are not automatically monitored.
 
@@ -1413,7 +1413,7 @@ are not automatically monitored.
 dangling index entries, orphaned records, duplicate names or IDs, LAN exposure,
 stale process records, stale auto-forward state, and malformed guest port reports.
 
-The table below lists command effects. For macOS, “disk” includes the Apple
+The table below lists command effects. For MacOS, “disk” includes the Apple
 platform files. `seed.img` is generated only for Linux.
 Disk growth and `nixos switch` support Linux guests only.
 
@@ -1435,7 +1435,7 @@ Disk growth and `nixos switch` support Linux guests only.
 | `voom nixos switch` | `state.json`, `vm.json`, image capabilities, flake metadata | runs `nixos-rebuild` over SSH and records switch metadata in `vm.json` |
 | `voom config show` | `state.json`, `vm.json` | no state changes |
 | `voom config ssh-port` | `state.json`, `vm.json`, runtime process record, host port availability | updates the stopped VM's SSH management port in `vm.json` |
-| `voom gui` | `vm.json`, vfkit control socket | shows the existing macOS display; no persistent state changes |
+| `voom gui` | `vm.json`, vfkit control socket | shows the existing MacOS display; no persistent state changes |
 | `voom guest verify` | `vm.json`, image capabilities, process records, guest reports, read-only SSH probes | no state changes |
 | `voom logs` | `state.json`, `vm.json`, cache log | no state changes |
 | `voom doctor` | state, runtime, cache, host tools, process records | no state changes |

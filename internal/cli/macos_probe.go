@@ -9,12 +9,12 @@ import (
 	"github.com/mjrusso/voom/internal/state"
 )
 
-func macOSCloneProbeCommand() *cobra.Command {
+func macosCloneProbeCommand() *cobra.Command {
 	var fresh bool
 	cmd := &cobra.Command{
 		Use:   "macos-clone-bundle <source-bundle> <destination>",
-		Short: "Copy a macOS bundle for identity testing",
-		Long:  "Copy a stopped macOS image bundle without importing or booting it. The destination must be new and its parent directory must exist. With --fresh-identity, use the packaged Apple identity helper to replace the copied machine identifier. The disk, hardware model, and auxiliary storage stay paired. Normal create, clone, and macOS disk reset always generate a fresh identifier.",
+		Short: "Copy a MacOS bundle for identity testing",
+		Long:  "Copy a stopped MacOS image bundle without importing or booting it. The destination must be new and its parent directory must exist. With --fresh-identity, use the packaged Apple identity helper to replace the copied machine identifier. The disk, hardware model, and auxiliary storage stay paired. Normal create, clone, and MacOS disk reset always generate a fresh identifier.",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report, err := state.PrepareMacOSCloneProbe(cmd.Context(), args[0], args[1], fresh)

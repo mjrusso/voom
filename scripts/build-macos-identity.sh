@@ -3,7 +3,7 @@ set -euo pipefail
 
 output="${1:-bin/voom-macos-identity}"
 if [[ "$(uname -s)" != Darwin ]]; then
-  echo "Building the macOS identity helper requires a Mac and Apple's SDK." >&2
+  echo "Building the MacOS identity helper requires a Mac and Apple's SDK." >&2
   exit 1
 fi
 mkdir -p "$(dirname "$output")"

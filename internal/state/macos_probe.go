@@ -81,7 +81,7 @@ func PrepareMacOSCloneProbe(ctx context.Context, src, dst string, fresh bool) (*
 			_ = os.RemoveAll(destination)
 		}
 	}()
-	for _, name := range macOSBundleFiles() {
+	for _, name := range macosBundleFiles() {
 		if err := CopyFile(ctx, filepath.Join(source, name), filepath.Join(destination, name)); err != nil {
 			return nil, err
 		}

@@ -112,16 +112,16 @@ func TestMacOSBootUsesPersistentPlatformAndOmitsLinuxDevices(t *testing.T) {
 		MacOS: &MacOSBoot{MachineIdentifier: "/vm/MachineIdentifier", HardwareModel: "/vm/HardwareModel", AuxiliaryStorage: "/vm/AuxiliaryStorage", WindowTitle: "test-vm"},
 	})
 	if !contains(args, "macos,machineIdentifierPath=/vm/MachineIdentifier,hardwareModelPath=/vm/HardwareModel,auxImagePath=/vm/AuxiliaryStorage") {
-		t.Fatalf("missing macOS boot platform: %v", args)
+		t.Fatalf("missing MacOS boot platform: %v", args)
 	}
 	joined := strings.Join(args, " ")
 	for _, forbidden := range []string{"seed.img", "virtio-serial", "efi,", "--kernel"} {
 		if strings.Contains(joined, forbidden) {
-			t.Fatalf("macOS args include %s: %v", forbidden, args)
+			t.Fatalf("MacOS args include %s: %v", forbidden, args)
 		}
 	}
 	if !contains(args, "--gui") || !contains(args, "virtio-net,unixSocketPath=/runtime/net.sock,mac=02:12:34:56:78:9a") || !contains(args, "virtio-gpu,width=1280,height=800") {
-		t.Fatalf("missing macOS devices: %v", args)
+		t.Fatalf("missing MacOS devices: %v", args)
 	}
 }
 

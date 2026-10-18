@@ -114,15 +114,15 @@ func System() string {
 func ValidateHostImage(arch, format, driver string) error {
 	if arch == "aarch64-darwin" {
 		if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" || driver != "vfkit" || format != "raw" {
-			return errors.New("macOS guests require an Apple Silicon Mac, vfkit, and a raw bundle disk")
+			return errors.New("MacOS guests require an Apple Silicon Mac, vfkit, and a raw bundle disk")
 		}
 		output, err := exec.Command("/usr/bin/sw_vers", "-productVersion").Output()
 		if err != nil {
-			return fmt.Errorf("checking macOS host version: %w", err)
+			return fmt.Errorf("checking MacOS host version: %w", err)
 		}
 		major, err := strconv.Atoi(strings.Split(strings.TrimSpace(string(output)), ".")[0])
 		if err != nil || major < 27 {
-			return errors.New("macOS guests require macOS 27 or later on the host")
+			return errors.New("MacOS guests require MacOS 27 or later on the host")
 		}
 		return nil
 	}

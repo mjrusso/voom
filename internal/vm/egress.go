@@ -142,7 +142,7 @@ func (m *Manager) updateEgress(ctx context.Context, name, action, expectedID str
 	}
 	defer unlock()
 	if vm.MacOS != nil {
-		return result, errors.New("egress is not supported for macOS guests")
+		return result, errors.New("egress is not supported for MacOS guests")
 	}
 	result = newEgressResult(vm)
 	defer func() { m.finishEgressResult(action, vm, &result, retErr) }()

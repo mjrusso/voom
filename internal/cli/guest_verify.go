@@ -14,7 +14,7 @@ func guestVerifyCommand(macosOnly bool) *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "verify <name>", ValidArgsFunction: completeVMNames,
 		Short: "Check guest health and configured services",
-		Long:  "Check a running Linux or macOS guest over SSH. Verify guest health, mounts, and the services enabled by the image and VM configuration. Check Nix when detected; images with nixosSwitch require it. JSON output includes each check's output and errors. The command runs once without waiting for boot or changing the guest. Test restart, clone, reset, GUI, and forwarded traffic separately.",
+		Long:  "Check a running Linux or MacOS guest over SSH. Verify guest health, mounts, and the services enabled by the image and VM configuration. Check Nix when detected; images with nixosSwitch require it. JSON output includes each check's output and errors. The command runs once without waiting for boot or changing the guest. Test restart, clone, reset, GUI, and forwarded traffic separately.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if timeout <= 0 {
@@ -30,7 +30,7 @@ func guestVerifyCommand(macosOnly bool) *cobra.Command {
 					return err
 				}
 				if record.MacOS == nil {
-					return fmt.Errorf("verify-macos requires a macOS VM; use guest verify for Linux")
+					return fmt.Errorf("verify-macos requires a MacOS VM; use guest verify for Linux")
 				}
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
@@ -68,7 +68,7 @@ func guestVerifyCommand(macosOnly bool) *cobra.Command {
 	}
 	if macosOnly {
 		cmd.Use = "verify-macos <name>"
-		cmd.Short = "Verify a macOS guest (compatibility command)"
+		cmd.Short = "Verify a MacOS guest (compatibility command)"
 		cmd.Hidden = true
 	}
 	cmd.Flags().DurationVar(&timeout, "timeout", 2*time.Minute, "total diagnostic timeout (no boot retries)")

@@ -9,8 +9,8 @@ import (
 
 func guiCommand() *cobra.Command {
 	return &cobra.Command{
-		Use: "gui <name>", Short: "Show or focus a running macOS VM's display",
-		Long: "Show or focus the existing display of a running macOS VM. Closing the window keeps the VM running. This command does not start or restart a VM.",
+		Use: "gui <name>", Short: "Show or focus a running MacOS VM's display",
+		Long: "Show or focus the existing display of a running MacOS VM. Closing the window keeps the VM running. This command does not start or restart a VM.",
 		Args: cobra.ExactArgs(1), ValidArgsFunction: completeVMNames,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deps, err := loadRuntimeDeps()

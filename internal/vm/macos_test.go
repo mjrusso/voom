@@ -26,7 +26,7 @@ func TestMacOSOperationsRejectBeforeChangingStorage(t *testing.T) {
 	}
 	disk := st.VMDiskPath(record)
 	if disk != filepath.Join(st.VMStorageDir(record), "disk.raw") {
-		t.Fatalf("macOS disk path: %s", disk)
+		t.Fatalf("MacOS disk path: %s", disk)
 	}
 	if err := os.WriteFile(disk, []byte("golden"), 0o600); err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestMacOSOperationsRejectBeforeChangingStorage(t *testing.T) {
 }
 
 func TestMacOSResourceChangesUseAppleMinimumsAndResetRevalidates(t *testing.T) {
-	st, record, legacyImage := macOSResetFixture(t)
+	st, record, legacyImage := macosResetFixture(t)
 	record.MacOS.MinimumCPUs = 2
 	record.MacOS.MinimumMemoryMiB = 4096
 	if err := st.SaveVM(record); err != nil {

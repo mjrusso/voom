@@ -143,7 +143,7 @@ func guestVerificationFixture(t *testing.T, system string) (*state.Store, *state
 	var record *state.VMRecord
 	var image *state.ImageRecord
 	if system == "aarch64-darwin" {
-		st, record, image = macOSResetFixture(t)
+		st, record, image = macosResetFixture(t)
 		record.Image = state.VMImageRef{ID: image.ID, Name: image.Name}
 		if err := st.SaveVM(record); err != nil {
 			t.Fatal(err)

@@ -246,7 +246,7 @@ func (m *Manager) GrowDisk(ctx context.Context, name, amount string) error {
 	}
 	defer unlock()
 	if vm.MacOS != nil {
-		return errors.New("macOS disk growth is not supported")
+		return errors.New("MacOS disk growth is not supported")
 	}
 	if m.IsRunning(vm) {
 		return fmt.Errorf("VM %q is running; stop it before growing its disk", name)
@@ -280,7 +280,7 @@ func (m *Manager) ResetDisk(ctx context.Context, name, imageName string) error {
 		return err
 	}
 	if (vm.MacOS == nil) != (im.MacOS == nil) {
-		return errors.New("reset cannot change between Linux and macOS guests")
+		return errors.New("reset cannot change between Linux and MacOS guests")
 	}
 	if err := validateImageFeatures(vm, im); err != nil {
 		return err

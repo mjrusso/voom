@@ -105,7 +105,7 @@ func addCommands(root *cobra.Command) {
 
 func debugCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "debug", Short: "Debug voom internals"}
-	cmd.AddCommand(macOSCloneProbeCommand(), runtimeWatchCommand(), helpersCommand())
+	cmd.AddCommand(macosCloneProbeCommand(), runtimeWatchCommand(), helpersCommand())
 	cmd.AddCommand(&cobra.Command{
 		Use:   "paths",
 		Short: "Print resolved directories",

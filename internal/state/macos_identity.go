@@ -14,20 +14,20 @@ import (
 	"github.com/mjrusso/voom/internal/host"
 )
 
-// CopyVM copies stopped macOS storage and assigns a fresh Apple identity to the copy.
+// CopyVM copies stopped MacOS storage and assigns a fresh Apple identity to the copy.
 func (p *MacOSPlatform) CopyVM(ctx context.Context, src, dst string) (*MacOSPlatform, error) {
 	if err := host.RequireExe("voom-macos-identity"); err != nil {
 		return nil, err
 	}
 	unlock, err := lockMacOSStorage(src)
 	if err != nil {
-		return nil, fmt.Errorf("source macOS storage is in use: %w", err)
+		return nil, fmt.Errorf("source MacOS storage is in use: %w", err)
 	}
 	defer unlock()
 	if err := p.ValidateStorage(src); err != nil {
 		return nil, err
 	}
-	for _, name := range macOSStorageFiles {
+	for _, name := range macosStorageFiles {
 		if err := CopyFile(ctx, filepath.Join(src, name), filepath.Join(dst, name)); err != nil {
 			return nil, err
 		}
@@ -42,11 +42,11 @@ func (p *MacOSPlatform) FreshIdentity(ctx context.Context, dir string) (*MacOSPl
 	}
 	helper, err := host.ExePath("voom-macos-identity")
 	if err != nil {
-		return nil, fmt.Errorf("macOS identity helper is missing; install the complete Voom package: %w", err)
+		return nil, fmt.Errorf("MacOS identity helper is missing; install the complete Voom package: %w", err)
 	}
 	output, err := exec.CommandContext(ctx, helper, filepath.Join(dir, "MachineIdentifier")).CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("generating macOS identity: %w: %s", err, strings.TrimSpace(string(output)))
+		return nil, fmt.Errorf("generating MacOS identity: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -62,7 +62,7 @@ func (p *MacOSPlatform) FreshIdentity(ctx context.Context, dir string) (*MacOSPl
 	fresh := *p
 	fresh.IdentitySHA256 = hex.EncodeToString(hash[:])
 	if fresh.IdentitySHA256 == p.IdentitySHA256 {
-		return nil, errors.New("macOS identity helper retained the source identity")
+		return nil, errors.New("MacOS identity helper retained the source identity")
 	}
 	if err := fresh.ValidateStorage(dir); err != nil {
 		return nil, err

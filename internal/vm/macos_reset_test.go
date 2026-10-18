@@ -23,7 +23,7 @@ import (
 	"github.com/mjrusso/voom/internal/state"
 )
 
-func macOSResetFixture(t *testing.T) (*state.Store, *state.VMRecord, *state.ImageRecord) {
+func macosResetFixture(t *testing.T) (*state.Store, *state.VMRecord, *state.ImageRecord) {
 	t.Helper()
 	st, _ := newTestStore(t)
 	bundle := t.TempDir()
@@ -83,7 +83,7 @@ func macOSResetFixture(t *testing.T) (*state.Store, *state.VMRecord, *state.Imag
 }
 
 func TestMacOSResetReplacesCompleteStateAndCloneUsesActiveGeneration(t *testing.T) {
-	st, original, im := macOSResetFixture(t)
+	st, original, im := macosResetFixture(t)
 	manager := New(st)
 	for range 2 {
 		if err := manager.ResetDisk(context.Background(), "mac", "golden"); err != nil {
@@ -154,7 +154,7 @@ func TestMacOSResetReplacesCompleteStateAndCloneUsesActiveGeneration(t *testing.
 func TestMacOSResetFailuresPreserveActiveState(t *testing.T) {
 	for _, mode := range []string{"helper", "duplicate identity", "cancelled", "resources", "missing image state", "unknown runtime", "record write"} {
 		t.Run(mode, func(t *testing.T) {
-			st, vm, im := macOSResetFixture(t)
+			st, vm, im := macosResetFixture(t)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			switch mode {
@@ -217,7 +217,7 @@ func TestMacOSResetFailuresPreserveActiveState(t *testing.T) {
 func TestMacOSResetRecoveryAtStorageCommitBoundaries(t *testing.T) {
 	for _, committed := range []bool{false, true} {
 		t.Run(map[bool]string{false: "before commit", true: "after commit"}[committed], func(t *testing.T) {
-			st, vm, im := macOSResetFixture(t)
+			st, vm, im := macosResetFixture(t)
 			next, err := st.CopyStorageGeneration(context.Background(), vm, im.MacOS, st.ImageDiskPath(im))
 			if err != nil {
 				t.Fatal(err)
@@ -321,7 +321,7 @@ func TestMacOSStopAndRemoveRetainLockedStorage(t *testing.T) {
 
 	for _, action := range []string{"stop", "remove", "reset"} {
 		t.Run(action, func(t *testing.T) {
-			st, vm, _ := macOSResetFixture(t)
+			st, vm, _ := macosResetFixture(t)
 			holdMacOSStorageLock(t, filepath.Join(st.VMStorageDir(vm), "AuxiliaryStorage"))
 			var err error
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -350,8 +350,8 @@ func TestMacOSStopAndRemoveRetainLockedStorage(t *testing.T) {
 
 func TestResetRejectsGuestOSTransitionsWithoutStoppingVM(t *testing.T) {
 	for _, toMac := range []bool{false, true} {
-		t.Run(map[bool]string{false: "macOS to Linux", true: "Linux to macOS"}[toMac], func(t *testing.T) {
-			st, vm, im := macOSResetFixture(t)
+		t.Run(map[bool]string{false: "MacOS to Linux", true: "Linux to MacOS"}[toMac], func(t *testing.T) {
+			st, vm, im := macosResetFixture(t)
 			if toMac {
 				vm.Arch = "aarch64-linux"
 				vm.MacOS = nil
@@ -373,7 +373,7 @@ func TestResetRejectsGuestOSTransitionsWithoutStoppingVM(t *testing.T) {
 				t.Fatal(err)
 			}
 			err := New(st).ResetDisk(context.Background(), vm.Name, im.Name)
-			if err == nil || !strings.Contains(err.Error(), "between Linux and macOS") {
+			if err == nil || !strings.Contains(err.Error(), "between Linux and MacOS") {
 				t.Fatalf("transition was not rejected before runtime cleanup: %v", err)
 			}
 			if _, err := os.Stat(rt.VMProcessRecord()); err != nil {
@@ -388,7 +388,7 @@ func TestResetRejectsGuestOSTransitionsWithoutStoppingVM(t *testing.T) {
 }
 
 func TestMacOSRemoveIncompleteStorageStillChecksSurvivingLocks(t *testing.T) {
-	st, vm, _ := macOSResetFixture(t)
+	st, vm, _ := macosResetFixture(t)
 	if err := os.Remove(st.VMDiskPath(vm)); err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +414,7 @@ func TestMacOSRemoveIncompleteStorageStillChecksSurvivingLocks(t *testing.T) {
 func TestMacOSResetReplacesIncompleteStorage(t *testing.T) {
 	for _, missing := range []string{"MachineIdentifier", "HardwareModel", "disk.raw", "AuxiliaryStorage", "generation"} {
 		t.Run(missing, func(t *testing.T) {
-			st, vm, image := macOSResetFixture(t)
+			st, vm, image := macosResetFixture(t)
 			oldDir := st.VMStorageDir(vm)
 			path := filepath.Join(oldDir, missing)
 			if missing == "generation" {
