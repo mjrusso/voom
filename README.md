@@ -235,8 +235,7 @@ traffic through forwarded ports.
 Nix is optional. Verification checks installed Nix tools, the active system
 link, and the daemon when detected. Missing optional components appear as
 `skipped` in text and `"skipped": true` in JSON. Images with the Linux-only
-`nixosSwitch` capability must pass all Nix checks. MacOS updates through
-nixos-config's `voom-update` use SSH instead.
+`nixosSwitch` capability must pass all Nix checks.
 
 Verification runs once and exits nonzero if a check fails. It does not wait for
 the guest to boot or start missing services. `--timeout` limits the whole run.
@@ -254,45 +253,32 @@ MacOS guests require an Apple Silicon Mac running MacOS 27 or later and a logged
 graphical session. Voom includes its patched vfkit 0.6.4 build in MacOS release
 archives and Nix packages; a separate vfkit installation is unnecessary.
 
-### Bake an image
+### Prepare an image
 
-Build an image with
-[`nixos-config`'s MacOS image builder](https://github.com/mjrusso/nixos-config#macos-vm-images).
-It installs from an Apple restore image (IPSW), configures the guest, and exports
-the complete
-bundle Voom imports. Building requires Nix and an Xcode toolchain with the
-MacOS 27 SDK.
-Running the finished image with Voom requires neither Xcode nor the builder.
+Voom does not install MacOS or build images. It imports an installed guest in
+the [bundle format](#image-bundle-format) below. The guest must have SSH enabled
+and your public key authorized before import. Shut it down and keep its disk
+and Apple platform files together.
 
-1. Set up a personal configuration flake using nixos-config's
-   [system configuration template](https://github.com/mjrusso/nixos-config/tree/main/templates/system-config).
-2. Configure its `macosImage` output with pinned Apple IPSW and Nix distribution
-   URLs and SHA-256 hashes, the installed SDK version, and the Darwin target.
-   The [builder instructions](https://github.com/mjrusso/nixos-config#macos-vm-images)
-   include the complete recipe and setup details.
-3. From that configuration flake's directory, validate the recipe and bake:
+For an example image builder, see the author's
+[nixos-config builder](https://github.com/mjrusso/nixos-config#macos-vm-images).
+That builder requires Nix and an Xcode toolchain with the MacOS 27 SDK. It
+installs from an Apple restore image (IPSW) and includes Nix, nix-darwin,
+Home Manager, and guest services. See that repository for setup instructions.
 
-   ```sh
-   nix run .#bake-macos -- --check
-   nix run .#bake-macos -- --identity ~/.ssh/id_ed25519
-   ```
-
-The private key must work without prompting, directly or through ssh-agent;
-the builder reads the adjacent `.pub` file and authorizes that public key in the
-guest. A successful bake validates a standalone boot and shuts the guest down,
-leaving `~/vms/golden-aarch64-darwin` by default. Use `--output PATH` to choose
-another bundle directory. Keep the disk and Apple platform files together.
-
-This builder installs Nix, nix-darwin, Home Manager, and Voom's guest services.
-Voom can also run MacOS images without Nix. Other builders must produce the
-[image bundle format](#image-bundle-format) below.
+Voom does not currently provide a standalone image builder for users without
+Nix. Running a prepared image requires neither Nix nor Xcode on the host, and
+the guest does not need Nix. Other builders must produce the same bundle format;
+shares and automatic forwarding require additional
+[guest services](#shares-and-automatic-forwarding).
 
 ### Import and run
 
-Import the completed, stopped bundle using the SSH key authorized during baking:
+Import the completed, stopped bundle using the SSH key authorized in the guest.
+Replace `~/vms/macos-bundle` with your bundle directory:
 
 ```bash
-voom image import macos ~/vms/golden-aarch64-darwin \
+voom image import macos ~/vms/macos-bundle \
   --ssh-identity ~/.ssh/id_ed25519
 voom create mac-dev --image macos
 voom start mac-dev
@@ -310,8 +296,8 @@ configuration.
 
 `start` returns when vfkit's control socket is ready. The guest may still be
 booting; wait for SSH before running `guest verify`. Voom uses gvproxy to
-forward SSH to `192.168.127.3:22` in the guest. The builder's standalone vfkit
-boot uses different networking and does not test this connection.
+forward SSH to `192.168.127.3:22` in the guest. A standalone boot under another
+VM tool does not validate Voom's networking; check SSH after starting with Voom.
 
 ### Image bundle format
 
@@ -380,12 +366,16 @@ and run `sudo /usr/bin/passwd "$(id -un)"` inside the guest to set one.
 
 ### Shares and automatic forwarding
 
-Images built with nixos-config's Darwin VM configuration include a launchd
-service that mounts Voom's `voom-control` share at `/var/run/voom`, mounts user
-shares, and publishes TCP listeners every two seconds. The image must advertise
-`controlShare`, `guestShareMount`, and `guestPortReport` only when it provides
-those services. Installing Voom does not install guest services; build and
-import an image that includes them.
+Both features require guest services that mount Voom's `voom-control` share at
+`/var/run/voom`. Directory shares also require a service that mounts declared
+shares; automatic forwarding requires a service that publishes TCP listeners.
+The image must advertise `controlShare` and the capabilities it implements:
+`guestShareMount` for shares and `guestPortReport` for automatic forwarding.
+Installing Voom does not install these guest services.
+
+For a reference implementation, see the author's
+[Darwin VM module](https://github.com/mjrusso/nixos-config/blob/main/modules/darwin/vm.nix)
+and [guest service](https://github.com/mjrusso/nixos-config/blob/main/packages/voom-macos-guest/agent.py).
 
 ```sh
 voom stop mac-dev
@@ -400,8 +390,9 @@ voom forward list mac-dev
 Choose writable guest mount locations such as `/Volumes/project` or a directory
 under `/Users`; MacOS's sealed root cannot create arbitrary `/mnt` directories.
 Share changes require a stopped VM. Read-only shares are enforced by Voom's
-patched vfkit on the host and requested read-only in the guest. A conflicting
-existing mount is reported in `/var/log/voom-guest-services.log` inside the guest.
+patched vfkit on the host and requested read-only in the guest. With the reference
+guest service, mount errors appear in `/var/log/voom-guest-services.log` inside
+the guest. Other guest implementations may use a different log location.
 
 Automatic forwarding follows the [port conflict and offset rules](#networking-details).
 Wildcard TCP listeners (`*`, `0.0.0.0`, or `::`) are eligible; SSH and listeners
@@ -452,36 +443,6 @@ manifest still uses schema 1.
 Older released binaries cannot read schema 2 records and may fail to list VMs
 or images when those records are present.
 
-### Test a baked image with Voom
-
-nixos-config provides an optional `verify-macos-voom` command that tests a baked
-bundle through a selected Voom package. It imports a disposable image, creates a
-VM, checks guest health, writable and read-only shares, and automatic TCP
-forwarding. It repeats the checks after restart, then removes the test VM and
-imported image.
-
-The command clears helper overrides and verifies `voom debug helpers` resolves
-vfkit, gvproxy, and the identity helper beside the selected Voom executable.
-It saves capabilities, binary hashes, and command output. Test state lives in
-a new `/tmp` directory; the source bundle must be stopped. If shutdown fails,
-the command keeps the VM and its state so you can recover it. A graphical
-login session and an SSH key usable without prompting are required.
-
-Run from the nixos-config checkout, using a Voom checkout with MacOS guest support:
-
-```sh
-nix build path:../voom#voom --out-link /tmp/voom-under-test
-nix run path:.#verify-macos-voom -- \
-  --voom /tmp/voom-under-test/bin/voom \
-  --bundle "$HOME/vms/golden-aarch64-darwin" \
-  --identity "$HOME/.ssh/id_ed25519"
-```
-
-Use `--work-dir /tmp/voom-check-01` to choose a new test directory and
-`--timeout SECONDS` to change the per-stage limit (default 600). Logs and
-`evidence/result.json` are retained on success and failure. The standalone
-vfkit boot during baking does not replace this test of Voom and gvproxy.
-
 ### Scope and remaining Mac validation
 
 Import, create, SSH, repeated boots, and stopped-VM cloning have passed on
@@ -499,9 +460,10 @@ Mac; automated unit tests do not establish these results:
   The vfkit PID, Apple identity, and guest boot time should stay the same,
   with SSH working while hidden. Test stop while hidden, guest shutdown,
   Quit, refused or delayed shutdown, Force Quit, helper cleanup, and restart.
-- **Shares and forwarding:** run the baked-image test above. Also check
-  outbound DNS/HTTPS, manual TCP and UDP forwards, port conflicts, forwarding
-  after restart, and isolation between VMs. Check that automatic forwarding
+- **Shares and forwarding:** test host-to-guest reads, guest-to-host writes,
+  and rejection of writes to read-only shares. Check outbound DNS/HTTPS, manual
+  TCP and UDP forwards, port conflicts, forwarding after restart, and isolation
+  between VMs. Send traffic through automatic forwards and check that forwarding
   excludes guest loopback listeners, handles offsets and occupied host ports,
   and removes a forward when its server stops.
 - **Recovery and compatibility:** test interrupted commands, host reboot,
@@ -597,9 +559,10 @@ For instructions on building from source, see
 - **Linux**: `/dev/kvm` access through [KVM](https://linux-kvm.org/),
   [QEMU](https://www.qemu.org/) (`qemu-system-<arch>`, `qemu-img`), and
   [OpenSSH](https://www.openssh.com/) (`ssh`).
-- **MacOS**: Voom's bundled [vfkit](https://github.com/crc-org/vfkit) and
-  [OpenSSH](https://www.openssh.com/) (`ssh`). Note that only Apple Silicon is
-  supported.
+- **MacOS**: an Apple Silicon Mac with [OpenSSH](https://www.openssh.com/)
+  (`ssh`, included with MacOS).
+  MacOS guests additionally require MacOS 27 or later on the host and a logged-in
+  graphical session; see [MacOS Guests](#macos-guests).
 
 Optional integrations: [virtiofsd](https://gitlab.com/virtio-fs/virtiofsd)
 (Linux/QEMU shares), [Nix](https://nixos.org/download/) and
@@ -609,7 +572,8 @@ metadata). Note that USB passthrough from Linux hosts requires a QEMU build
 with XHCI and libusb `usb-host` support, and PCI passthrough requires a QEMU
 build with VFIO `vfio-pci` support.
 
-Install host runtime tools manually, or with your OS package manager.
+Install any missing host tools with your OS package manager. Voom's release
+archives and Nix packages already include gvproxy and, on MacOS, vfkit.
 
 On `aarch64` QEMU hosts, Voom looks for UEFI firmware in this order:
 
@@ -1007,10 +971,9 @@ service that mounts shares from `/run/voom/mounts.json`, passwordless privilege
 escalation when the NixOS target user is not root, and a conventional
 ACPI/vfkit shutdown path.
 
-For NAT-backed Voom images, leave the guest firewall disabled. The guest sits
-behind gvproxy NAT, so no traffic can reach the guest except through explicit
-host-side forwards, which are managed by Voom. Use a stricter guest firewall
-only when attaching to a real network (bridged, macvtap, VPN).
+If the guest has a firewall, allow inbound SSH and any services you intend to
+forward. Voom manages host-side port forwards through gvproxy; it does not
+configure or bypass the guest firewall.
 
 #### `voom-portfwd` Contract
 
