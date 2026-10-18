@@ -27,7 +27,8 @@ Voom patches vfkit v0.6.4. `nix/vfkit-source.nix` pins the upstream commit and
 vendors dependencies; patches under `nix/patches/` extend vfkit and Code-Hex/vz.
 Nix packages and release archives use the same source. The share patch adds host-side
 read-only directory exports and the `virtiofs-readonly-v1` capability. Release
-preparation requires a Mac with Apple's SDK and ad-hoc signs both Darwin architectures.
+preparation uses Apple's toolchain selected by `xcode-select` and ad-hoc signs
+both Darwin architectures.
 The release smoke check verifies vfkit's capabilities and signature. To test
 window close/reopen, Quit, and Force Quit, use a logged-in graphical Mac session.
 

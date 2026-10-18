@@ -15,12 +15,14 @@ mkdir -p "$source_target"
 cp -R "$source_path/." "$source_target/"
 chmod -R u+w "$source_target"
 
-compiler="$(xcrun --find clang)"
-sdk="$(xcrun --sdk macosx --show-sdk-path)"
+export DEVELOPER_DIR SDKROOT
+DEVELOPER_DIR="$(/usr/bin/xcode-select --print-path)"
+SDKROOT="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"
+compiler="$(/usr/bin/xcrun --sdk macosx --find clang)"
 export CC="$compiler"
 export CGO_ENABLED=1
-export CGO_CFLAGS="-isysroot $sdk -mmacosx-version-min=13.0"
-export CGO_LDFLAGS="-isysroot $sdk"
+export CGO_CFLAGS="-isysroot $SDKROOT -mmacosx-version-min=13.0"
+export CGO_LDFLAGS="-isysroot $SDKROOT"
 export GOFLAGS=-mod=vendor
 
 (
