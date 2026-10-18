@@ -124,6 +124,7 @@ func debugCommand() *cobra.Command {
 
 func guestCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "guest", Short: "Inspect guest-reported state"}
+	cmd.AddCommand(guestVerifyCommand(false), guestVerifyCommand(true))
 	cmd.AddCommand(&cobra.Command{Use: "ports <name>", ValidArgsFunction: completeVMNames, Short: "Show guest listeners", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {

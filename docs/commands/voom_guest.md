@@ -19,3 +19,4 @@ Inspect guest-reported state
 
 * [voom](voom.md)	 - Magic-free local VMs
 * [voom guest ports](voom_guest_ports.md)	 - Show guest listeners
+* [voom guest verify](voom_guest_verify.md)	 - Check guest health and configured services
