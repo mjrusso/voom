@@ -3,6 +3,8 @@ package doctor
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/mjrusso/voom/internal/forward"
@@ -86,6 +88,41 @@ func TestStateDiagnosticsReportsStaleAutoForwardRuntimeFiles(t *testing.T) {
 	for name, found := range want {
 		if !found {
 			t.Fatalf("missing %s in checks: %#v", name, checks)
+		}
+	}
+}
+
+func TestDoctorChecksVfkitExtensions(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("vfkit host check requires Darwin")
+	}
+	root := t.TempDir()
+	for _, kind := range []string{"CONFIG", "STATE", "CACHE", "RUNTIME"} {
+		t.Setenv("VOOM_"+kind+"_DIR", filepath.Join(root, kind))
+	}
+	path := filepath.Join(root, "vfkit")
+	t.Setenv("VOOM_VFKIT", path)
+	for _, tc := range []struct {
+		capabilities string
+		ok           bool
+	}{
+		{`{"gui-lifecycle-v1":1,"virtiofs-readonly-v1":1}`, true},
+		{`{"gui-lifecycle-v1":1}`, false},
+	} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf '%s\\n' '"+tc.capabilities+"'\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, check := range Run(false) {
+			if check.Name == "vfkit" {
+				found = true
+				if check.OK != tc.ok || !strings.Contains(check.Message, path) {
+					t.Fatalf("wrong vfkit diagnostic: %+v", check)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("missing vfkit compatibility diagnostic")
 		}
 	}
 }

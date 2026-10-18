@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"github.com/mjrusso/voom/internal/driver/qemu"
+	"github.com/mjrusso/voom/internal/driver/vfkit"
 	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/pci"
@@ -52,7 +53,8 @@ func Run(all bool) []Check {
 	}
 	add("qemu-img", runtime.GOOS == "linux", host.RequireExe("qemu-img"), "found")
 	if runtime.GOOS == "darwin" {
-		add("vfkit", true, host.RequireExe("vfkit"), "found")
+		executable, err := vfkit.ResolveCompatible(context.Background(), "gui-lifecycle-v1", "virtiofs-readonly-v1")
+		add("vfkit", true, err, "compatible: "+executable)
 	}
 	_, gvproxyErr := gvproxy.ResolveCompatible(context.Background(), gvproxy.GuestIsolationCapability)
 	add("gvproxy", true, gvproxyErr, "compatible")
@@ -80,6 +82,10 @@ func Run(all bool) []Check {
 	if err != nil {
 		add("state", true, err, "")
 		return checks
+	}
+	if (all && runtime.GOOS == "darwin") || hasMacOSGuests(st) {
+		add("macos-host", false, host.ValidateHostImage("aarch64-darwin", "raw", "vfkit"), "Apple Silicon host running macOS 27 or later")
+		add("macos-identity", false, host.RequireExe("voom-macos-identity"), "found")
 	}
 	if runtime.GOOS == "linux" && (all || hasUSBDevices(st)) {
 		add("qemu-usb", false, qemu.RequireUSB(host.System()), "XHCI and host passthrough available")
@@ -118,6 +124,7 @@ func StateDiagnostics(st *state.Store) []Check {
 	vmMgr := vm.New(st)
 	index := st.IndexSnapshot()
 	vmSeenIDs := map[string]string{}
+	macOSIdentities := map[string]string{}
 	var usbInventory *usb.Inventory
 	var usbInventoryErr error
 	usbScanned := false
@@ -132,6 +139,16 @@ func StateDiagnostics(st *state.Store) []Check {
 		}
 		if prev := vmSeenIDs[vmRec.ID]; prev != "" {
 			out = append(out, Check{"state-vm-duplicate-id", "warn", false, prev + " and " + name})
+		}
+		if vmRec.MacOS != nil {
+			if err := vmRec.MacOS.ValidateStorage(st.VMStorageDir(vmRec)); err != nil {
+				out = append(out, Check{"macos-storage-" + name, "warn", false, err.Error()})
+			}
+			identity := vmRec.MacOS.IdentitySHA256
+			if prev := macOSIdentities[identity]; prev != "" {
+				out = append(out, Check{"macos-identity-" + name, "warn", false, "Apple identity shared by " + prev + " and " + name})
+			}
+			macOSIdentities[identity] = name
 		}
 		out = append(out, egressDiagnostics(st, vmMgr, vmRec)...)
 		if runtime.GOOS == "linux" {
@@ -171,7 +188,7 @@ func StateDiagnostics(st *state.Store) []Check {
 			name string
 			path string
 			kind string
-		}{{"vm.process.json", rt.VMProcessRecord(), state.VMProcessKind(vmRec.Driver)}, {"gvproxy.process.json", rt.GVProxyProcessRecord(), "gvproxy"}, {"auto-forward.process.json", rt.AutoForwardProcessRecord(), "auto-forward"}}
+		}{{"vm.process.json", rt.VMProcessRecord(), state.VMProcessKind(vmRec.Driver)}, {"gvproxy.process.json", rt.GVProxyProcessRecord(), "gvproxy"}, {"auto-forward.process.json", rt.AutoForwardProcessRecord(), "auto-forward"}, {"runtime-watch.process.json", rt.RuntimeWatcherProcessRecord(), "runtime-watch"}}
 		for _, record := range staticRecords {
 			if process.HasRecord(record.path) {
 				if _, ok := process.ValidRecord(record.path, record.kind); !ok {
@@ -212,6 +229,11 @@ func StateDiagnostics(st *state.Store) []Check {
 		}
 		if prev := imageSeenIDs[im.ID]; prev != "" {
 			out = append(out, Check{"state-image-duplicate-id", "warn", false, prev + " and " + name})
+		}
+		if im.MacOS != nil {
+			if err := im.MacOS.ValidateStorage(st.ImageDir(im.ID)); err != nil {
+				out = append(out, Check{"macos-image-storage-" + name, "warn", false, err.Error()})
+			}
 		}
 		imageSeenIDs[im.ID] = name
 	}
@@ -341,4 +363,19 @@ func hasUSBDevices(st *state.Store) bool {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func hasMacOSGuests(st *state.Store) bool {
+	index := st.IndexSnapshot()
+	for _, id := range index.Images {
+		if im, err := st.LoadImageByID(id); err == nil && im.MacOS != nil {
+			return true
+		}
+	}
+	for _, id := range index.VMs {
+		if vm, err := st.LoadVMByID(id); err == nil && vm.MacOS != nil {
+			return true
+		}
+	}
+	return false
 }
