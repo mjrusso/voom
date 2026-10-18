@@ -125,7 +125,7 @@ func TestMacOSBootUsesPersistentPlatformAndOmitsLinuxDevices(t *testing.T) {
 	}
 }
 
-func TestDisplayControlReportsUnsupportedBackend(t *testing.T) {
+func TestDisplayControlReportsHTTPFailure(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "vfkit.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
@@ -134,8 +134,8 @@ func TestDisplayControlReportsUnsupportedBackend(t *testing.T) {
 	server := &http.Server{Handler: http.NotFoundHandler()}
 	go func() { _ = server.Serve(listener) }()
 	defer func() { _ = server.Close() }()
-	if err := ShowDisplay(context.Background(), socket); err == nil || !strings.Contains(err.Error(), "restart the VM") {
-		t.Fatalf("missing backend diagnostic: %v", err)
+	if err := ShowDisplay(context.Background(), socket); err == nil || !strings.Contains(err.Error(), "404 page not found") {
+		t.Fatalf("missing HTTP failure diagnostic: %v", err)
 	}
 }
 

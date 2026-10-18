@@ -303,9 +303,7 @@ func infoCommand() *cobra.Command {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\nstatus: %s\nimage: %s\ncpus: %d\nmemory: %dMiB\ndisk: %s\nssh: %s@%s:%d\nforwards: %d\nshares: %d\nusb: %d\npci: %d\n", vmRec.Name, vmRec.ID, vm.Status(out.Running), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, disk, vmRec.Access.SSHUser, vmRec.Network.SSHBind, vmRec.Network.SSHPort, len(vmRec.Network.Forwards), len(vmRec.Shares), len(vmRec.USBDevices), len(vmRec.PCIDevices))
 		if vmRec.MacOS != nil {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "system: %s\nboot: macos\nimage-macos: %s (%s)\napple-identity: %s\nplatform-state: %s\n", vmRec.Arch, vmRec.MacOS.Version, vmRec.MacOS.Build, vmRec.MacOS.IdentitySHA256, out.PlatformStateDir)
-			if vmRec.MacOS.MinimumCPUs != 0 {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "apple-minimum-resources: %d CPUs, %dMiB\n", vmRec.MacOS.MinimumCPUs, vmRec.MacOS.MinimumMemoryMiB)
-			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "apple-minimum-resources: %d CPUs, %dMiB\n", vmRec.MacOS.MinimumCPUs, vmRec.MacOS.MinimumMemoryMiB)
 		}
 		for _, device := range out.USBStatus {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "usb-device: %s %s host=%s runtime=%s\n", device.Name, device.Location, device.Host.State, device.Runtime.State)

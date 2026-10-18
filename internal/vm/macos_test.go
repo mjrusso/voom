@@ -13,7 +13,7 @@ import (
 
 func TestMacOSOperationsRejectBeforeChangingStorage(t *testing.T) {
 	st, _ := newTestStore(t)
-	record := &state.VMRecord{SchemaVersion: 2, ID: "mac", Name: "mac", Arch: "aarch64-darwin", Driver: "vfkit", MacOS: &state.MacOSPlatform{IdentitySHA256: strings.Repeat("a", 64), CPUs: 4, MemoryMiB: 8192, Version: "27.0.1", Build: "26A434"}, Resources: state.VMResources{CPUs: 4, MemoryMiB: 8192}}
+	record := &state.VMRecord{SchemaVersion: 2, ID: "mac", Name: "mac", Arch: "aarch64-darwin", Driver: "vfkit", MacOS: &state.MacOSPlatform{IdentitySHA256: strings.Repeat("a", 64), CPUs: 4, MemoryMiB: 8192, MinimumCPUs: 4, MinimumMemoryMiB: 8192, Version: "27.0.1", Build: "26A434"}, Resources: state.VMResources{CPUs: 4, MemoryMiB: 8192}}
 	record.StorageGeneration = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	if err := os.MkdirAll(st.VMStorageDir(record), 0o755); err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestMacOSOperationsRejectBeforeChangingStorage(t *testing.T) {
 }
 
 func TestMacOSResourceChangesUseAppleMinimumsAndResetRevalidates(t *testing.T) {
-	st, record, legacyImage := macosResetFixture(t)
+	st, record, replacementImage := macosResetFixture(t)
 	record.MacOS.MinimumCPUs = 2
 	record.MacOS.MinimumMemoryMiB = 4096
 	if err := st.SaveVM(record); err != nil {
@@ -91,8 +91,8 @@ func TestMacOSResourceChangesUseAppleMinimumsAndResetRevalidates(t *testing.T) {
 	if _, _, err := manager.SetMemory(context.Background(), record.Name, 4095); err == nil {
 		t.Fatal("invalid allocation accepted")
 	}
-	if err := manager.ResetDisk(context.Background(), record.Name, legacyImage.Name); err == nil {
-		t.Fatal("reset accepted insufficient resources for legacy image")
+	if err := manager.ResetDisk(context.Background(), record.Name, replacementImage.Name); err == nil {
+		t.Fatal("reset accepted insufficient resources for replacement image")
 	}
 	saved, err := st.LoadVM(record.Name)
 	if err != nil || saved.Resources.CPUs != 2 || saved.Resources.MemoryMiB != 4096 || saved.Image.ID != record.Image.ID {

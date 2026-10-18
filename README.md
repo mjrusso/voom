@@ -244,10 +244,9 @@ If the VM restarts or its configuration changes during the checks, verification
 fails with `runtime-consistency`; run it again against the current VM.
 
 JSON output includes each check's output and errors, the driver process
-fingerprint, and the storage generation when present. `guest verify-macos` is
-an older, MacOS-only name for the command. A successful check does not prove
-that restart, clone, reset, GUI, or forwarded traffic works; test those
-operations separately.
+fingerprint, and the storage generation when present. A successful check does
+not prove that restart, clone, reset, GUI, or forwarded traffic works; test
+those operations separately.
 
 ## MacOS Guests
 
@@ -341,17 +340,16 @@ for MacOS bundles.
 Create, clone, and reset copy the installed guest state and assign a fresh
 Apple machine identifier. Clone requires a stopped source VM. Restarts retain
 the identifier. Clones also receive their own Voom IDs, SSH ports, and NIC MAC
-addresses. Guest hostnames,
-SSH host keys, users, and credentials remain those in the copied disk.
+addresses. Guest hostnames, SSH host keys, users, and credentials remain those
+in the copied disk.
 When checking identity across boots, compare the Apple machine identifier,
 platform UUID, or serial number. `provisioning_UDID` can change between boots.
 
-CPU and memory default to the baked allocation. New bundles record Apple's
-`minimumCPUCount` and `minimumMemorySize` (bytes) together in `restore.json`,
-allowing smaller allocations when supported. Both minimums must be positive
-and no larger than the baked allocation. Legacy bundles without minimum
-metadata require at least the baked allocation. Memory minimums are rounded
-up to whole MiB; disk capacity comes from the image.
+CPU and memory default to the baked allocation. Each bundle must record Apple's
+`minimumCPUCount` and `minimumMemorySize` (bytes) in `restore.json`. Both must
+be positive and no larger than the baked allocation. Voom allows smaller
+allocations down to those minimums, rounding memory up to whole MiB. Disk
+capacity comes from the image.
 
 `info`, `image inspect`, and `doctor` report platform state and source MacOS
 version/build. Those version fields describe the image and do not track
@@ -385,9 +383,9 @@ and run `sudo /usr/bin/passwd "$(id -un)"` inside the guest to set one.
 Images built with nixos-config's Darwin VM configuration include a launchd
 service that mounts Voom's `voom-control` share at `/var/run/voom`, mounts user
 shares, and publishes TCP listeners every two seconds. The image must advertise
-`controlShare`, `guestShareMount`, and `guestPortReport`. Older bundles retain
-their original capabilities; installing a newer Voom does not add guest services.
-Re-bake and import a new image to use these features.
+`controlShare`, `guestShareMount`, and `guestPortReport` only when it provides
+those services. Installing Voom does not install guest services; build and
+import an image that includes them.
 
 ```sh
 voom stop mac-dev
@@ -451,9 +449,6 @@ image records remain schema 1.
 These versions describe Voom's stored records; the source bundle's `image.json`
 manifest still uses schema 1.
 
-Earlier experimental MacOS VM records without a storage generation are
-unsupported. Before upgrading, save any needed guest data and remove those VMs
-with the Voom version that created them. Recreate them from imported images.
 Older released binaries cannot read schema 2 records and may fail to list VMs
 or images when those records are present.
 

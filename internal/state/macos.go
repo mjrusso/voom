@@ -22,21 +22,17 @@ type MacOSPlatform struct {
 	MemoryMiB        int    `json:"memoryMiB"`
 	Version          string `json:"version"`
 	Build            string `json:"build"`
-	MinimumCPUs      int    `json:"minimumCPUs,omitempty"`
-	MinimumMemoryMiB int    `json:"minimumMemoryMiB,omitempty"`
+	MinimumCPUs      int    `json:"minimumCPUs"`
+	MinimumMemoryMiB int    `json:"minimumMemoryMiB"`
 }
 
-// ValidateResources enforces Apple's recorded minimums, or the baked allocation for legacy bundles.
+// ValidateResources enforces Apple's recorded minimums.
 func (p *MacOSPlatform) ValidateResources(cpus, memoryMiB int) error {
 	if err := p.validate(); err != nil {
 		return err
 	}
-	minimumCPUs, minimumMemory := p.CPUs, p.MemoryMiB
-	if p.MinimumCPUs != 0 {
-		minimumCPUs, minimumMemory = p.MinimumCPUs, p.MinimumMemoryMiB
-	}
-	if cpus < minimumCPUs || memoryMiB < minimumMemory {
-		return fmt.Errorf("MacOS guest requires at least %d CPUs and %dMiB", minimumCPUs, minimumMemory)
+	if cpus < p.MinimumCPUs || memoryMiB < p.MinimumMemoryMiB {
+		return fmt.Errorf("MacOS guest requires at least %d CPUs and %dMiB", p.MinimumCPUs, p.MinimumMemoryMiB)
 	}
 	return nil
 }
@@ -46,8 +42,7 @@ func (p *MacOSPlatform) validate() error {
 	if err != nil || len(identity) != sha256.Size || p.CPUs < 1 || p.MemoryMiB < 1 {
 		return errors.New("invalid MacOS platform metadata")
 	}
-	if p.MinimumCPUs < 0 || p.MinimumMemoryMiB < 0 ||
-		(p.MinimumCPUs == 0) != (p.MinimumMemoryMiB == 0) ||
+	if p.MinimumCPUs < 1 || p.MinimumMemoryMiB < 1 ||
 		p.MinimumCPUs > p.CPUs || p.MinimumMemoryMiB > p.MemoryMiB {
 		return errors.New("invalid MacOS resource minimums")
 	}
@@ -293,10 +288,10 @@ func readMacOSBundle(src string) (*macosBundleMetadata, error) {
 		return nil, errors.New("MacOS bundle must declare positive CPU, memory, and disk allocations")
 	}
 	var restore struct {
-		Version           string  `json:"version"`
-		Build             string  `json:"build"`
-		MinimumCPUCount   *int    `json:"minimumCPUCount"`
-		MinimumMemorySize *uint64 `json:"minimumMemorySize"`
+		Version           string `json:"version"`
+		Build             string `json:"build"`
+		MinimumCPUCount   int    `json:"minimumCPUCount"`
+		MinimumMemorySize uint64 `json:"minimumMemorySize"`
 	}
 	if err := ReadJSON(filepath.Join(src, "restore.json"), &restore); err != nil {
 		return nil, err
@@ -312,20 +307,15 @@ func readMacOSBundle(src string) (*macosBundleMetadata, error) {
 	hash := sha256.Sum256(identity)
 
 	platform := &MacOSPlatform{IdentitySHA256: hex.EncodeToString(hash[:]), CPUs: manifest.CPUCount, MemoryMiB: manifest.MemoryMiB, Version: restore.Version, Build: restore.Build}
-	if (restore.MinimumCPUCount == nil) != (restore.MinimumMemorySize == nil) {
-		return nil, errors.New("MacOS restore metadata must declare both resource minimums")
+	if restore.MinimumCPUCount < 1 || restore.MinimumMemorySize < 1 {
+		return nil, errors.New("MacOS restore metadata must declare positive minimumCPUCount and minimumMemorySize")
 	}
-	if restore.MinimumCPUCount != nil {
-		if *restore.MinimumCPUCount < 1 || *restore.MinimumMemorySize < 1 {
-			return nil, errors.New("MacOS resource minimums must be positive")
-		}
-		minimumMiB := (*restore.MinimumMemorySize-1)/(1024*1024) + 1
-		if minimumMiB > uint64(manifest.MemoryMiB) {
-			return nil, errors.New("MacOS memory minimum exceeds the baked allocation")
-		}
-		platform.MinimumCPUs = *restore.MinimumCPUCount
-		platform.MinimumMemoryMiB = int(minimumMiB)
+	minimumMiB := (restore.MinimumMemorySize-1)/(1024*1024) + 1
+	if minimumMiB > uint64(manifest.MemoryMiB) {
+		return nil, errors.New("MacOS memory minimum exceeds the baked allocation")
 	}
+	platform.MinimumCPUs = restore.MinimumCPUCount
+	platform.MinimumMemoryMiB = int(minimumMiB)
 	if err := platform.validate(); err != nil {
 		return nil, err
 	}

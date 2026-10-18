@@ -227,7 +227,7 @@ func TestMacOSStorageLocksBlockImportAndHonorCancellation(t *testing.T) {
 	}
 }
 
-func TestMacOSGenerationStateRejectsUnsafePathsAndOldSchemas(t *testing.T) {
+func TestMacOSGenerationStateRejectsUnsafePathsAndInvalidVersions(t *testing.T) {
 	st, _ := newTestStore(t)
 	im, err := st.ImportImage(context.Background(), ImportOptions{Name: "mac", Src: macosBundle(t)})
 	if err != nil {
@@ -259,12 +259,12 @@ func TestMacOSGenerationStateRejectsUnsafePathsAndOldSchemas(t *testing.T) {
 			t.Fatalf("unsafe generation accepted by ID: %q", generation)
 		}
 	}
-	vm.SchemaVersion = 3
+	vm.SchemaVersion = 99
 	if err := WriteJSONAtomic(filepath.Join(st.VMDir(vm.ID), "vm.json"), vm); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.LoadVM(vm.Name); err == nil {
-		t.Fatal("version-3 record accepted")
+		t.Fatal("version-99 record accepted")
 	}
 }
 
@@ -274,7 +274,7 @@ func TestMacOSBundleGuestServiceCapabilities(t *testing.T) {
 		caps  ImageCapabilities
 		valid bool
 	}{
-		{"legacy", ImageCapabilities{}, true},
+		{"no guest services", ImageCapabilities{}, true},
 		{"guest services", ImageCapabilities{ControlShare: true, GuestShareMount: true, GuestPortReport: true}, true},
 		{"report without control", ImageCapabilities{GuestPortReport: true}, false},
 		{"mount without control", ImageCapabilities{GuestShareMount: true}, false},
@@ -315,7 +315,7 @@ func TestMacOSRestoreResourceMinimums(t *testing.T) {
 		valid        bool
 		cpus, memory int
 	}{
-		{"legacy", `{"version":"27.0.1","build":"26A434"}`, true, 0, 0},
+		{"missing", `{"version":"27.0.1","build":"26A434"}`, false, 0, 0},
 		{"Apple minimums", `{"version":"27.0.1","build":"26A434","minimumCPUCount":2,"minimumMemorySize":4294967297}`, true, 2, 4097},
 		{"partial", `{"version":"27.0.1","build":"26A434","minimumCPUCount":2}`, false, 0, 0},
 		{"zero", `{"version":"27.0.1","build":"26A434","minimumCPUCount":0,"minimumMemorySize":1}`, false, 0, 0},
@@ -344,20 +344,14 @@ func TestMacOSRestoreResourceMinimums(t *testing.T) {
 			if p.MinimumCPUs != tc.cpus || p.MinimumMemoryMiB != tc.memory || p.CPUs != 4 || p.MemoryMiB != 8192 {
 				t.Fatalf("resource metadata: %+v", p)
 			}
-			if tc.cpus == 0 {
-				if err := p.ValidateResources(2, 4097); err == nil {
-					t.Fatal("legacy floor was lowered")
-				}
-			} else {
-				if err := p.ValidateResources(2, 4097); err != nil {
-					t.Fatal(err)
-				}
-				if err := p.ValidateResources(1, 4097); err == nil {
-					t.Fatal("CPU minimum ignored")
-				}
-				if err := p.ValidateResources(2, 4096); err == nil {
-					t.Fatal("memory was rounded down")
-				}
+			if err := p.ValidateResources(2, 4097); err != nil {
+				t.Fatal(err)
+			}
+			if err := p.ValidateResources(1, 4097); err == nil {
+				t.Fatal("CPU minimum ignored")
+			}
+			if err := p.ValidateResources(2, 4096); err == nil {
+				t.Fatal("memory was rounded down")
 			}
 		})
 	}
@@ -382,7 +376,7 @@ func TestMacOSImportDerivesMetadataFromStagedBundle(t *testing.T) {
 					if err := WriteJSONAtomic(from, manifest); err != nil {
 						return err
 					}
-					if err := WriteJSONAtomic(filepath.Join(src, "restore.json"), map[string]string{"version": version, "build": "updated-build"}); err != nil {
+					if err := WriteJSONAtomic(filepath.Join(src, "restore.json"), map[string]any{"version": version, "build": "updated-build", "minimumCPUCount": 4, "minimumMemorySize": 8589934592}); err != nil {
 						return err
 					}
 				}

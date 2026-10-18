@@ -120,7 +120,7 @@ func TestMacOSResetRejectsMissingGuestServicesBeforeStoppingRuntime(t *testing.T
 
 func TestMacOSAutoForwardReconcilesGuestListenerReports(t *testing.T) {
 	st, manager, vm, proxy := newAutoForwardFixture(t)
-	platform := &state.MacOSPlatform{IdentitySHA256: strings.Repeat("a", 64), CPUs: 4, MemoryMiB: 8192, Version: "27.0.1", Build: "26A434"}
+	platform := &state.MacOSPlatform{IdentitySHA256: strings.Repeat("a", 64), CPUs: 4, MemoryMiB: 8192, MinimumCPUs: 4, MinimumMemoryMiB: 8192, Version: "27.0.1", Build: "26A434"}
 	image, err := st.LoadImageByID(vm.Image.ID)
 	if err != nil {
 		t.Fatal(err)

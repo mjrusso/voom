@@ -1,4 +1,6 @@
 {
-  "build" : "26A434",
-  "version" : "27.0.1"
+  "build": "26A434",
+  "version": "27.0.1",
+  "minimumCPUCount": 4,
+  "minimumMemorySize": 8589934592
 }

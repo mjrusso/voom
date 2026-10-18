@@ -11,7 +11,7 @@ import (
 	"github.com/mjrusso/voom/internal/vm"
 )
 
-func TestGuestVerifyLinuxAndMacOSCompatibilityRestriction(t *testing.T) {
+func TestGuestVerifyReportsStoppedLinuxAndRejectsInvalidTimeout(t *testing.T) {
 	dir := t.TempDir()
 	for env, child := range map[string]string{"VOOM_STATE_DIR": "state", "VOOM_RUNTIME_DIR": "run", "VOOM_CACHE_DIR": "cache", "VOOM_CONFIG_DIR": "config"} {
 		t.Setenv(env, filepath.Join(dir, child))
@@ -42,9 +42,7 @@ func TestGuestVerifyLinuxAndMacOSCompatibilityRestriction(t *testing.T) {
 	if report.System != record.Arch || len(report.Checks) != 1 || report.Checks[0].OK || report.Checks[0].Name != "driver-running" {
 		t.Fatalf("stopped evidence: %+v", report)
 	}
-	if err := runCmdErr("guest", "verify-macos", "linux"); err == nil || !strings.Contains(err.Error(), "use guest verify for Linux") {
-		t.Fatalf("MacOS compatibility command: %v", err)
-	}
+
 	if err := runCmdErr("guest", "verify", "linux", "--timeout", "0s"); err == nil || !strings.Contains(err.Error(), "positive") {
 		t.Fatalf("invalid timeout: %v", err)
 	}

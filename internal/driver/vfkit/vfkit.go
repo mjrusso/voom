@@ -196,9 +196,7 @@ func post(ctx context.Context, sock, path string, body map[string]string) error 
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode == http.StatusNotFound && path == "/vm/display" {
-		return fmt.Errorf("running vfkit lacks display control; restart the VM with Voom's bundled vfkit")
-	}
+
 	if resp.StatusCode >= 300 {
 		rb, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("vfkit %s failed: %s", path, strings.TrimSpace(string(rb)))

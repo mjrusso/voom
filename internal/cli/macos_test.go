@@ -89,9 +89,7 @@ func TestMacOSImportInspectionDiagnosticsAndAccess(t *testing.T) {
 	if report.VMID != record.ID || report.MachineIdentifierSHA256 != im.MacOS.IdentitySHA256 || len(report.Checks) != 2 || !report.Checks[0].OK || report.Checks[1].OK {
 		t.Fatalf("missing stopped-VM evidence: %+v", report)
 	}
-	if err := runCmdErr("guest", "verify-macos", "mac"); err == nil || !strings.Contains(err.Error(), "guest verification failed") {
-		t.Fatalf("compatibility command: %v", err)
-	}
+
 	helper := filepath.Join(t.TempDir(), "identity-helper")
 	if err := os.WriteFile(helper, []byte("#!/bin/sh\nprintf fresh > \"$1\"\n"), 0o700); err != nil {
 		t.Fatal(err)

@@ -85,9 +85,7 @@ func imageInspectCommand() *cobra.Command {
 				im.Capabilities.ControlShare, im.Capabilities.GuestPortReport, im.Capabilities.GuestShareMount, im.Capabilities.NixosSwitch, strings.Join(refs, ","))
 			if im.MacOS != nil {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "system: %s\nboot: macos\nimage-macos: %s (%s)\nbaked-resources: %d CPUs, %dMiB\napple-identity: %s\nplatform-state: %s\n", im.Arch, im.MacOS.Version, im.MacOS.Build, im.MacOS.CPUs, im.MacOS.MemoryMiB, im.MacOS.IdentitySHA256, deps.store.ImageDir(im.ID))
-				if im.MacOS.MinimumCPUs != 0 {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "apple-minimum-resources: %d CPUs, %dMiB\n", im.MacOS.MinimumCPUs, im.MacOS.MinimumMemoryMiB)
-				}
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "apple-minimum-resources: %d CPUs, %dMiB\n", im.MacOS.MinimumCPUs, im.MacOS.MinimumMemoryMiB)
 			}
 			return nil
 		},

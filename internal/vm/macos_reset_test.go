@@ -170,6 +170,7 @@ func TestMacOSResetFailuresPreserveActiveState(t *testing.T) {
 				cancel()
 			case "resources":
 				im.MacOS.MemoryMiB *= 2
+				im.MacOS.MinimumMemoryMiB = im.MacOS.MemoryMiB
 				if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(im.ID), "image.json"), im); err != nil {
 					t.Fatal(err)
 				}

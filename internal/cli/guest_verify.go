@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func guestVerifyCommand(macosOnly bool) *cobra.Command {
+func guestVerifyCommand() *cobra.Command {
 	var timeout time.Duration
 	cmd := &cobra.Command{
 		Use: "verify <name>", ValidArgsFunction: completeVMNames,
@@ -24,15 +24,7 @@ func guestVerifyCommand(macosOnly bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if macosOnly {
-				record, err := deps.store.LoadVM(args[0])
-				if err != nil {
-					return err
-				}
-				if record.MacOS == nil {
-					return fmt.Errorf("verify-macos requires a MacOS VM; use guest verify for Linux")
-				}
-			}
+
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
 			report, checkErr := deps.vm.VerifyGuest(ctx, args[0])
@@ -66,11 +58,7 @@ func guestVerifyCommand(macosOnly bool) *cobra.Command {
 			return checkErr
 		},
 	}
-	if macosOnly {
-		cmd.Use = "verify-macos <name>"
-		cmd.Short = "Verify a MacOS guest (compatibility command)"
-		cmd.Hidden = true
-	}
+
 	cmd.Flags().DurationVar(&timeout, "timeout", 2*time.Minute, "total diagnostic timeout (no boot retries)")
 	return cmd
 }
