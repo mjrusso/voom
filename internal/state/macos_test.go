@@ -91,7 +91,7 @@ func TestMacOSBundleRejectsInvalidInputsWithoutRegistration(t *testing.T) {
 		}},
 		{name: "helpers", opts: ImportOptions{InstallGuestHelpers: true}},
 		{name: "conflicting arch", opts: ImportOptions{Arch: "aarch64-linux"}},
-		{name: "old guest", change: func(t *testing.T, dir string) {
+		{name: "unsupported OS version", change: func(t *testing.T, dir string) {
 			if err := os.WriteFile(filepath.Join(dir, "restore.json"), []byte(`{"version":"26.0","build":"old"}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -259,12 +259,21 @@ func TestMacOSGenerationStateRejectsUnsafePathsAndInvalidVersions(t *testing.T) 
 			t.Fatalf("unsafe generation accepted by ID: %q", generation)
 		}
 	}
-	vm.SchemaVersion = 99
-	if err := WriteJSONAtomic(filepath.Join(st.VMDir(vm.ID), "vm.json"), vm); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.LoadVM(vm.Name); err == nil {
-		t.Fatal("version-99 record accepted")
+	for _, version := range []int{1, 99} {
+		vm.SchemaVersion = version
+		if err := WriteJSONAtomic(filepath.Join(st.VMDir(vm.ID), "vm.json"), vm); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.LoadVM(vm.Name); err == nil || !strings.Contains(err.Error(), "unsupported record schema version") {
+			t.Fatalf("MacOS VM schema %d: %v", version, err)
+		}
+		im.SchemaVersion = version
+		if err := WriteJSONAtomic(filepath.Join(st.ImageDir(im.ID), "image.json"), im); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.LoadImage(im.Name); err == nil || !strings.Contains(err.Error(), "unsupported record schema version") {
+			t.Fatalf("MacOS image schema %d: %v", version, err)
+		}
 	}
 }
 
@@ -275,11 +284,11 @@ func TestMacOSBundleGuestServiceCapabilities(t *testing.T) {
 		valid bool
 	}{
 		{"no guest services", ImageCapabilities{}, true},
-		{"guest services", ImageCapabilities{ControlShare: true, GuestShareMount: true, GuestPortReport: true}, true},
-		{"report without control", ImageCapabilities{GuestPortReport: true}, false},
-		{"mount without control", ImageCapabilities{GuestShareMount: true}, false},
-		{"Linux seed", ImageCapabilities{MetadataDisk: true}, false},
-		{"Linux switch", ImageCapabilities{NixosSwitch: true}, false},
+		{"control share", ImageCapabilities{ControlShare: true}, false},
+		{"listener reports", ImageCapabilities{GuestPortReport: true}, false},
+		{"share mounts", ImageCapabilities{GuestShareMount: true}, false},
+		{"metadata disk", ImageCapabilities{MetadataDisk: true}, false},
+		{"NixOS switching", ImageCapabilities{NixosSwitch: true}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st, _ := newTestStore(t)
@@ -298,6 +307,12 @@ func TestMacOSBundleGuestServiceCapabilities(t *testing.T) {
 				t.Fatalf("valid=%v import error=%v", tc.valid, err)
 			}
 			if !tc.valid {
+				if !strings.Contains(err.Error(), "re-bake") {
+					t.Fatalf("missing re-bake instruction: %v", err)
+				}
+				if len(st.IndexSnapshot().Images) != 0 {
+					t.Fatal("unsupported bundle was registered")
+				}
 				return
 			}
 			loaded, err := st.LoadImageByID(im.ID)
@@ -372,7 +387,6 @@ func TestMacOSImportDerivesMetadataFromStagedBundle(t *testing.T) {
 					}
 					manifest["user"] = "updated-user"
 					manifest["cpuCount"] = 6
-					manifest["capabilities"] = ImageCapabilities{ControlShare: true, GuestPortReport: true}
 					if err := WriteJSONAtomic(from, manifest); err != nil {
 						return err
 					}
@@ -396,7 +410,7 @@ func TestMacOSImportDerivesMetadataFromStagedBundle(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if im.MacOS.Version != version || im.MacOS.Build != "updated-build" || im.MacOS.CPUs != 6 || im.Metadata.SSHUser != "updated-user" || !im.Capabilities.GuestPortReport {
+			if im.MacOS.Version != version || im.MacOS.Build != "updated-build" || im.MacOS.CPUs != 6 || im.Metadata.SSHUser != "updated-user" {
 				t.Fatalf("registered metadata does not describe staged bundle: %+v %+v", im, im.MacOS)
 			}
 			var restore struct{ Version string }

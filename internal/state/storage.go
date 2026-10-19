@@ -133,7 +133,7 @@ func (s *Store) CleanupStorage(vm *VMRecord) error {
 			}
 		}
 	}
-	if vm.StorageGeneration != "" {
+	if vm.MacOS == nil && vm.StorageGeneration != "" {
 		for _, name := range []string{"disk.raw", "disk.img", "disk.qcow2"} {
 			if err := os.Remove(filepath.Join(s.VMDir(vm.ID), name)); err != nil && !os.IsNotExist(err) {
 				return err

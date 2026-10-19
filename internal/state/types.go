@@ -99,8 +99,8 @@ func (vm *VMRecord) validate() error {
 		if err := vm.MacOS.ValidateResources(vm.Resources.CPUs, vm.Resources.MemoryMiB); err != nil {
 			return err
 		}
-		if len(vm.USBDevices) > 0 || len(vm.PCIDevices) > 0 || vm.Network.Egress != nil || vm.Nixos != nil {
-			return fmt.Errorf("MacOS guests do not support USB, PCI, egress, or NixOS switching")
+		if len(vm.USBDevices) > 0 || len(vm.PCIDevices) > 0 || vm.Nixos != nil {
+			return fmt.Errorf("MacOS guests do not support USB, PCI, or NixOS switching")
 		}
 	} else if vm.MacOS != nil {
 		return fmt.Errorf("MacOS platform metadata requires an aarch64-darwin guest")

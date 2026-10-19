@@ -60,6 +60,20 @@ echo evidence
 				t.Fatal("unadvertised control share was required")
 			}
 
+			t.Setenv("VERIFY_FAIL", "uname -sm")
+			report, err = manager.VerifyGuest(context.Background(), record.Name)
+			if err == nil || verificationCheck(t, report, "ssh-and-architecture").OK {
+				t.Fatal("SSH failure passed")
+			}
+			if report.Checks[len(report.Checks)-1].Name != "ssh-and-architecture" {
+				t.Fatal("ran further SSH commands after connection failure")
+			}
+			t.Setenv("VERIFY_FAIL", "")
+
+			if record.MacOS != nil {
+				return
+			}
+
 			image.Capabilities = state.ImageCapabilities{ControlShare: true, GuestShareMount: true, GuestPortReport: true}
 			if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(image.ID), "image.json"), image); err != nil {
 				t.Fatal(err)
@@ -107,31 +121,14 @@ echo evidence
 				t.Fatalf("lost mount failure: %+v, %v", failed, err)
 			}
 
-			t.Setenv("VERIFY_FAIL", "uname -sm")
+			image.Capabilities.NixosSwitch = true
+			if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(image.ID), "image.json"), image); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("VERIFY_FAIL", "nix --version")
 			report, err = manager.VerifyGuest(context.Background(), record.Name)
-			if err == nil || verificationCheck(t, report, "ssh-and-architecture").OK {
-				t.Fatal("SSH failure passed")
-			}
-			if report.Checks[len(report.Checks)-1].Name != "ssh-and-architecture" {
-				t.Fatal("ran further SSH commands after connection failure")
-			}
-			t.Setenv("VERIFY_FAIL", "")
-
-			if system == "x86_64-linux" {
-				image.Capabilities.NixosSwitch = true
-				if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(image.ID), "image.json"), image); err != nil {
-					t.Fatal(err)
-				}
-				t.Setenv("VERIFY_FAIL", "nix --version")
-				report, err = manager.VerifyGuest(context.Background(), record.Name)
-				if err == nil || verificationCheck(t, report, "nix").Skipped {
-					t.Fatal("required Nix check was skipped")
-				}
-			}
-			if record.MacOS != nil {
-				if err := record.MacOS.ValidateStorage(st.VMStorageDir(record)); err != nil {
-					t.Fatal(err)
-				}
+			if err == nil || verificationCheck(t, report, "nix").Skipped {
+				t.Fatal("required Nix check was skipped")
 			}
 		})
 	}
@@ -244,7 +241,7 @@ func TestVerifyGuestRejectsChangedRuntime(t *testing.T) {
 			for _, trigger := range []string{"uname -sm", "ssh_host_"} {
 				t.Run(system+"/"+change+"/"+trigger, func(t *testing.T) {
 					st, record, image := guestVerificationFixture(t, system)
-					if change == "auto-forward" || change == "shares" {
+					if system != "aarch64-darwin" && (change == "auto-forward" || change == "shares") {
 						image.Capabilities = state.ImageCapabilities{ControlShare: true, GuestPortReport: true, GuestShareMount: true}
 						if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(image.ID), "image.json"), image); err != nil {
 							t.Fatal(err)

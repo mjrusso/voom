@@ -80,8 +80,11 @@ func (m *Manager) VerifyGuest(ctx context.Context, name string) (*GuestReport, e
 	report.RuntimeFingerprint = snapshot.RuntimeFingerprint
 	report.StorageGeneration = snapshot.VM.StorageGeneration
 	unlock()
-	if err := validateImageFeatures(record, image); err != nil {
+	if err := errors.Join(ValidateGuestDeclarations(record), validateImageFeatures(record, image)); err != nil {
 		report.Checks = append(report.Checks, GuestCheck{Name: "image-capabilities", Error: err.Error()})
+		if record.MacOS != nil {
+			return report, report.failure()
+		}
 	}
 	if image.Capabilities.GuestPortReport {
 		ports, err := m.ReadGuestPorts(record)
@@ -230,11 +233,10 @@ for key in /etc/ssh/ssh_host_*_key.pub; do
 done
 test "$found" -eq 1`})
 	if image.Capabilities.ControlShare {
-		target := state.ControlShareGuestPath(record.Arch)
-		probes = append(probes, guestProbe{name: "control-share", script: share.GuestMountVerifyScript(record.MacOS != nil, state.ControlShareTag, target, false)})
+		probes = append(probes, guestProbe{name: "control-share", script: share.GuestMountVerifyScript(state.ControlShareTag, state.ControlShareGuestPath, false)})
 	}
 	for _, sh := range record.Shares {
-		probes = append(probes, guestProbe{name: "share-" + sh.Tag, script: share.GuestMountVerifyScript(record.MacOS != nil, sh.Tag, sh.GuestPath, sh.Readonly)})
+		probes = append(probes, guestProbe{name: "share-" + sh.Tag, script: share.GuestMountVerifyScript(sh.Tag, sh.GuestPath, sh.Readonly)})
 	}
 	return probes
 }

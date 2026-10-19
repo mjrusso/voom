@@ -149,3 +149,51 @@ func TestRemoveRetainsVMWhenRuntimeStateIsMalformed(t *testing.T) {
 		t.Fatalf("VM was removed after cleanup failed: %v", err)
 	}
 }
+
+func TestStartValidatesImageBeforeRuntimeCleanup(t *testing.T) {
+	st, manager, record := newForwardLifecycleVM(t)
+	record.Network.AutoForward = true
+	if err := st.SaveVM(record); err != nil {
+		t.Fatal(err)
+	}
+	path := st.Runtime(record).ForwardMutation()
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("pending mutation"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Start(context.Background(), io.Discard, record.Name); err == nil || !strings.Contains(err.Error(), "capabilit") {
+		t.Fatalf("invalid image features accepted: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "pending mutation" {
+		t.Fatalf("preflight changed runtime state: %q %v", data, err)
+	}
+}
+
+func TestStartRunningVMDoesNotRequireImage(t *testing.T) {
+	for _, guest := range []string{"Linux", "MacOS"} {
+		t.Run(guest, func(t *testing.T) {
+			var st *state.Store
+			var manager *Manager
+			var record *state.VMRecord
+			if guest == "MacOS" {
+				st, record, _ = macosResetFixture(t)
+				manager = New(st)
+				writeProcessRecord(t, st.Runtime(record).VMProcessRecord(), fakeNamedVMProcess(t, "vfkit"))
+			} else {
+				st, manager, record, _ = newAutoForwardFixture(t)
+			}
+			if _, err := st.RemoveImage(record.Image.Name, true); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := manager.Start(context.Background(), io.Discard, record.Name); err != nil {
+				t.Fatalf("running VM required its removed image: %v", err)
+			}
+			if !manager.IsRunning(record) {
+				t.Fatal("start stopped the running VM")
+			}
+		})
+	}
+}

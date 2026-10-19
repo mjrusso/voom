@@ -46,6 +46,11 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 	if err != nil {
 		return nil, err
 	}
+	if im.MacOS != nil {
+		if err := state.ValidateMacOSCapabilities(im.Capabilities); err != nil {
+			return nil, err
+		}
+	}
 	if driver == "auto" || driver == "" {
 		driver = state.DefaultDriver()
 	}
@@ -148,6 +153,9 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.
 	defer unlock()
 	if m.IsRunning(src) {
 		return nil, fmt.Errorf("VM %q is running; stop it before cloning", srcName)
+	}
+	if err := ValidateGuestDeclarations(src); err != nil {
+		return nil, err
 	}
 	id, err := state.NewID()
 	if err != nil {
@@ -275,6 +283,9 @@ func (m *Manager) ResetDisk(ctx context.Context, name, imageName string) error {
 		return err
 	}
 	defer unlock()
+	if err := ValidateGuestDeclarations(vm); err != nil {
+		return err
+	}
 	im, err := m.store.LoadImage(imageName)
 	if err != nil {
 		return err
@@ -311,6 +322,9 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		return nil, err
 	}
 	defer unlock()
+	if err := ValidateGuestDeclarations(vm); err != nil {
+		return nil, err
+	}
 	if vm.MacOS != nil {
 		if err := vm.MacOS.ValidateStorage(m.store.VMStorageDir(vm)); err != nil {
 			return nil, err
@@ -323,6 +337,13 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		if err := ValidateAutoForwardConfig(vm); err != nil {
 			return nil, err
 		}
+	}
+	im, err := m.store.LoadImageByID(vm.Image.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateImageFeatures(vm, im); err != nil {
+		return nil, err
 	}
 	if d := vm.Network.Egress; d != nil {
 		if err := m.store.WithGlobalVM(name, vm.ID, func() error {
@@ -364,11 +385,7 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	if err != nil {
 		return nil, err
 	}
-	im, err := m.store.LoadImageByID(vm.Image.ID)
-	if err != nil {
-		return nil, err
-	}
-	if err := m.validateGuestImage(vm, im); err != nil {
+	if err := m.validateGuestDriver(vm, im); err != nil {
 		return nil, err
 	}
 	usbBindings, err := m.prepareUSBDevices(vm)

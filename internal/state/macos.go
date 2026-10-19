@@ -281,8 +281,8 @@ func readMacOSBundle(src string) (*macosBundleMetadata, error) {
 	if manifest.SchemaVersion != 1 || manifest.System != "aarch64-darwin" || manifest.Format != "macos-bundle" {
 		return nil, errors.New("unsupported MacOS bundle schema, system, or format")
 	}
-	if !validMacOSCapabilities(manifest.Capabilities) {
-		return nil, errors.New("MacOS bundles require controlShare for guest services and cannot enable metadataDisk or nixosSwitch")
+	if err := ValidateMacOSCapabilities(manifest.Capabilities); err != nil {
+		return nil, err
 	}
 	if manifest.CPUCount < 1 || manifest.MemoryMiB < 1 || manifest.DiskGiB < 1 {
 		return nil, errors.New("MacOS bundle must declare positive CPU, memory, and disk allocations")
@@ -322,6 +322,10 @@ func readMacOSBundle(src string) (*macosBundleMetadata, error) {
 	return &macosBundleMetadata{platform: platform, user: manifest.User, capabilities: manifest.Capabilities}, nil
 }
 
-func validMacOSCapabilities(c ImageCapabilities) bool {
-	return !c.MetadataDisk && !c.NixosSwitch && (c.ControlShare || (!c.GuestPortReport && !c.GuestShareMount))
+// ValidateMacOSCapabilities rejects images that require unsupported guest services.
+func ValidateMacOSCapabilities(c ImageCapabilities) error {
+	if c.MetadataDisk || c.ControlShare || c.GuestPortReport || c.GuestShareMount || c.NixosSwitch {
+		return errors.New("MacOS images require metadataDisk, controlShare, guestPortReport, guestShareMount, and nixosSwitch to be false; re-bake the image with guest services disabled")
+	}
+	return nil
 }

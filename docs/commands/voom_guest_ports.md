@@ -2,6 +2,10 @@
 
 Show guest listeners
 
+### Synopsis
+
+Show listeners reported by a Linux guest. Guest listener reporting is not supported for MacOS guests.
+
 ```
 voom guest ports <name> [flags]
 ```

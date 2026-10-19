@@ -37,6 +37,9 @@ func (m *Manager) WriteSeedImage(vm *state.VMRecord) error {
 // ReadGuestPorts loads and validates the guest-published listener report from
 // the control share.
 func (m *Manager) ReadGuestPorts(vm *state.VMRecord) (*GuestPortsReport, error) {
+	if vm.MacOS != nil {
+		return nil, fmt.Errorf("guest listener reporting is not supported for MacOS guests")
+	}
 	path := m.store.ControlSharePortsPath(vm)
 	var r GuestPortsReport
 	b, err := os.ReadFile(path)
@@ -50,22 +53,6 @@ func (m *Manager) ReadGuestPorts(vm *state.VMRecord) (*GuestPortsReport, error) 
 		return nil, err
 	}
 	return &r, nil
-}
-
-// RequireGuestPortReport returns an error if the image lacks the capabilities
-// needed for the named guest-reporting feature.
-func RequireGuestPortReport(im *state.ImageRecord, feature string) error {
-	missing := []string{}
-	if !im.Capabilities.ControlShare {
-		missing = append(missing, "controlShare capability is false")
-	}
-	if !im.Capabilities.GuestPortReport {
-		missing = append(missing, "guestPortReport capability is false")
-	}
-	if len(missing) == 0 {
-		return nil
-	}
-	return fmt.Errorf("%s unavailable for image %q: %s; import an image with the reserved voom-control share and voom-portfwd support", feature, im.Name, strings.Join(missing, "; "))
 }
 
 // SSHBaseArgs returns the common ssh CLI flags (port, host key options, and

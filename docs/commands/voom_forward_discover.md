@@ -2,6 +2,10 @@
 
 Preview forwarding state
 
+### Synopsis
+
+Preview application forwarding from a Linux guest listener report. Guest listener reporting is not supported for MacOS guests.
+
 ```
 voom forward discover <name> [flags]
 ```

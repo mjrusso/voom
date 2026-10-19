@@ -17,16 +17,10 @@ func (m *Manager) forwardMutationPending(vm *state.VMRecord) bool {
 	return !errors.Is(err, os.ErrNotExist)
 }
 
-func (m *Manager) lockForwardVM(ctx context.Context, name string) (*state.VMRecord, func(), error) {
-	vm, unlock, err := m.store.LockVMRecord(ctx, name)
-	if err != nil {
-		return nil, nil, err
-	}
-	if _, err := m.recoverLiveForwardMutation(vm, m.pendingForwardMutationError(vm)); err != nil {
-		unlock()
-		return nil, nil, err
-	}
-	return vm, unlock, nil
+// The caller must hold the VM lock.
+func (m *Manager) recoverPendingForwardMutation(vm *state.VMRecord) error {
+	_, err := m.recoverLiveForwardMutation(vm, m.pendingForwardMutationError(vm))
+	return err
 }
 
 type forwardAction uint8

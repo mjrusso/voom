@@ -73,76 +73,59 @@ func hasArg(args []string, want string) bool {
 }
 
 func TestGuestMountChecksValidateTagFilesystemAndMode(t *testing.T) {
-	for _, macos := range []bool{false, true} {
-		for _, readonly := range []bool{false, true} {
-			for _, failure := range []string{"", "tag", "type", "mode", "missing"} {
-				name := "linux"
-				if macos {
-					name = "macos"
+	for _, readonly := range []bool{false, true} {
+		for _, failure := range []string{"", "tag", "type", "mode", "missing"} {
+			t.Run(map[bool]string{true: "ro", false: "rw"}[readonly]+"/"+failure, func(t *testing.T) {
+				target := filepath.Join(t.TempDir(), "project's files $(touch injected)")
+				if err := os.Mkdir(target, 0700); err != nil {
+					t.Fatal(err)
 				}
-				t.Run(name+"/"+map[bool]string{true: "ro", false: "rw"}[readonly]+"/"+failure, func(t *testing.T) {
-					target := filepath.Join(t.TempDir(), "project's files $(touch injected)")
-					if err := os.Mkdir(target, 0700); err != nil {
-						t.Fatal(err)
-					}
-					target, err := filepath.EvalSymlinks(target)
-					if err != nil {
-						t.Fatal(err)
-					}
-					tag, fstype, mode := "project", "virtiofs", "rw"
+				target, err := filepath.EvalSymlinks(target)
+				if err != nil {
+					t.Fatal(err)
+				}
+				tag, fstype, mode := "project", "virtiofs", "rw"
+				if readonly {
+					mode = "ro"
+				}
+				switch failure {
+				case "tag":
+					tag = "other"
+				case "type":
+					fstype = "apfs"
+				case "mode":
 					if readonly {
+						mode = "rw"
+					} else {
 						mode = "ro"
 					}
-					switch failure {
-					case "tag":
-						tag = "other"
-					case "type":
-						fstype = "apfs"
-					case "mode":
-						if readonly {
-							mode = "rw"
-						} else {
-							mode = "ro"
-						}
-					}
-					dir := t.TempDir()
-					command := "findmnt"
-					data := `case "$*" in
+				}
+				dir := t.TempDir()
+				data := `case "$*" in
  *SOURCE,TARGET,FSTYPE,OPTIONS) echo details ;;
  *SOURCE) echo "$MOUNT_TAG" ;;
  *FSTYPE) echo "$MOUNT_TYPE" ;;
  *OPTIONS) echo "$MOUNT_MODE,nosuid" ;;
 esac
 `
-					if macos {
-						command = "mount"
-						options := fstype + ", nodev"
-						if mode == "ro" {
-							options += ", read-only"
-						}
-						t.Setenv("MOUNT_LINE", tag+" on "+target+" ("+options+")")
-						data = `printf '%s\n' "$MOUNT_LINE"`
-					}
-					if failure == "missing" {
-						data = "exit 1"
-					}
-					if err := os.WriteFile(filepath.Join(dir, command), []byte("#!/bin/sh\n"+data+"\n"), 0700); err != nil {
-						t.Fatal(err)
-					}
-					t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
-					t.Setenv("MOUNT_TAG", tag)
-					t.Setenv("MOUNT_TYPE", fstype)
-					t.Setenv("MOUNT_MODE", mode)
-					script := GuestMountVerifyScript(macos, "project", target, readonly)
-					script = strings.ReplaceAll(script, "/sbin/mount", "mount")
-					cmd := exec.Command("sh", "-s")
-					cmd.Stdin = strings.NewReader(script)
-					out, err := cmd.CombinedOutput()
-					if (err == nil) != (failure == "") {
-						t.Fatalf("mount check: %v, %s", err, out)
-					}
-				})
-			}
+				if failure == "missing" {
+					data = "exit 1"
+				}
+				if err := os.WriteFile(filepath.Join(dir, "findmnt"), []byte("#!/bin/sh\n"+data+"\n"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+				t.Setenv("MOUNT_TAG", tag)
+				t.Setenv("MOUNT_TYPE", fstype)
+				t.Setenv("MOUNT_MODE", mode)
+				script := GuestMountVerifyScript("project", target, readonly)
+				cmd := exec.Command("sh", "-s")
+				cmd.Stdin = strings.NewReader(script)
+				out, err := cmd.CombinedOutput()
+				if (err == nil) != (failure == "") {
+					t.Fatalf("mount check: %v, %s", err, out)
+				}
+			})
 		}
 	}
 }

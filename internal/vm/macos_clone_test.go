@@ -17,6 +17,7 @@ func TestMacOSCloneIdentityAndRollback(t *testing.T) {
 			st, _ := newTestStore(t)
 			hash := sha256.Sum256([]byte("source-identity"))
 			src := &state.VMRecord{SchemaVersion: 2, ID: "source", Name: "source", Driver: "vfkit", Arch: "aarch64-darwin", MacOS: &state.MacOSPlatform{IdentitySHA256: hex.EncodeToString(hash[:]), CPUs: 4, MemoryMiB: 8192, MinimumCPUs: 4, MinimumMemoryMiB: 8192, Version: "27.0.1", Build: "26A434"}, Resources: state.VMResources{CPUs: 4, MemoryMiB: 8192}, Network: state.VMNetwork{SSHPort: 2222, SSHBind: "127.0.0.1"}}
+			src.Image = state.VMImageRef{ID: "golden", Name: "golden"}
 			src.StorageGeneration = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 			if err := os.MkdirAll(st.VMStorageDir(src), 0o755); err != nil {
 				t.Fatal(err)
@@ -121,5 +122,19 @@ func TestMacOSCloneIdentityAndRollback(t *testing.T) {
 				t.Fatalf("source metadata changed: %+v %v", saved, err)
 			}
 		})
+	}
+}
+
+func TestMacOSCloneAfterImageRemoval(t *testing.T) {
+	st, source, _ := macosResetFixture(t)
+	if _, err := st.RemoveImage(source.Image.Name, true); err != nil {
+		t.Fatal(err)
+	}
+	clone, err := New(st).Clone(context.Background(), source.Name, "copy")
+	if err != nil {
+		t.Fatalf("clone requires removed image: %v", err)
+	}
+	if err := clone.MacOS.ValidateStorage(st.VMStorageDir(clone)); err != nil {
+		t.Fatal(err)
 	}
 }

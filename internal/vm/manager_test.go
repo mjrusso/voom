@@ -328,7 +328,7 @@ func TestWriteControlFilesIncludesMountsAndControlPaths(t *testing.T) {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.ControlShare.Tag != state.ControlShareTag || payload.ControlShare.GuestPath != state.ControlShareGuestPath(vmRec.Arch) || payload.ControlShare.MountsPath != filepath.Join(state.ControlShareGuestPath(vmRec.Arch), "mounts.json") {
+	if payload.ControlShare.Tag != state.ControlShareTag || payload.ControlShare.GuestPath != state.ControlShareGuestPath || payload.ControlShare.MountsPath != filepath.Join(state.ControlShareGuestPath, "mounts.json") {
 		t.Fatalf("unexpected metadata payload: %#v", payload)
 	}
 	mountsRaw, err := os.ReadFile(st.ControlShareMountsPath(vmRec))

@@ -59,11 +59,17 @@ func (m *Manager) SetMemory(ctx context.Context, name string, memoryMiB int) (*s
 // SetSSHPort updates the host SSH port for a stopped VM. A port of zero
 // allocates a fresh port from the automatic SSH port range.
 func (m *Manager) SetSSHPort(ctx context.Context, name string, port int) (*state.VMRecord, bool, error) {
-	vm, unlock, err := m.lockForwardVM(ctx, name)
+	if port < 0 || port > 65535 {
+		return nil, false, fmt.Errorf("invalid SSH port %d", port)
+	}
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return nil, false, err
 	}
 	defer unlock()
+	if err := m.recoverPendingForwardMutation(vm); err != nil {
+		return nil, false, err
+	}
 	if m.IsRunning(vm) {
 		return nil, false, fmt.Errorf("VM %q is running; stop it before changing the SSH port", name)
 	}

@@ -42,11 +42,17 @@ func (m *Manager) AddForward(ctx context.Context, name string, guestPort, hostPo
 			return forward.Decl{}, err
 		}
 	}
-	vm, unlock, err := m.lockForwardVM(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return forward.Decl{}, err
 	}
 	defer unlock()
+	if vm.MacOS != nil {
+		return forward.Decl{}, errors.New("application port forwarding is not supported for MacOS guests; SSH remains available")
+	}
+	if err := m.recoverPendingForwardMutation(vm); err != nil {
+		return forward.Decl{}, err
+	}
 	var f forward.Decl
 	err = m.store.WithGlobalVM(name, vm.ID, func() error {
 		reserved, err := m.store.PortReservations("")
@@ -104,7 +110,7 @@ func (m *Manager) RemoveForward(ctx context.Context, name string, port int, bind
 	if err != nil {
 		return err
 	}
-	vm, unlock, err := m.lockForwardVM(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -122,6 +128,9 @@ func (m *Manager) RemoveForward(ctx context.Context, name string, port int, bind
 	}
 	if !found {
 		return fmt.Errorf("no %s forward %s for VM %q", protocol, forward.Address(bind, port), name)
+	}
+	if err := m.recoverPendingForwardMutation(vm); err != nil {
+		return err
 	}
 	previous := vm.Network.Forwards
 	commit := func() error {

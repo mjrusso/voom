@@ -2,8 +2,6 @@ package vm
 
 import (
 	"context"
-	"errors"
-	"os"
 
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/image"
@@ -23,7 +21,7 @@ func (m *Manager) prepareGuestStorage(ctx context.Context, vm *state.VMRecord) e
 	return m.store.CleanupStorage(vm)
 }
 
-func (m *Manager) validateGuestImage(vm *state.VMRecord, im *state.ImageRecord) error {
+func (m *Manager) validateGuestDriver(vm *state.VMRecord, im *state.ImageRecord) error {
 	if vm.MacOS == nil && vm.Driver == "vfkit" && im.Metadata.KernelPath == "" {
 		if err := image.ValidateVFKitBootDisk(m.store.VMDiskPath(vm)); err != nil {
 			return err
@@ -34,23 +32,19 @@ func (m *Manager) validateGuestImage(vm *state.VMRecord, im *state.ImageRecord) 
 			return err
 		}
 	}
-	return validateImageFeatures(vm, im)
+	return nil
 }
 
 func (m *Manager) prepareGuestFiles(vm *state.VMRecord, im *state.ImageRecord) error {
-	if vm.MacOS == nil {
-		if err := m.WriteSeedImage(vm); err != nil {
-			return err
-		}
+	if vm.MacOS != nil {
+		return nil
+	}
+	if err := m.WriteSeedImage(vm); err != nil {
+		return err
 	}
 	if im.Capabilities.ControlShare {
 		if err := m.WriteControlFiles(vm); err != nil {
 			return err
-		}
-		if vm.MacOS != nil {
-			if err := os.Remove(m.store.ControlSharePortsPath(vm)); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
 		}
 	}
 	return nil

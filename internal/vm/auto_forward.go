@@ -32,11 +32,30 @@ func (m *Manager) UpdateAutoForward(ctx context.Context, name string, update Aut
 		}
 		update.Bind = &bind
 	}
-	vm, unlock, err := m.lockForwardVM(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return nil, err
 	}
 	defer unlock()
+	if vm.MacOS != nil && (update.Enabled == nil || *update.Enabled || update.Offset != nil || update.Bind != nil) {
+		return nil, errors.New("automatic forwarding is not supported for MacOS guests")
+	}
+	enabled := vm.Network.AutoForward
+	if update.Enabled != nil {
+		enabled = *update.Enabled
+	}
+	if enabled {
+		im, err := m.store.LoadImageByID(vm.Image.ID)
+		if err != nil {
+			return nil, err
+		}
+		if err := RequireGuestPortReport(im, "auto-forwarding"); err != nil {
+			return nil, err
+		}
+	}
+	if err := m.recoverPendingForwardMutation(vm); err != nil {
+		return nil, err
+	}
 	if update.Enabled != nil {
 		vm.Network.AutoForward = *update.Enabled
 	}
@@ -45,15 +64,6 @@ func (m *Manager) UpdateAutoForward(ctx context.Context, name string, update Aut
 	}
 	if update.Bind != nil {
 		vm.Network.AutoForwardBind = *update.Bind
-	}
-	im, err := m.store.LoadImageByID(vm.Image.ID)
-	if err != nil {
-		return nil, err
-	}
-	if vm.Network.AutoForward {
-		if err := RequireGuestPortReport(im, "auto-forwarding"); err != nil {
-			return nil, err
-		}
 	}
 	vm.UpdatedAt = time.Now().UTC()
 	if err := m.store.SaveVM(vm); err != nil {
@@ -136,6 +146,9 @@ func (m *Manager) WatchAutoForwards(ctx context.Context, id string) error {
 	vm, err := m.store.LoadVMByID(id)
 	if err != nil {
 		return err
+	}
+	if vm.MacOS != nil {
+		return errors.New("automatic forwarding is not supported for MacOS guests")
 	}
 	defer func() { _ = process.RemoveRecord(m.store.Runtime(vm).AutoForwardProcessRecord()) }()
 	ticker := time.NewTicker(autoForwardTick)
@@ -259,13 +272,13 @@ func (m *Manager) clearRuntimeAutoForwardsLocked(vm *state.VMRecord) error {
 
 // ReconcileAutoForwards reconciles a running VM under its per-VM lock.
 func (m *Manager) ReconcileAutoForwards(ctx context.Context, name string) ([]RuntimeAutoForward, error) {
-	vm, unlock, err := m.lockForwardVM(ctx, name)
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
 	if err != nil {
 		return nil, err
 	}
 	defer unlock()
-	if !m.IsRunning(vm) {
-		return nil, fmt.Errorf("VM %q is not running", vm.Name)
+	if vm.MacOS != nil {
+		return nil, errors.New("automatic forwarding is not supported for MacOS guests")
 	}
 	im, err := m.store.LoadImageByID(vm.Image.ID)
 	if err != nil {
@@ -273,6 +286,15 @@ func (m *Manager) ReconcileAutoForwards(ctx context.Context, name string) ([]Run
 	}
 	if err := RequireGuestPortReport(im, "auto-forward reconciliation"); err != nil {
 		return nil, err
+	}
+	if err := ValidateAutoForwardConfig(vm); err != nil {
+		return nil, err
+	}
+	if err := m.recoverPendingForwardMutation(vm); err != nil {
+		return nil, err
+	}
+	if !m.IsRunning(vm) {
+		return nil, fmt.Errorf("VM %q is not running", vm.Name)
 	}
 	rows, err := m.reconcileAutoForwardsLocked(vm)
 	if errors.Is(err, errForwardRecoveryRequired) {

@@ -9,19 +9,23 @@
 > schema 2 on reset.
 
 - Add MacOS guest support on Apple Silicon: import baked image bundles, create,
-  clone, start, stop, connect over SSH, and reset. Host and guest require MacOS 27
-  or later, with a graphical login session on the host. Nix is optional. Closing
-  the VM window keeps it running; reopen it through the Dock or `voom gui`.
-  Quitting requests guest shutdown. Create, clone, and reset assign fresh Apple
-  identities; restarts preserve them. SSH host keys and credentials are copied
-  with the disk. Directory shares and automatic TCP forwarding require guest
-  services in the image. Resource allocations default to the baked values and
-  must meet Apple's minimums recorded in the bundle.
+  clone, start, stop, restart, remove, and reset VMs. Support the graphical
+  console, ordinary guest networking, SSH, remote commands, and persistent Apple
+  platform storage. Host and guest require MacOS 27 or later, with a graphical
+  login session on the host. Nix is optional. Closing the VM window keeps it
+  running; reopen it through the Dock or `voom gui`. Quitting requests guest
+  shutdown. Create, clone, and reset assign fresh Apple identities; restarts
+  preserve them. SSH host keys and credentials are copied with the disk. Resource
+  allocations default to the baked values and must meet Apple's recorded
+  minimums. Bundles must declare all five guest-service capabilities false.
+  User shares, the reserved control share, application forwarding, guest listener
+  reports, and egress attachments are unsupported for MacOS guests. SSH routing
+  remains available. Linux guests retain sharing, forwarding, and egress support.
 - Bundle patched vfkit 0.6.4 and the Apple identity helper in MacOS release
   archives and Nix packages. A separate vfkit installation is no longer needed.
   The bundled vfkit is ad-hoc signed with the virtualization entitlement;
   running it requires neither Xcode nor a Developer ID certificate. Read-only
-  shares are now enforced on the host for both Linux and MacOS guests.
+  shares for Linux guests are enforced on the host.
 - Make disk reset replace storage and its saved configuration together for both
   Linux and MacOS. Reject images that cannot support the VM's shares or automatic
   forwarding before stopping it. MacOS reset also replaces the Apple platform
@@ -33,9 +37,6 @@
   which helper executables Voom selects.
 - Use `disk.raw` for new vfkit VMs. Existing Linux VMs retain `disk.img` until
   reset; both contain raw disks, and image import accepts either extension.
-
-Mac testing is still needed for reset boots, GUI behavior, shares, forwarding,
-and recovery. See the [validation checklist](README.md#scope-and-remaining-mac-validation).
 
 ## v1.4.0 - 2026-10-14
 

@@ -19,7 +19,6 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/state"
 )
 
@@ -57,7 +56,7 @@ func macosResetFixture(t *testing.T) (*state.Store, *state.VMRecord, *state.Imag
 		MacOS: &platform, Image: state.VMImageRef{ID: oldImage.ID, Name: oldImage.Name},
 		Resources: state.VMResources{CPUs: 4, MemoryMiB: 8192},
 		Access:    state.VMAccess{SSHUser: "old-user", SSHIdentityPath: "/keys/old"},
-		Network:   state.VMNetwork{SSHPort: 2222, SSHBind: "127.0.0.1", Forwards: []forward.Decl{{HostPort: 8080, GuestPort: 80, Protocol: "tcp"}}},
+		Network:   state.VMNetwork{SSHPort: 2222, SSHBind: "127.0.0.1"},
 	}
 	vm.StorageGeneration = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	if err := os.MkdirAll(st.VMStorageDir(vm), 0o755); err != nil {

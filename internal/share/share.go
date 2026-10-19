@@ -102,34 +102,13 @@ func shellQuote(s string) string {
 }
 
 // GuestMountVerifyScript checks the mounted tag, filesystem, and access mode.
-func GuestMountVerifyScript(macos bool, tag, target string, readonly bool) string {
+func GuestMountVerifyScript(tag, target string, readonly bool) string {
 	script := "set -eu\ntag=" + shellQuote(tag) + "\ntarget=" + shellQuote(target) + "\ntarget=$(cd \"$target\" && pwd -P)\n"
 	mode := "rw"
 	if readonly {
 		mode = "ro"
 	}
 	script += "mode=" + mode + "\nprintf 'Expected virtiofs tag %s at %s (%s)\\n' \"$tag\" \"$target\" \"$mode\"\n"
-	if macos {
-		script += `mounts=$(/sbin/mount)
-prefix="$tag on $target ("
-printf '%s\n' "$mounts" | (
- while IFS= read -r line; do
-  case "$line" in
-   "$prefix"*)
-    options=${line#"$prefix"}
-    options=${options%)}
-    case ", $options, " in *", virtiofs, "*) ;; *) exit 1 ;; esac
-`
-		return script + `    case ", $options, " in *", read-only, "*) actual=ro ;; *) actual=rw ;; esac
-    test "$mode" = "$actual"
-    printf '%s\n' "$line"
-    exit 0 ;;
-  esac
- done
- echo "expected virtiofs mount not found: $tag at $target" >&2
- exit 1
-)`
-	}
 	script += `test "$(findmnt -rn --mountpoint "$target" -o SOURCE)" = "$tag"
 test "$(findmnt -rn --mountpoint "$target" -o FSTYPE)" = virtiofs
 options=$(findmnt -rn --mountpoint "$target" -o OPTIONS)

@@ -241,7 +241,7 @@ func (s *Store) LoadImageByID(id string) (*ImageRecord, error) {
 		return nil, err
 	}
 	if im.Arch == "aarch64-darwin" {
-		if im.MacOS == nil || im.Format != "raw" || im.Disk != "disk.raw" || !validMacOSCapabilities(im.Capabilities) || im.Metadata.InstallGuestHelpers {
+		if im.MacOS == nil || im.Format != "raw" || im.Disk != "disk.raw" || im.Metadata.InstallGuestHelpers {
 			return nil, errors.New("invalid MacOS image record")
 		}
 		if err := im.MacOS.validate(); err != nil {

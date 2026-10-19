@@ -125,7 +125,7 @@ func debugCommand() *cobra.Command {
 func guestCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "guest", Short: "Inspect guest-reported state"}
 	cmd.AddCommand(guestVerifyCommand())
-	cmd.AddCommand(&cobra.Command{Use: "ports <name>", ValidArgsFunction: completeVMNames, Short: "Show guest listeners", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd.AddCommand(&cobra.Command{Use: "ports <name>", ValidArgsFunction: completeVMNames, Short: "Show guest listeners", Long: "Show listeners reported by a Linux guest. Guest listener reporting is not supported for MacOS guests.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err

@@ -7,6 +7,7 @@
   "format": "macos-bundle",
   "target": "aarch64-darwin@vm",
   "capabilities": {
+    "metadataDisk": false,
     "controlShare": false,
     "guestPortReport": false,
     "guestShareMount": false,

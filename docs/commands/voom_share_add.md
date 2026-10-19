@@ -2,6 +2,10 @@
 
 Add a share
 
+### Synopsis
+
+Add a host directory share to a stopped Linux guest. User file sharing is not supported for MacOS guests.
+
 ```
 voom share add <name> <tag> <host-path> <guest-path> [flags]
 ```

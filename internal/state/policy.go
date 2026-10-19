@@ -16,10 +16,11 @@ const (
 	// SSHHigh is the inclusive high end of the SSH host-port allocation range.
 	SSHHigh = 2299
 	// ControlShareTag is the virtiofs share tag used for the host->guest control share.
-	ControlShareTag  = "voom-control"
-	qemuGuestIP      = "192.168.127.3"
-	vfkitGuestIP     = "192.168.127.3"
-	controlSharePath = "/run/voom"
+	ControlShareTag = "voom-control"
+	// ControlShareGuestPath is the Linux guest mount path for the reserved share.
+	ControlShareGuestPath = "/run/voom"
+	qemuGuestIP           = "192.168.127.3"
+	vfkitGuestIP          = "192.168.127.3"
 )
 
 // DefaultDriver returns the default VM driver for the current host OS ("qemu" on Linux, "vfkit" elsewhere).
@@ -60,14 +61,6 @@ func GuestMAC(driver, id string) string {
 		return localAdminMACFor(id)
 	}
 	return macFor(id)
-}
-
-// ControlShareGuestPath returns the guest-side mount path of the control share.
-func ControlShareGuestPath(system string) string {
-	if system == "aarch64-darwin" {
-		return "/var/run/voom"
-	}
-	return controlSharePath
 }
 
 func macFor(seed string) string {

@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -15,6 +17,51 @@ import (
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 )
+
+func TestForwardValidationPrecedesPendingRecovery(t *testing.T) {
+	for _, command := range []string{"enable", "reconcile", "remove", "ssh-port"} {
+		t.Run(command, func(t *testing.T) {
+			st, manager, record, _ := newAutoForwardFixture(t)
+			image, err := st.LoadImageByID(record.Image.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			image.Capabilities = state.ImageCapabilities{}
+			if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(image.ID), "image.json"), image); err != nil {
+				t.Fatal(err)
+			}
+			path := st.Runtime(record).ForwardMutation()
+			if err := os.WriteFile(path, []byte("pending mutation"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			ctx := context.Background()
+			want := "capabilit"
+			switch command {
+			case "enable":
+				enabled := true
+				_, err = manager.UpdateAutoForward(ctx, record.Name, AutoForwardUpdate{Enabled: &enabled})
+			case "reconcile":
+				_, err = manager.ReconcileAutoForwards(ctx, record.Name)
+			case "remove":
+				err = manager.RemoveForward(ctx, record.Name, 18080, "127.0.0.1", "tcp")
+				want = "no tcp forward"
+			case "ssh-port":
+				_, _, err = manager.SetSSHPort(ctx, record.Name, -1)
+				want = "invalid SSH port"
+			}
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("validation error = %v; want %q", err, want)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || string(data) != "pending mutation" {
+				t.Fatalf("validation changed pending mutation: %q %v", data, err)
+			}
+			if !manager.IsRunning(record) {
+				t.Fatal("validation stopped the VM")
+			}
+		})
+	}
+}
 
 func TestStartupForwardMutationRetainsUncertainty(t *testing.T) {
 	st, m, rec, proxy := newAutoForwardFixture(t)

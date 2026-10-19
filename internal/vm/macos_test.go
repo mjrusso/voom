@@ -69,7 +69,7 @@ func TestMacOSOperationsRejectBeforeChangingStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := strings.Join(vargs, " ")
-	if !strings.Contains(args, "auxImagePath="+filepath.Join(st.VMStorageDir(record), "AuxiliaryStorage")) || strings.Contains(args, "seed.img") || strings.Contains(args, "variable-store") {
+	if !strings.Contains(args, "auxImagePath="+filepath.Join(st.VMStorageDir(record), "AuxiliaryStorage")) || strings.Contains(args, "seed.img") || strings.Contains(args, "virtio-fs") || strings.Contains(args, "variable-store") {
 		t.Fatalf("vfkit platform arguments: %s", args)
 	}
 }

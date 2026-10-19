@@ -65,6 +65,9 @@ func (m *Manager) validateEgressTarget(ctx context.Context, vm *state.VMRecord) 
 
 // CheckEgressImage verifies that the VM image can publish egress metadata.
 func (m *Manager) CheckEgressImage(vm *state.VMRecord) error {
+	if vm.MacOS != nil {
+		return errors.New("egress is not supported for MacOS guests")
+	}
 	im, err := m.store.LoadImageByID(vm.Image.ID)
 	if err != nil {
 		return err
@@ -141,7 +144,7 @@ func (m *Manager) updateEgress(ctx context.Context, name, action, expectedID str
 		return result, err
 	}
 	defer unlock()
-	if vm.MacOS != nil {
+	if vm.MacOS != nil && action != "clear" {
 		return result, errors.New("egress is not supported for MacOS guests")
 	}
 	result = newEgressResult(vm)

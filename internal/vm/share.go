@@ -26,6 +26,9 @@ func (m *Manager) AddShare(ctx context.Context, name, tag, hostPath, guestPath s
 		return share.Decl{}, err
 	}
 	defer unlock()
+	if vm.MacOS != nil {
+		return share.Decl{}, fmt.Errorf("user file sharing is not supported for MacOS guests")
+	}
 	im, err := m.store.LoadImageByID(vm.Image.ID)
 	if err != nil {
 		return share.Decl{}, err
@@ -81,7 +84,7 @@ func (m *Manager) WriteControlFiles(vm *state.VMRecord) error {
 	if err := os.MkdirAll(controlDir, 0o755); err != nil {
 		return err
 	}
-	guestPath := state.ControlShareGuestPath(vm.Arch)
+	guestPath := state.ControlShareGuestPath
 	payload := map[string]any{
 		"hostname": hostnameFor(vm.Name),
 		"controlShare": map[string]any{
@@ -206,23 +209,4 @@ func (m *Manager) stopVirtiofsd(rt state.RuntimeLayout) error {
 		}
 	}
 	return errors.Join(failures...)
-}
-
-func requireShareMount(im *state.ImageRecord) error {
-	if !im.Capabilities.ControlShare || !im.Capabilities.GuestShareMount {
-		return fmt.Errorf("share mounting unavailable for image %q: requires controlShare and guestShareMount capabilities; import an image with guest share-mount support", im.Name)
-	}
-	return nil
-}
-
-func validateImageFeatures(vm *state.VMRecord, im *state.ImageRecord) error {
-	if len(vm.Shares) > 0 {
-		if err := requireShareMount(im); err != nil {
-			return err
-		}
-	}
-	if vm.Network.AutoForward {
-		return RequireGuestPortReport(im, "auto-forwarding")
-	}
-	return nil
 }

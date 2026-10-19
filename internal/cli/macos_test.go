@@ -74,6 +74,17 @@ func TestMacOSImportInspectionDiagnosticsAndAccess(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, args := range [][]string{
+		{"share", "add", "mac", "src", t.TempDir(), "/Volumes/src"},
+		{"forward", "add", "mac", "8080"},
+		{"forward", "auto", "enable", "mac"},
+		{"forward", "discover", "mac"},
+		{"guest", "ports", "mac"},
+	} {
+		if err := runCmdErr(args...); err == nil || !strings.Contains(err.Error(), "not supported for MacOS") {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
 	var verification bytes.Buffer
 	command := NewRootCommand()
 	command.SetOut(&verification)

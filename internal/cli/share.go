@@ -11,7 +11,7 @@ import (
 func shareCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "share", Short: "Manage shares"}
 	var readonly bool
-	add := &cobra.Command{Use: "add <name> <tag> <host-path> <guest-path>", ValidArgsFunction: completeShareAdd, Short: "Add a share", Args: cobra.ExactArgs(4), RunE: func(cmd *cobra.Command, args []string) error {
+	add := &cobra.Command{Use: "add <name> <tag> <host-path> <guest-path>", ValidArgsFunction: completeShareAdd, Short: "Add a share", Long: "Add a host directory share to a stopped Linux guest. User file sharing is not supported for MacOS guests.", Args: cobra.ExactArgs(4), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
