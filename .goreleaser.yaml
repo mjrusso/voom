@@ -63,6 +63,11 @@ archives:
         dst: THIRD_PARTY_LICENSES.vfkit
       - README.md
       - CHANGELOG.md
+      - CONTRIBUTING.md
+      - assets/voom.png
+      - docs/*.md
+      - docs/commands/*.md
+      - nix/GVPROXY.md
 checksum:
   name_template: checksums.txt
 snapshot:

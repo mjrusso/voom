@@ -476,7 +476,7 @@ func removeCommand() *cobra.Command {
 func diskCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "disk", Short: "Manage VM disks"}
 	var resetImage string
-	reset := &cobra.Command{Use: "reset <name> --image <image>", ValidArgsFunction: completeVMNames, Short: "Reset VM disk from image", Long: "Stop the VM and replace its guest state from an image. This discards guest changes. For MacOS, replace the disk and Apple platform files together and generate a fresh Apple identity. Keep the VM name, Voom ID, CPU and memory allocation, SSH port, NIC MAC, shares, and forwarding settings. Reset cannot change between Linux and MacOS.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	reset := &cobra.Command{Use: "reset <name> --image <image>", ValidArgsFunction: completeVMNames, Short: "Reset VM disk from image", Long: "Stop the VM and replace its guest state from an image. This discards guest changes. For MacOS, replace the disk and Apple platform files together and generate a fresh Apple identity. Keep the VM name, Voom ID, CPU and memory allocation, SSH port, and NIC MAC. Linux guests also keep shares and forwarding settings. MacOS guests reject shares, application forwards, automatic forwarding, and egress attachments. Reset cannot change between Linux and MacOS.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if resetImage == "" {
 			return errors.New("--image is required")
 		}

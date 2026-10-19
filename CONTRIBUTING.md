@@ -1,5 +1,7 @@
 # Contributing
 
+Run the commands below from a source checkout of this repository.
+
 Use Nix for the dev shell:
 
 ```sh
@@ -279,7 +281,8 @@ GoReleaser builds `voom` and the patched `gvproxy` (`CGO_ENABLED=0`) for
 `darwin` and `linux` on `amd64` and `arm64`. The gvproxy source is prepared by
 Nix from the pinned upstream revision and local patch. GoReleaser creates
 `tar.gz` archives named `<project>_<os>_<arch>` (with `amd64` rewritten to
-`x64`) and includes `LICENSE`, `README.md`, and `CHANGELOG.md`.
+`x64`) and includes the README, guides, command reference, contributing
+instructions, and their linked local assets.
 `checksums.txt` uses `sha256`. The snapshot template is
 `{{ incpatch .Version }}-next`.
 
@@ -300,7 +303,8 @@ dist/checksums.txt
 ```
 
 Each archive contains `LICENSE`, `LICENSE.gvproxy`, `NOTICE.gvproxy`,
-`THIRD_PARTY_LICENSES`, `README.md`, `CHANGELOG.md`, `voom`, and `gvproxy`.
+`THIRD_PARTY_LICENSES`, `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
+`docs/`, `assets/voom.png`, `nix/GVPROXY.md`, `voom`, and `gvproxy`.
 Darwin archives also contain vfkit and its license notices; Darwin arm64 includes
 `voom-macos-identity`. The native preparation scripts build those helpers before
 GoReleaser assembles the archives. Verify with `sha256sum -c checksums.txt`.

@@ -37,6 +37,8 @@
   which helper executables Voom selects.
 - Use `disk.raw` for new vfkit VMs. Existing Linux VMs retain `disk.img` until
   reset; both contain raw disks, and image import accepts either extension.
+- Split detailed guest and integration guides from the README. Include the
+  guides, command reference, and linked local assets in release archives.
 
 ## v1.4.0 - 2026-10-14
 
