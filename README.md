@@ -317,7 +317,8 @@ directory and its required files cannot be symlinks.
 
 Capabilities describe services already installed in the image. `metadataDisk`
 and `nixosSwitch` must remain false; `guestShareMount` and `guestPortReport` each
-require `controlShare`. Bundles with all capabilities false remain supported.
+require `vsockControl`. Bundles with all capabilities false remain supported.
+Legacy MacOS control-share services must be upgraded before starting with guest integrations.
 The `--install-guest-helpers` import flag installs Linux helpers and is rejected
 for MacOS bundles.
 
@@ -366,10 +367,12 @@ and run `sudo /usr/bin/passwd "$(id -un)"` inside the guest to set one.
 
 ### Shares and automatic forwarding
 
-Both features require guest services that mount Voom's `voom-control` share at
-`/var/run/voom`. Directory shares also require a service that mounts declared
-shares; automatic forwarding requires a service that publishes TCP listeners.
-The image must advertise `controlShare` and the capabilities it implements:
+Both features require guest services using Voom's vsock control protocol.
+Configuration is stored locally at `/var/run/voom`; coordination does not require
+Full Disk Access. User applications accessing shared files still follow MacOS
+privacy rules. Directory shares require a service that mounts declared shares;
+automatic forwarding requires a service that reports TCP listeners.
+The image must advertise `vsockControl` and the capabilities it implements:
 `guestShareMount` for shares and `guestPortReport` for automatic forwarding.
 Installing Voom does not install these guest services.
 
@@ -705,15 +708,15 @@ not block direct network access. Voom publishes the optional CA bundle but does
 not install it. HTTP and HTTPS clients use the same proxy address. HTTPS clients
 use HTTP CONNECT through that address.
 
-Attachments require an image with `controlShare` capability. Check the imported
+Attachments require `vsockControl`, or `controlShare` on a legacy Linux image. Check the imported
 image before you configure the attachment:
 
 ```sh
 voom image inspect <name>
 ```
 
-The output must show `capabilities: controlShare=true`. Images imported with
-`--install-guest-helpers` have this capability. For custom images, see the
+The output must show `vsockControl=true`. Images imported with
+`--install-guest-helpers` install the vsock agent. For custom images, see the
 [Guest Image Contract](#guest-image-contract). Before you set or enable an
 attachment, start the external proxy so its backend socket accepts connections.
 
@@ -906,10 +909,10 @@ to the login user when the two differ.
 `format`, login `user`, and so on) and declares which guest integrations are
 available:
 
-- `controlShare` — guest can mount the reserved `voom-control` share at
-  `/run/voom`
-- `guestPortReport` — guest runs `voom-portfwd` and writes
-  `/run/voom/ports.json`
+- `vsockControl` — guest implements version 1 of the [vsock protocol](docs/vsock-control.md)
+- `controlShare` — legacy Linux coordination through the reserved virtiofs share;
+  this capability does not imply vsock support
+- `guestPortReport` — guest reports TCP listeners through its declared transport
 - `guestShareMount` — guest can mount declared host shares
 - `nixosSwitch` — guest supports `voom nixos switch`
 
@@ -924,7 +927,8 @@ A typical sidecar:
   "flake_rev": "abcdef123456",
   "baked_at": "2026-05-21T00:00:00Z",
   "capabilities": {
-    "controlShare": true,
+    "controlShare": false,
+    "vsockControl": true,
     "guestPortReport": true,
     "guestShareMount": true,
     "nixosSwitch": true
@@ -1114,7 +1118,8 @@ headers and manifest contents do not authenticate a VM.
 
 #### Guest files and CA bundles
 
-Voom publishes these files through `voom-control` when it enables an attachment:
+The vsock agent publishes these local guest files when Voom enables an attachment
+(legacy Linux images receive them through `voom-control`):
 
 - `/run/voom/egress.json`: schema version 1, mode `explicit`, and `httpProxy` and
   `httpsProxy` set to `http://192.168.127.1:3128`.
@@ -1123,9 +1128,9 @@ Voom publishes these files through `voom-control` when it enables an attachment:
 
 Host copies live under `<runtime VM directory>/control/`. Files have mode 0644.
 Voom publishes the manifest after the CA file. Voom replaces the files
-separately, so the update is not atomic. The metadata document always advertises
-`controlShare.egressPath`, including when the saved configuration has no
-attachment. Guests must choose how to consume the manifest and install the
+separately, so the update is not atomic. Vsock replays the manifest and public
+CA on connection and after live changes; metadata advertises `control.egressPath`
+(`controlShare.egressPath` on legacy images), including without an attachment. Guests must choose how to consume the manifest and install the
 public CA.
 
 CA bundles must contain only X.509 certificate PEM blocks and at least one CA
@@ -1160,9 +1165,9 @@ share in `vm.json`; append `--ro`/`--readonly` for a read-only mount. The tag
 `voom-control` is reserved. On QEMU, Voom exports each share through a
 `virtiofsd` helper; on vfkit, it attaches native virtio-fs devices. The guest
 mounts declared shares from `/run/voom/mounts.json` on Linux or
-`/var/run/voom/mounts.json` on MacOS, delivered over the reserved control share.
-The image must advertise `controlShare` and `guestShareMount` and provide the
-corresponding services. On both Linux and MacOS, `share add` checks these
+`/var/run/voom/mounts.json` on MacOS, delivered over vsock into guest-local storage.
+The image must advertise `vsockControl` and `guestShareMount` and provide the
+corresponding services. Existing Linux images may use legacy `controlShare`. On both Linux and MacOS, `share add` checks these
 capabilities before saving the declaration. Adding or removing a share requires
 the VM to be stopped.
 

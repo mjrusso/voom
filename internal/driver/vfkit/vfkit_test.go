@@ -200,3 +200,21 @@ func TestArgsRejectInvalidBootConfiguration(t *testing.T) {
 		})
 	}
 }
+
+func TestVsockDeviceForBothGuestSystems(t *testing.T) {
+	for _, macos := range []bool{false, true} {
+		config := ArgsConfig{ControlSock: "/vm/control.sock", CPUs: 2, MemoryMiB: 2048, BootDisk: "/vm/disk.raw"}
+		if macos {
+			config.MacOS = &MacOSBoot{MachineIdentifier: "/vm/id", HardwareModel: "/vm/model", AuxiliaryStorage: "/vm/aux"}
+		} else {
+			config.Linux = &LinuxBoot{KernelPath: "/vm/kernel"}
+		}
+		args := mustArgs(t, config)
+		if !contains(args, "virtio-vsock,port=49152,socketURL=/vm/control.sock,listen") {
+			t.Fatalf("missing control device for MacOS=%v: %v", macos, args)
+		}
+		if strings.Contains(strings.Join(args, " "), "mountTag=voom-control") {
+			t.Fatal("reserved share present")
+		}
+	}
+}

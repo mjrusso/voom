@@ -203,7 +203,7 @@ func (m *Manager) watchAutoForwardsLocked(vm *state.VMRecord) (autoForwardWatchO
 	if err != nil {
 		return autoForwardWatchContinue, err
 	}
-	if !im.Capabilities.GuestPortReport || !im.Capabilities.ControlShare {
+	if !im.Capabilities.GuestPortReport || (!im.Capabilities.ControlShare && !im.Capabilities.VsockControl) {
 		return m.finishAutoForwardWatch(vm)
 	}
 	_, err = m.reconcileAutoForwardsLocked(vm)
@@ -298,6 +298,10 @@ func (m *Manager) reconcileAutoForwardsLocked(vm *state.VMRecord) ([]RuntimeAuto
 	}
 	report, err := m.ReadGuestPorts(vm)
 	if err != nil {
+		if image, loadErr := m.store.LoadImageByID(vm.Image.ID); loadErr == nil && image.Capabilities.VsockControl {
+			rows, removeErr := m.removeAutoForwardRowsLocked(vm, oldRows, func(RuntimeAutoForward) bool { return true })
+			return rows, errors.Join(err, removeErr)
+		}
 		return oldRows, err
 	}
 	desired, err := m.PlanAutoForwards(vm, *report, oldRows)

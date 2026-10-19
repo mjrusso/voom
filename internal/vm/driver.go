@@ -20,7 +20,12 @@ func (m *Manager) qemuArgs(vm *state.VMRecord, firmwarePath string, shares []sha
 	for _, sh := range shares {
 		qshares = append(qshares, qemu.Share{Tag: sh.Tag, Sock: sh.Sock})
 	}
+	var endpoint controlEndpoint
+	if err := state.ReadJSON(m.store.Runtime(vm).ControlEndpoint(), &endpoint); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
 	return qemu.Args(qemu.ArgsConfig{
+		ControlCID: endpoint.CID, ControlPort: endpoint.Port,
 		Arch:         vm.Arch,
 		FirmwarePath: firmwarePath,
 		CPUs:         vm.Resources.CPUs,
@@ -51,6 +56,9 @@ func (m *Manager) vfkitArgs(vm *state.VMRecord, im *state.ImageRecord, shares []
 		MAC:       state.GuestMAC(vm.Driver, vm.ID),
 		RestSock:  m.store.Runtime(vm).VFKitRestSock(),
 		Shares:    vshares,
+	}
+	if im.Capabilities.VsockControl {
+		config.ControlSock = m.store.Runtime(vm).ControlSock()
 	}
 	if vm.MacOS != nil {
 		dir := m.store.VMStorageDir(vm)

@@ -69,8 +69,8 @@ func (m *Manager) CheckEgressImage(vm *state.VMRecord) error {
 	if err != nil {
 		return err
 	}
-	if !im.Capabilities.ControlShare {
-		return errors.New("egress requires an image with controlShare capability")
+	if !im.Capabilities.ControlShare && !im.Capabilities.VsockControl {
+		return errors.New("egress requires an image with vsockControl or legacy controlShare capability")
 	}
 	return nil
 }

@@ -106,6 +106,19 @@ func Run(all bool) []Check {
 	if runtime.GOOS == "linux" && (all || hasShares(st) || hasControlShareImages(st)) {
 		add("virtiofsd", false, host.RequireExe("virtiofsd"), "found")
 	}
+	if runtime.GOOS == "linux" {
+		images, _ := st.ListImages()
+		for _, image := range images {
+			if image.Capabilities.VsockControl {
+				file, err := os.OpenFile("/dev/vhost-vsock", os.O_RDWR, 0)
+				if err == nil {
+					_ = file.Close()
+				}
+				add("vhost-vsock", true, err, "available")
+				break
+			}
+		}
+	}
 	checks = append(checks, StateDiagnostics(st)...)
 	return checks
 }
@@ -188,7 +201,7 @@ func StateDiagnostics(st *state.Store) []Check {
 			name string
 			path string
 			kind string
-		}{{"vm.process.json", rt.VMProcessRecord(), state.VMProcessKind(vmRec.Driver)}, {"gvproxy.process.json", rt.GVProxyProcessRecord(), "gvproxy"}, {"auto-forward.process.json", rt.AutoForwardProcessRecord(), "auto-forward"}, {"runtime-watch.process.json", rt.RuntimeWatcherProcessRecord(), "runtime-watch"}}
+		}{{"vm.process.json", rt.VMProcessRecord(), state.VMProcessKind(vmRec.Driver)}, {"gvproxy.process.json", rt.GVProxyProcessRecord(), "gvproxy"}, {"auto-forward.process.json", rt.AutoForwardProcessRecord(), "auto-forward"}, {"runtime-watch.process.json", rt.RuntimeWatcherProcessRecord(), "runtime-watch"}, {"control.process.json", rt.ControlProcessRecord(), "control"}}
 		for _, record := range staticRecords {
 			if process.HasRecord(record.path) {
 				if _, ok := process.ValidRecord(record.path, record.kind); !ok {
@@ -201,7 +214,7 @@ func StateDiagnostics(st *state.Store) []Check {
 			out = append(out, Check{"stale-auto-forward-state-" + name, "warn", false, "runtime auto-forward state remains for stopped VM at " + autoStatePath})
 		}
 		if vmRec.Network.AutoForward {
-			if im, err := st.LoadImageByID(vmRec.Image.ID); err == nil && im.Capabilities.ControlShare && im.Capabilities.GuestPortReport && vmMgr.IsRunning(vmRec) {
+			if im, err := st.LoadImageByID(vmRec.Image.ID); err == nil && (im.Capabilities.ControlShare || im.Capabilities.VsockControl) && im.Capabilities.GuestPortReport && vmMgr.IsRunning(vmRec) {
 				if _, err := vmMgr.ReadGuestPorts(vmRec); err != nil {
 					out = append(out, Check{"auto-forward-report-" + name, "warn", false, err.Error()})
 				}

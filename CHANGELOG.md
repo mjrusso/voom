@@ -4,6 +4,26 @@
 
 > [!IMPORTANT]
 >
+> **Vsock experiment:** Stop all running VMs with the current Voom binary
+> before installing this experimental build or changing guest agents and image
+> capabilities. Voom creates the vsock device and host endpoint at VM start;
+> replacing the agent in a running VM cannot switch its control transport.
+>
+> Existing Linux images retain the legacy control share. To migrate, use an
+> image with the revised agent and explicit `vsockControl` capability, then
+> cold-start the VM. Changing the capability alone does not install the agent.
+> MacOS images with legacy control-share services cannot start under this build;
+> validate the revised agent in a disposable clone before migrating an image.
+> See the [compatibility policy](docs/vsock-control.md#image-compatibility).
+
+- Use a versioned vsock control channel for new Linux helper images and MacOS
+  guest services. Virtiofs remains the user file-sharing transport. Existing
+  Linux control-share images retain their declared transport; MacOS guest
+  services require an explicit `vsockControl` capability. Reconnects replay
+  configuration, and disconnected guests lose automatic forwards.
+
+> [!IMPORTANT]
+>
 > New VM records and imported MacOS image records use schema 2, which older
 > Voom versions cannot read. Existing Linux VMs remain supported and move to
 > schema 2 on reset.

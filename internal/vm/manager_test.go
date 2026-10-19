@@ -309,7 +309,7 @@ func TestWriteControlFilesIncludesMountsAndControlPaths(t *testing.T) {
 			{Tag: "src", HostPath: "/host/src", GuestPath: "/workspace/src", Readonly: true},
 		},
 	}
-	if err := mgr.WriteControlFiles(vmRec); err != nil {
+	if err := mgr.WriteControlFiles(vmRec, false); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(filepath.Join(st.ControlShareDir(vmRec), "metadata.json"))

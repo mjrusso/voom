@@ -154,7 +154,8 @@ func (s *Store) ImportImage(ctx context.Context, opts ImportOptions) (*ImageReco
 		meta.InstallGuestHelpers = true
 	}
 	if meta.InstallGuestHelpers {
-		caps.ControlShare = true
+		caps.VsockControl = true
+		caps.ControlShare = false
 		caps.GuestPortReport = true
 		caps.GuestShareMount = true
 	}
@@ -203,6 +204,7 @@ func ParseCapabilities(raw map[string]any) ImageCapabilities {
 	}
 	caps.MetadataDisk = boolField("metadataDisk")
 	caps.ControlShare = boolField("controlShare")
+	caps.VsockControl = boolField("vsockControl")
 	caps.GuestPortReport = boolField("guestPortReport")
 	caps.GuestShareMount = boolField("guestShareMount")
 	caps.NixosSwitch = boolField("nixosSwitch")

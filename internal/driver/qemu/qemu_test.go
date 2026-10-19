@@ -182,3 +182,21 @@ func hasArgPair(args []string, key, value string) bool {
 	}
 	return false
 }
+
+func TestVsockUsesReservedDescriptorAndFirmwarePort(t *testing.T) {
+	args, err := Args(ArgsConfig{Arch: "x86_64-linux", CPUs: 2, MemoryMiB: 512, ControlCID: 12345, ControlPort: 49153})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	for _, expected := range []string{"vhost-vsock-pci,guest-cid=12345,vhostfd=3", "name=opt/voom/control-port,string=49153"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("missing %q from %s", expected, joined)
+		}
+	}
+	for _, cid := range []uint32{1, 2, ^uint32(0)} {
+		if _, err := Args(ArgsConfig{Arch: "x86_64-linux", ControlCID: cid, ControlPort: 49153}); err == nil {
+			t.Fatalf("accepted reserved CID %d", cid)
+		}
+	}
+}

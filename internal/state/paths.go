@@ -20,7 +20,7 @@ func (s *Store) RuntimeVMDir(vm *VMRecord) string {
 	return filepath.Join(s.paths.Runtime, "vms", vm.ID)
 }
 
-// ControlShareDir returns the path to the VM's control-share directory under runtime.
+// ControlShareDir holds configuration and reports; only legacy images export it.
 func (s *Store) ControlShareDir(vm *VMRecord) string {
 	return filepath.Join(s.RuntimeVMDir(vm), "control")
 }
@@ -30,12 +30,12 @@ func (s *Store) SeedImagePath(vm *VMRecord) string {
 	return filepath.Join(s.RuntimeVMDir(vm), "seed.img")
 }
 
-// ControlSharePortsPath returns the path to the guest-published ports.json inside the control share.
+// ControlSharePortsPath is the listener cache used by the forward reconciler.
 func (s *Store) ControlSharePortsPath(vm *VMRecord) string {
 	return filepath.Join(s.ControlShareDir(vm), "ports.json")
 }
 
-// ControlShareMountsPath returns the path to the host-published mounts.json inside the control share.
+// ControlShareMountsPath is the staged manifest sent to the guest.
 func (s *Store) ControlShareMountsPath(vm *VMRecord) string {
 	return filepath.Join(s.ControlShareDir(vm), "mounts.json")
 }

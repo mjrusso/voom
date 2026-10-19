@@ -282,7 +282,7 @@ func readMacOSBundle(src string) (*macosBundleMetadata, error) {
 		return nil, errors.New("unsupported MacOS bundle schema, system, or format")
 	}
 	if !validMacOSCapabilities(manifest.Capabilities) {
-		return nil, errors.New("MacOS bundles require controlShare for guest services and cannot enable metadataDisk or nixosSwitch")
+		return nil, errors.New("MacOS bundles require vsockControl or legacy controlShare for guest services and cannot enable metadataDisk or nixosSwitch")
 	}
 	if manifest.CPUCount < 1 || manifest.MemoryMiB < 1 || manifest.DiskGiB < 1 {
 		return nil, errors.New("MacOS bundle must declare positive CPU, memory, and disk allocations")
@@ -323,5 +323,5 @@ func readMacOSBundle(src string) (*macosBundleMetadata, error) {
 }
 
 func validMacOSCapabilities(c ImageCapabilities) bool {
-	return !c.MetadataDisk && !c.NixosSwitch && (c.ControlShare || (!c.GuestPortReport && !c.GuestShareMount))
+	return !c.MetadataDisk && !c.NixosSwitch && (c.VsockControl || c.ControlShare || (!c.GuestPortReport && !c.GuestShareMount))
 }

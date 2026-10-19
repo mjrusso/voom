@@ -16,6 +16,8 @@ type Share struct {
 
 // ArgsConfig is the structured input used to build qemu-system command-line arguments.
 type ArgsConfig struct {
+	ControlCID   uint32
+	ControlPort  uint32
 	Arch         string
 	FirmwarePath string
 	CPUs         int
@@ -44,6 +46,12 @@ func Args(c ArgsConfig) ([]string, error) {
 		return nil, fmt.Errorf("unsupported QEMU architecture %q", c.Arch)
 	}
 	args = append(args, "-enable-kvm", "-cpu", "host", "-smp", strconv.Itoa(c.CPUs), "-m", strconv.Itoa(c.MemoryMiB))
+	if c.ControlCID != 0 {
+		if c.ControlCID < 3 || c.ControlCID == ^uint32(0) || c.ControlPort == 0 || c.ControlPort == ^uint32(0) {
+			return nil, fmt.Errorf("invalid vsock CID or control port")
+		}
+		args = append(args, "-device", fmt.Sprintf("vhost-vsock-pci,guest-cid=%d,vhostfd=3", c.ControlCID), "-fw_cfg", fmt.Sprintf("name=opt/voom/control-port,string=%d", c.ControlPort))
+	}
 	rootPorts, vfioDevices, err := pciDeviceArguments(c.PCIDevices)
 	if err != nil {
 		return nil, err

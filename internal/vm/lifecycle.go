@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/mjrusso/voom/internal/control"
 	"github.com/mjrusso/voom/internal/driver/qemu"
 	"github.com/mjrusso/voom/internal/driver/vfkit"
 	"github.com/mjrusso/voom/internal/egress"
@@ -282,6 +283,9 @@ func (m *Manager) ResetDisk(ctx context.Context, name, imageName string) error {
 	if (vm.MacOS == nil) != (im.MacOS == nil) {
 		return errors.New("reset cannot change between Linux and MacOS guests")
 	}
+	if err := validateImageControl(vm, im); err != nil {
+		return err
+	}
 	if err := validateImageFeatures(vm, im); err != nil {
 		return err
 	}
@@ -424,8 +428,22 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 			_, _ = fmt.Fprintf(stderr, "VM %s cleanup after failed start: %v\n", vm.Name, cerr)
 		}
 	}()
+	var vsockFile *os.File
+	if im.Capabilities.VsockControl {
+		var cid uint32
+		if vm.Driver == "qemu" {
+			vsockFile, cid, err = control.ReserveCID()
+			if err != nil {
+				return nil, err
+			}
+			defer func() { _ = vsockFile.Close() }()
+		}
+		if err := m.startControl(ctx, vm, cid); err != nil {
+			return nil, err
+		}
+	}
 	virtiofsShares := []share.Runtime{}
-	if im.Capabilities.ControlShare {
+	if im.Capabilities.ControlShare && !im.Capabilities.VsockControl {
 		controlShare, err := m.StartControlShare(ctx, vm)
 		if err != nil {
 			return nil, err
@@ -466,6 +484,9 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 			return nil, err
 		}
 		if err := m.withUSBStartReservation(ctx, vm, func() error {
+			if vsockFile != nil {
+				return process.StartRecordedFiles(driverExe, qargs, m.store.LogPath(vm, "qemu"), rt.VMProcessRecord(), []*os.File{vsockFile})
+			}
 			return process.StartRecorded(driverExe, qargs, m.store.LogPath(vm, "qemu"), rt.VMProcessRecord())
 		}); err != nil {
 			return nil, err
@@ -581,6 +602,9 @@ func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeS
 func (m *Manager) stopVMProcesses(ctx context.Context, vm *state.VMRecord) error {
 	rt := m.store.Runtime(vm)
 	var failures []error
+	if err := m.stopControl(vm); err != nil {
+		failures = append(failures, err)
+	}
 	if err := m.stopRuntimeWatcher(vm); err != nil {
 		failures = append(failures, err)
 	}
@@ -661,10 +685,11 @@ func hasRuntimeState(vm *state.VMRecord, rt state.RuntimeLayout) bool {
 		process.HasRecord(rt.GVProxyProcessRecord()) ||
 		process.HasRecord(rt.AutoForwardProcessRecord()) ||
 		process.HasRecord(rt.RuntimeWatcherProcessRecord()) ||
+		process.HasRecord(rt.ControlProcessRecord()) ||
 		len(rt.FindVirtiofsd()) > 0 {
 		return true
 	}
-	paths := []string{rt.ForwardMutation(), rt.AutoForwardsJSON(), rt.EgressManifest(), rt.EgressCA()}
+	paths := []string{rt.ForwardMutation(), rt.AutoForwardsJSON(), rt.EgressManifest(), rt.EgressCA(), rt.ControlSock(), rt.ControlEndpoint()}
 	paths = append(paths, rt.NetworkArtifacts()...)
 	paths = append(paths, rt.DriverArtifacts(vm.Driver)...)
 	for _, path := range paths {

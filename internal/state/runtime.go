@@ -153,10 +153,21 @@ func (r RuntimeLayout) NetworkArtifacts() []string {
 // EgressManifest returns the host-side guest publication marker.
 func (r RuntimeLayout) EgressManifest() string { return filepath.Join(r.dir, "control", "egress.json") }
 
-// EgressCA returns the public certificate copy in the control share.
+// EgressCA returns the public certificate staged for guest publication.
 func (r RuntimeLayout) EgressCA() string { return filepath.Join(r.dir, "control", "egress-ca.pem") }
 
 // RuntimeWatcherProcessRecord identifies the per-VM driver-exit watcher.
 func (r RuntimeLayout) RuntimeWatcherProcessRecord() string {
 	return filepath.Join(r.dir, "runtime-watch.process.json")
 }
+
+// ControlProcessRecord identifies the per-VM control service.
+func (r RuntimeLayout) ControlProcessRecord() string {
+	return filepath.Join(r.dir, "control.process.json")
+}
+
+// ControlSock is the private host listener used by vfkit.
+func (r RuntimeLayout) ControlSock() string { return filepath.Join(r.dir, "control.sock") }
+
+// ControlEndpoint publishes the allocated QEMU CID and host port before driver launch.
+func (r RuntimeLayout) ControlEndpoint() string { return filepath.Join(r.dir, "control-endpoint.json") }

@@ -323,7 +323,7 @@ func TestImportImageInstallGuestHelpersFlipsCapabilities(t *testing.T) {
 	if !im.Metadata.InstallGuestHelpers {
 		t.Fatalf("InstallGuestHelpers should be true via flag")
 	}
-	if !im.Capabilities.ControlShare || !im.Capabilities.GuestPortReport || !im.Capabilities.GuestShareMount {
+	if !im.Capabilities.VsockControl || im.Capabilities.ControlShare || !im.Capabilities.GuestPortReport || !im.Capabilities.GuestShareMount {
 		t.Fatalf("expected three caps true with guest helpers, got %#v", im.Capabilities)
 	}
 	if im.Capabilities.NixosSwitch {
@@ -338,7 +338,7 @@ func TestImportImageInstallGuestHelpersFlipsCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !im2.Metadata.InstallGuestHelpers || !im2.Capabilities.ControlShare {
+	if !im2.Metadata.InstallGuestHelpers || !im2.Capabilities.VsockControl || im2.Capabilities.ControlShare {
 		t.Fatalf("sidecar installGuestHelpers: true should imply InstallGuestHelpers + caps, got meta=%#v caps=%#v", im2.Metadata, im2.Capabilities)
 	}
 }

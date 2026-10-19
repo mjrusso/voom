@@ -73,13 +73,11 @@ func hasArg(args []string, want string) bool {
 }
 
 func TestGuestMountChecksValidateTagFilesystemAndMode(t *testing.T) {
-	for _, macos := range []bool{false, true} {
+	for _, platform := range []string{"linux", "macos", "macos-apple"} {
+		macos := platform != "linux"
 		for _, readonly := range []bool{false, true} {
 			for _, failure := range []string{"", "tag", "type", "mode", "missing"} {
-				name := "linux"
-				if macos {
-					name = "macos"
-				}
+				name := platform
 				t.Run(name+"/"+map[bool]string{true: "ro", false: "rw"}[readonly]+"/"+failure, func(t *testing.T) {
 					target := filepath.Join(t.TempDir(), "project's files $(touch injected)")
 					if err := os.Mkdir(target, 0700); err != nil {
@@ -90,6 +88,9 @@ func TestGuestMountChecksValidateTagFilesystemAndMode(t *testing.T) {
 						t.Fatal(err)
 					}
 					tag, fstype, mode := "project", "virtiofs", "rw"
+					if platform == "macos-apple" {
+						tag, fstype = "virtio-fs", "AppleVirtIOFS"
+					}
 					if readonly {
 						mode = "ro"
 					}

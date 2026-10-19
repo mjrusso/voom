@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -91,6 +92,18 @@ func (m *Manager) VerifyGuest(ctx context.Context, name string) (*GuestReport, e
 		} else {
 			data, _ := json.Marshal(ports)
 			check.Stdout = string(data)
+		}
+		report.Checks = append(report.Checks, check)
+	}
+	if image.Capabilities.VsockControl {
+		var problems []string
+		err := state.ReadJSON(filepath.Join(m.store.ControlShareDir(record), "status.json"), &problems)
+		_, reportErr := m.ReadGuestPorts(record)
+		check := GuestCheck{Name: "control-channel", OK: err == nil && reportErr == nil && len(problems) == 0, Stdout: strings.Join(problems, "\n")}
+		if err != nil {
+			check.Error = err.Error()
+		} else if reportErr != nil {
+			check.Error = reportErr.Error()
 		}
 		report.Checks = append(report.Checks, check)
 	}
@@ -229,7 +242,7 @@ for key in /etc/ssh/ssh_host_*_key.pub; do
  found=1
 done
 test "$found" -eq 1`})
-	if image.Capabilities.ControlShare {
+	if image.Capabilities.ControlShare && !image.Capabilities.VsockControl {
 		target := state.ControlShareGuestPath(record.Arch)
 		probes = append(probes, guestProbe{name: "control-share", script: share.GuestMountVerifyScript(record.MacOS != nil, state.ControlShareTag, target, false)})
 	}

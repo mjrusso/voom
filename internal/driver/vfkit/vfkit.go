@@ -66,15 +66,16 @@ type MacOSBoot struct {
 
 // ArgsConfig is the structured input used to build vfkit command-line arguments.
 type ArgsConfig struct {
-	CPUs      int
-	MemoryMiB int
-	Linux     *LinuxBoot
-	MacOS     *MacOSBoot
-	BootDisk  string
-	NetSock   string
-	MAC       string
-	RestSock  string
-	Shares    []Share
+	ControlSock string
+	CPUs        int
+	MemoryMiB   int
+	Linux       *LinuxBoot
+	MacOS       *MacOSBoot
+	BootDisk    string
+	NetSock     string
+	MAC         string
+	RestSock    string
+	Shares      []Share
 }
 
 // Args returns the vfkit command-line arguments for the supplied configuration.
@@ -127,6 +128,9 @@ func Args(c ArgsConfig) ([]string, error) {
 		"--device", "virtio-rng",
 		"--restful-uri", "unix://"+c.RestSock,
 	)
+	if c.ControlSock != "" {
+		args = append(args, "--device", "virtio-vsock,port=49152,socketURL="+c.ControlSock+",listen")
+	}
 	for _, sh := range c.Shares {
 		if sh.MountTag == "" || sh.SharedDir == "" {
 			continue

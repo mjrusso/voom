@@ -112,13 +112,14 @@ func GuestMountVerifyScript(macos bool, tag, target string, readonly bool) strin
 	if macos {
 		script += `mounts=$(/sbin/mount)
 prefix="$tag on $target ("
+ generic="virtio-fs on $target ("
 printf '%s\n' "$mounts" | (
  while IFS= read -r line; do
   case "$line" in
-   "$prefix"*)
-    options=${line#"$prefix"}
+   "$prefix"*|"$generic"*)
+    case "$line" in "$generic"*) options=${line#"$generic"} ;; *) options=${line#"$prefix"} ;; esac
     options=${options%)}
-    case ", $options, " in *", virtiofs, "*) ;; *) exit 1 ;; esac
+    case ", $options, " in *", virtiofs, "*|*", AppleVirtIOFS, "*) ;; *) exit 1 ;; esac
 `
 		return script + `    case ", $options, " in *", read-only, "*) actual=ro ;; *) actual=rw ;; esac
     test "$mode" = "$actual"

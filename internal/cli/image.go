@@ -79,10 +79,10 @@ func imageInspectCommand() *cobra.Command {
 			if outputFormat(cmd) == "json" {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\narch: %s\nformat: %s\ndisk: %s\ncreated: %s\nsource: %s\nsshUser: %s\nkernelPath: %s\ninitrdPath: %s\ninitPath: %s\nkernelCmdline: %s\ncapabilities: controlShare=%t guestPortReport=%t guestShareMount=%t nixosSwitch=%t\nreferencedBy: %s\n",
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\narch: %s\nformat: %s\ndisk: %s\ncreated: %s\nsource: %s\nsshUser: %s\nkernelPath: %s\ninitrdPath: %s\ninitPath: %s\nkernelCmdline: %s\ncapabilities: controlShare=%t guestPortReport=%t guestShareMount=%t nixosSwitch=%t vsockControl=%t\nreferencedBy: %s\n",
 				im.Name, im.ID, im.Arch, im.Format, deps.store.ImageDiskPath(im), im.CreatedAt.Format(time.RFC3339), im.Metadata.Source, im.Metadata.SSHUser,
 				im.Metadata.KernelPath, im.Metadata.InitrdPath, im.Metadata.InitPath, strings.Join(im.Metadata.KernelCmdline, " "),
-				im.Capabilities.ControlShare, im.Capabilities.GuestPortReport, im.Capabilities.GuestShareMount, im.Capabilities.NixosSwitch, strings.Join(refs, ","))
+				im.Capabilities.ControlShare, im.Capabilities.GuestPortReport, im.Capabilities.GuestShareMount, im.Capabilities.NixosSwitch, im.Capabilities.VsockControl, strings.Join(refs, ","))
 			if im.MacOS != nil {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "system: %s\nboot: macos\nimage-macos: %s (%s)\nbaked-resources: %d CPUs, %dMiB\napple-identity: %s\nplatform-state: %s\n", im.Arch, im.MacOS.Version, im.MacOS.Build, im.MacOS.CPUs, im.MacOS.MemoryMiB, im.MacOS.IdentitySHA256, deps.store.ImageDir(im.ID))
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "apple-minimum-resources: %d CPUs, %dMiB\n", im.MacOS.MinimumCPUs, im.MacOS.MinimumMemoryMiB)

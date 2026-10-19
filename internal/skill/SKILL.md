@@ -61,9 +61,9 @@ image exists.
 
 Image capabilities gate guest integrations:
 
-- Automatic forwarding requires `guestPortReport` and `controlShare`.
-- Mounting declared shares requires `controlShare` and `guestShareMount`.
-- An enabled explicit proxy attachment requires `controlShare`. A disabled
+- Automatic forwarding requires `guestPortReport` and `vsockControl` (or legacy Linux `controlShare`).
+- Mounting declared shares requires `guestShareMount` and `vsockControl` (or legacy Linux `controlShare`).
+- An enabled explicit proxy attachment requires `vsockControl` (or legacy Linux `controlShare`). A disabled
   attachment does not.
 - `voom nixos switch` requires `nixosSwitch`.
 

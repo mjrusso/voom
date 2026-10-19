@@ -26,6 +26,7 @@ type SeedConfig struct {
 	SSHUser             string
 	AuthorizedKeys      []string
 	InstallGuestHelpers bool
+	LegacyControlShare  bool
 }
 
 // NoCloudFiles holds the three byte payloads written to the NoCloud seed image (meta-data, user-data, network-config).
@@ -129,7 +130,15 @@ func BuildNoCloudFiles(cfg SeedConfig) (*NoCloudFiles, error) {
 	}
 	if cfg.InstallGuestHelpers {
 		writeFiles := make([]map[string]any, 0, len(helperFiles()))
-		for _, f := range helperFiles() {
+		files := helperFiles()
+		units := helperEnabledUnits
+		packages := helperPackages
+		if cfg.LegacyControlShare {
+			files = legacyHelperFiles()
+			units = []string{"run-voom.mount", "voom-portfwd.service", "voom-mount-shares.service"}
+			packages = []string{"jq", "gawk", "iproute2"}
+		}
+		for _, f := range files {
 			writeFiles = append(writeFiles, map[string]any{
 				"path":        f.Path,
 				"permissions": f.Permissions,
@@ -137,11 +146,14 @@ func BuildNoCloudFiles(cfg SeedConfig) (*NoCloudFiles, error) {
 			})
 		}
 		runcmd := [][]string{{"systemctl", "daemon-reload"}}
-		for _, unit := range helperEnabledUnits {
+		for _, unit := range units {
 			runcmd = append(runcmd, []string{"systemctl", "enable", "--now", unit})
 		}
-		userDataDoc["packages"] = helperPackages
+		userDataDoc["packages"] = packages
 		userDataDoc["bootcmd"] = [][]string{{"modprobe", "virtiofs"}}
+		if !cfg.LegacyControlShare {
+			userDataDoc["bootcmd"] = [][]string{{"modprobe", "virtiofs"}, {"modprobe", "vmw_vsock_virtio_transport"}, {"modprobe", "qemu_fw_cfg"}}
+		}
 		userDataDoc["write_files"] = writeFiles
 		userDataDoc["runcmd"] = runcmd
 	}

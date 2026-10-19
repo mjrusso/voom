@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/spf13/cobra"
 )
@@ -40,4 +41,18 @@ func runtimeWatchCommand() *cobra.Command {
 			return deps.vm.WatchRuntime(cmd.Context(), args[0], args[1])
 		},
 	}
+}
+
+func controlCommand() *cobra.Command {
+	return &cobra.Command{Use: "control <id> <cid>", Hidden: true, Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		cid, err := strconv.ParseUint(args[1], 10, 32)
+		if err != nil {
+			return err
+		}
+		deps, err := loadRuntimeDeps()
+		if err != nil {
+			return err
+		}
+		return deps.vm.WatchControl(cmd.Context(), args[0], uint32(cid))
+	}}
 }

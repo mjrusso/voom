@@ -15,7 +15,7 @@ const (
 	SSHLow = 2222
 	// SSHHigh is the inclusive high end of the SSH host-port allocation range.
 	SSHHigh = 2299
-	// ControlShareTag is the virtiofs share tag used for the host->guest control share.
+	// ControlShareTag stays reserved for images using the legacy virtiofs transport.
 	ControlShareTag  = "voom-control"
 	qemuGuestIP      = "192.168.127.3"
 	vfkitGuestIP     = "192.168.127.3"

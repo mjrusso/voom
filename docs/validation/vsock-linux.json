@@ -1,0 +1,85 @@
+{
+  "passed": true,
+  "error": null,
+  "checks": {
+    "initial-report": true,
+    "read-write-read-only-no-control-share": true,
+    "control-a-forward-18080": true,
+    "disconnected-report-and-forwards-removed": true,
+    "agent-reconnect-report": true,
+    "agent-reconnect-forward": true,
+    "listener-close-removes-forward": true,
+    "stopped-cid-released": true,
+    "cold-restart-report": true,
+    "cold-restart-shares": true,
+    "second-vm-report": true,
+    "concurrent-cids-and-ports": true,
+    "vm-configuration-isolation": true,
+    "egress-ca-replayed": true,
+    "egress-proxy-traffic": true,
+    "egress-disable-replayed": true,
+    "egress-enable-replayed": true,
+    "second-vm-forward": true,
+    "listener-isolation": true,
+    "driver-exit-cleans-helpers": true,
+    "driver-exit-releases-cid": true,
+    "stop-remove-cleanup": true
+  },
+  "environment": {
+    "host": "Linux",
+    "architecture": "x86_64",
+    "kernel": "6.18.55",
+    "qemu": "11.1.1",
+    "guest": "Debian 12 genericcloud amd64",
+    "caBundleBytes": 1170432
+  },
+  "evidenceDirectory": "/tmp/voom-vsock-5ucg8110",
+  "guestImageSHA256": "c0a478483fb1a6c098b79edd27e6ec25db63dd359896e87dcf5c91e07b5fd503",
+  "testedVoomSHA256": "1605051a59fcab48acb4393673aefd8036c29b006cdeb25eea42b71801d0a15f",
+  "baseline": {
+    "voom": "f46eda5315a57e0ba55b983b5201ac17649a225a",
+    "nixos-config": "bea35d0bfd0e7bc0d1664504316dbef690f4ce69",
+    "nixos-config-private": "39fe357474cf5f7af58e62b7cc019d2d3b64caa6"
+  },
+  "additionalNonrootValidation": {
+    "result": {
+      "passed": true,
+      "error": null,
+      "checks": {
+        "initial-report": true,
+        "read-write-read-only-no-control-share": true,
+        "control-a-forward-18080": true,
+        "disconnected-report-and-forwards-removed": true,
+        "agent-reconnect-report": true,
+        "agent-reconnect-forward": true,
+        "listener-close-removes-forward": true,
+        "stopped-cid-released": true,
+        "cold-restart-report": true,
+        "cold-restart-shares": true,
+        "second-vm-report": true,
+        "concurrent-cids-and-ports": true,
+        "vm-configuration-isolation": true,
+        "egress-ca-replayed": true,
+        "egress-proxy-traffic": true,
+        "egress-disable-replayed": true,
+        "egress-enable-replayed": true,
+        "second-vm-forward": true,
+        "listener-isolation": true,
+        "driver-exit-cleans-helpers": true,
+        "driver-exit-releases-cid": true,
+        "stop-remove-cleanup": true
+      }
+    },
+    "evidenceDirectory": "/tmp/voom-vsock-4ozvhi0m",
+    "selectedExecutable": "/home/mjrusso/git/github.com/mjrusso/voom/result/bin/voom",
+    "guestWriteUID": 1000,
+    "guestWriteGID": 100,
+    "exporterChanged": false
+  },
+  "rootlessShareConstraint": {
+    "defaultDebianIDs": "1000:1000 failed to create files with EPERM",
+    "matchingHostIDs": "1000:100 succeeded as a nonroot guest process",
+    "upstream": "https://gitlab.com/virtio-fs/virtiofsd/-/blob/main/README.md#running-as-non-privileged-user"
+  },
+  "macRuntime": "pending: requires an Apple Silicon Mac; Linux tests and cross-compilation do not verify runtime behavior"
+}

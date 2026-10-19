@@ -62,23 +62,22 @@ func TestBuildNoCloudFilesEmitsGuestHelpersPayloadWhenRequested(t *testing.T) {
 	userData := string(files.UserData)
 	for _, want := range []string{
 		"packages:",
-		"- jq",
-		"- gawk",
+		"- python3",
+		"- util-linux",
 		"- iproute2",
 		"bootcmd:",
 		"- modprobe",
 		"write_files:",
 		"/etc/modules-load.d/voom.conf",
-		"/usr/local/sbin/voom-portfwd",
-		"/usr/local/sbin/voom-mount-shares",
-		"/etc/systemd/system/run-voom.mount",
-		"/etc/systemd/system/voom-portfwd.service",
-		"/etc/systemd/system/voom-mount-shares.service",
+		"/usr/local/sbin/voom-guest",
+		"/usr/local/sbin/voom_control.py",
+
+		"/etc/systemd/system/voom-guest.service",
+
 		"runcmd:",
 		"daemon-reload",
-		"run-voom.mount",
-		"voom-portfwd.service",
-		"voom-mount-shares.service",
+
+		"voom-guest.service",
 	} {
 		if !strings.Contains(userData, want) {
 			t.Fatalf("user-data missing %q in helpers payload: %s", want, userData)
@@ -164,5 +163,16 @@ func TestWriteNoCloudImageProducesReadableCIDATAFilesystem(t *testing.T) {
 	}
 	if got := string(networkConfig); !strings.Contains(got, "version: 2") || !strings.Contains(got, "dhcp4: true") {
 		t.Fatalf("unexpected network-config: %s", got)
+	}
+}
+
+func TestLegacyHelperImageKeepsItsDeclaredTransport(t *testing.T) {
+	files, err := BuildNoCloudFiles(SeedConfig{Hostname: "legacy", InstanceID: "legacy", SSHUser: "root", AuthorizedKeys: []string{"ssh-ed25519 AAAATEST user@example"}, InstallGuestHelpers: true, LegacyControlShare: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(files.UserData)
+	if !strings.Contains(text, "voom-portfwd.service") || !strings.Contains(text, "run-voom.mount") || strings.Contains(text, "voom-guest.service") {
+		t.Fatalf("wrong legacy bootstrap: %s", text)
 	}
 }

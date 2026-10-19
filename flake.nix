@@ -77,6 +77,11 @@
         packages = {
           vfkit-source = vfkitSource;
           inherit gvproxy voom;
+          guest-control = pkgs.runCommand "voom-guest-control-v1" { } ''
+            mkdir -p $out
+            cp ${./internal/control/agent.py} $out/voom_control.py
+            cp ${./internal/control/guest_linux.py} $out/guest_linux.py
+          '';
           gvproxy-source = gvproxySource;
           default = voom;
         } // pkgs.lib.optionalAttrs pkgs.stdenv.isDarwin { inherit vfkit; };
@@ -89,6 +94,10 @@
             ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.terminal-notifier ];
         };
         checks.voom = voom;
+        checks.guest-control = pkgs.runCommand "check-voom-guest-control" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ${./internal/control} -p 'test_*.py'
+          touch $out
+        '';
         checks.voom-completions = pkgs.callPackage ./nix/completion-test.nix { inherit voom; };
         checks.gvproxy = gvproxy;
         checks.vfkit-source = pkgs.runCommand "check-vfkit-source" { nativeBuildInputs = [ pkgs.go ]; } ''

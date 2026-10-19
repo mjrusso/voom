@@ -17,7 +17,7 @@ import (
 
 // StartRecorded launches an executable path and records its identity before releasing it.
 func StartRecorded(exe string, args []string, logPath, recordPath string) error {
-	return startRecordedExe(exe, args, logPath, recordPath)
+	return startRecordedExe(exe, args, logPath, recordPath, nil)
 }
 
 // StartSelfRecorded launches the current executable and records its identity before releasing it.
@@ -26,10 +26,10 @@ func StartSelfRecorded(args []string, logPath, recordPath string) error {
 	if err != nil {
 		return err
 	}
-	return startRecordedExe(exe, args, logPath, recordPath)
+	return startRecordedExe(exe, args, logPath, recordPath, nil)
 }
 
-func startRecordedExe(exe string, args []string, logPath, recordPath string) error {
+func startRecordedExe(exe string, args []string, logPath, recordPath string, files []*os.File) error {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return err
 	}
@@ -38,6 +38,7 @@ func startRecordedExe(exe string, args []string, logPath, recordPath string) err
 		return err
 	}
 	cmd := exec.Command(exe, args...)
+	cmd.ExtraFiles = files
 	cmd.Stdout, cmd.Stderr, cmd.Stdin = log, log, nil
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -100,6 +101,8 @@ func matchesKind(pid int, kind string) (bool, error) {
 		return strings.Contains(base, "gvproxy"), nil
 	case "virtiofsd":
 		return strings.Contains(base, "virtiofsd"), nil
+	case "control":
+		return bytes.Contains(cmdline, []byte("debug\x00control\x00")), nil
 	case "runtime-watch":
 		parts := bytes.Split(cmdline, []byte{0})
 		for i := 1; i+1 < len(parts); i++ {
@@ -152,4 +155,9 @@ func processInfo(pid int) ([]byte, string, error) {
 // Alive reports whether the given PID corresponds to a live process the caller may signal.
 func Alive(pid int) bool {
 	return syscall.Kill(pid, 0) == nil
+}
+
+// StartRecordedFiles passes descriptors starting at fd 3; the caller retains its copies.
+func StartRecordedFiles(exe string, args []string, logPath, recordPath string, files []*os.File) error {
+	return startRecordedExe(exe, args, logPath, recordPath, files)
 }

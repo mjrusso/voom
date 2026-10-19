@@ -74,9 +74,8 @@ func (m *Manager) RemoveShare(ctx context.Context, name, tag string) error {
 	return m.store.SaveVM(vm)
 }
 
-// WriteControlFiles writes the control-share metadata and mounts manifest the
-// guest reads to discover its identity and configured shares.
-func (m *Manager) WriteControlFiles(vm *state.VMRecord) error {
+// WriteControlFiles stages configuration locally; only legacy images export this directory.
+func (m *Manager) WriteControlFiles(vm *state.VMRecord, vsock bool) error {
 	controlDir := m.store.ControlShareDir(vm)
 	if err := os.MkdirAll(controlDir, 0o755); err != nil {
 		return err
@@ -91,6 +90,10 @@ func (m *Manager) WriteControlFiles(vm *state.VMRecord) error {
 			"portsPath":  filepath.Join(guestPath, "ports.json"),
 			"mountsPath": filepath.Join(guestPath, "mounts.json"),
 		},
+	}
+	if vsock {
+		delete(payload, "controlShare")
+		payload["control"] = map[string]any{"transport": "vsock", "version": 1, "guestPath": guestPath, "egressPath": filepath.Join(guestPath, "egress.json"), "mountsPath": filepath.Join(guestPath, "mounts.json")}
 	}
 	if err := state.WriteJSONAtomic(filepath.Join(controlDir, "metadata.json"), payload); err != nil {
 		return err
@@ -209,8 +212,8 @@ func (m *Manager) stopVirtiofsd(rt state.RuntimeLayout) error {
 }
 
 func requireShareMount(im *state.ImageRecord) error {
-	if !im.Capabilities.ControlShare || !im.Capabilities.GuestShareMount {
-		return fmt.Errorf("share mounting unavailable for image %q: requires controlShare and guestShareMount capabilities; import an image with guest share-mount support", im.Name)
+	if (!im.Capabilities.ControlShare && !im.Capabilities.VsockControl) || !im.Capabilities.GuestShareMount {
+		return fmt.Errorf("share mounting unavailable for image %q: requires controlShare and guestShareMount (legacy) or vsockControl and guestShareMount capabilities; import an image with guest share-mount support", im.Name)
 	}
 	return nil
 }
@@ -223,6 +226,13 @@ func validateImageFeatures(vm *state.VMRecord, im *state.ImageRecord) error {
 	}
 	if vm.Network.AutoForward {
 		return RequireGuestPortReport(im, "auto-forwarding")
+	}
+	return nil
+}
+
+func validateImageControl(vm *state.VMRecord, im *state.ImageRecord) error {
+	if vm.MacOS != nil && im.Capabilities.ControlShare && !im.Capabilities.VsockControl {
+		return fmt.Errorf("MacOS guest services require vsockControl; test the revised agent in a disposable clone or re-bake image %q", im.Name)
 	}
 	return nil
 }

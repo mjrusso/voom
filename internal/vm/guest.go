@@ -31,11 +31,11 @@ func (m *Manager) WriteSeedImage(vm *state.VMRecord) error {
 		SSHUser:             vm.Access.SSHUser,
 		AuthorizedKeys:      keys,
 		InstallGuestHelpers: im.Metadata.InstallGuestHelpers,
+		LegacyControlShare:  im.Capabilities.ControlShare && !im.Capabilities.VsockControl,
 	})
 }
 
-// ReadGuestPorts loads and validates the guest-published listener report from
-// the control share.
+// ReadGuestPorts validates the host cache populated by vsock or a legacy control share.
 func (m *Manager) ReadGuestPorts(vm *state.VMRecord) (*GuestPortsReport, error) {
 	path := m.store.ControlSharePortsPath(vm)
 	var r GuestPortsReport
@@ -56,8 +56,8 @@ func (m *Manager) ReadGuestPorts(vm *state.VMRecord) (*GuestPortsReport, error) 
 // needed for the named guest-reporting feature.
 func RequireGuestPortReport(im *state.ImageRecord, feature string) error {
 	missing := []string{}
-	if !im.Capabilities.ControlShare {
-		missing = append(missing, "controlShare capability is false")
+	if !im.Capabilities.ControlShare && !im.Capabilities.VsockControl {
+		missing = append(missing, "controlShare capability is false and vsockControl capability is false")
 	}
 	if !im.Capabilities.GuestPortReport {
 		missing = append(missing, "guestPortReport capability is false")
@@ -65,7 +65,7 @@ func RequireGuestPortReport(im *state.ImageRecord, feature string) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%s unavailable for image %q: %s; import an image with the reserved voom-control share and voom-portfwd support", feature, im.Name, strings.Join(missing, "; "))
+	return fmt.Errorf("%s unavailable for image %q: %s; import an image with vsockControl and guest port-report support", feature, im.Name, strings.Join(missing, "; "))
 }
 
 // SSHBaseArgs returns the common ssh CLI flags (port, host key options, and

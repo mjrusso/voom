@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/mjrusso/voom/internal/control"
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/vm"
 )
@@ -105,7 +106,7 @@ func addCommands(root *cobra.Command) {
 
 func debugCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "debug", Short: "Debug voom internals"}
-	cmd.AddCommand(macosCloneProbeCommand(), runtimeWatchCommand(), helpersCommand())
+	cmd.AddCommand(macosCloneProbeCommand(), runtimeWatchCommand(), controlCommand(), helpersCommand())
 	cmd.AddCommand(&cobra.Command{
 		Use:   "paths",
 		Short: "Print resolved directories",
@@ -125,6 +126,10 @@ func debugCommand() *cobra.Command {
 func guestCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "guest", Short: "Inspect guest-reported state"}
 	cmd.AddCommand(guestVerifyCommand())
+	cmd.AddCommand(&cobra.Command{Use: "control-source", Hidden: true, Short: "Print the shared Python guest control module", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		_, err := fmt.Fprint(cmd.OutOrStdout(), control.Agent)
+		return err
+	}})
 	cmd.AddCommand(&cobra.Command{Use: "ports <name>", ValidArgsFunction: completeVMNames, Short: "Show guest listeners", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {

@@ -52,6 +52,7 @@ type ImageMetadata struct {
 // ImageCapabilities flags features the guest in this image supports.
 type ImageCapabilities struct {
 	MetadataDisk    bool `json:"metadataDisk"`
+	VsockControl    bool `json:"vsockControl"`
 	ControlShare    bool `json:"controlShare"`
 	GuestPortReport bool `json:"guestPortReport"`
 	GuestShareMount bool `json:"guestShareMount"`
