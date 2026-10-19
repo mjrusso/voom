@@ -140,6 +140,9 @@ func StateDiagnostics(st *state.Store) []Check {
 		if prev := vmSeenIDs[vmRec.ID]; prev != "" {
 			out = append(out, Check{"state-vm-duplicate-id", "warn", false, prev + " and " + name})
 		}
+		if err := vm.ValidateGuestDeclarations(vmRec); err != nil {
+			out = append(out, Check{"guest-config-" + name, "warn", false, err.Error()})
+		}
 		if vmRec.MacOS != nil {
 			if err := vmRec.MacOS.ValidateStorage(st.VMStorageDir(vmRec)); err != nil {
 				out = append(out, Check{"macos-storage-" + name, "warn", false, err.Error()})
@@ -231,6 +234,9 @@ func StateDiagnostics(st *state.Store) []Check {
 			out = append(out, Check{"state-image-duplicate-id", "warn", false, prev + " and " + name})
 		}
 		if im.MacOS != nil {
+			if err := state.ValidateMacOSCapabilities(im.Capabilities); err != nil {
+				out = append(out, Check{"macos-image-capabilities-" + name, "warn", false, err.Error()})
+			}
 			if err := im.MacOS.ValidateStorage(st.ImageDir(im.ID)); err != nil {
 				out = append(out, Check{"macos-image-storage-" + name, "warn", false, err.Error()})
 			}

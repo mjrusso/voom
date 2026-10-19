@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -125,4 +126,93 @@ func TestDoctorChecksVfkitExtensions(t *testing.T) {
 			t.Fatal("missing vfkit compatibility diagnostic")
 		}
 	}
+}
+
+func macosDiagnosticImage(t *testing.T) (*state.Store, *state.ImageRecord) {
+	t.Helper()
+	root := t.TempDir()
+	for _, kind := range []string{"CONFIG", "STATE", "CACHE", "RUNTIME"} {
+		t.Setenv("VOOM_"+kind+"_DIR", filepath.Join(root, kind))
+	}
+	st, err := state.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := t.TempDir()
+	for _, name := range []string{"image.json", "restore.json", "toolchain.json"} {
+		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "macos-bundle", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bundle, name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"disk.raw", "MachineIdentifier", "HardwareModel", "AuxiliaryStorage"} {
+		if err := os.WriteFile(filepath.Join(bundle, name), []byte(name), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	image, err := st.ImportImage(context.Background(), state.ImportOptions{Name: "macos", Src: bundle})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st, image
+}
+
+func TestStateDiagnosticsReportsUnsupportedMacOSImageCapabilities(t *testing.T) {
+	st, image := macosDiagnosticImage(t)
+	for _, unsupported := range []bool{false, true} {
+		image.Capabilities.MetadataDisk = unsupported
+		if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(image.ID), "image.json"), image); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.LoadImage(image.Name); err != nil {
+			t.Fatalf("image is unavailable for inspection: %v", err)
+		}
+		found := false
+		for _, check := range StateDiagnostics(st) {
+			if check.Name == "macos-image-capabilities-"+image.Name {
+				found = true
+				if check.OK || check.Severity != "warn" || !strings.Contains(check.Message, "re-bake") {
+					t.Fatalf("capability diagnostic = %+v", check)
+				}
+			}
+		}
+		if found != unsupported {
+			t.Fatalf("capability warning present = %t; unsupported = %t", found, unsupported)
+		}
+	}
+	if _, err := st.RemoveImage(image.Name, false); err != nil {
+		t.Fatalf("unsupported image cannot be removed: %v", err)
+	}
+}
+
+func TestStateDiagnosticsReportsUnsupportedMacOSDeclarationsWithoutImage(t *testing.T) {
+	st, image := macosDiagnosticImage(t)
+	record := &state.VMRecord{
+		SchemaVersion: 2, ID: "mac", Name: "mac", Driver: "vfkit", Arch: image.Arch,
+		MacOS: image.MacOS, StorageGeneration: strings.Repeat("a", 32),
+		Image:     state.VMImageRef{ID: image.ID, Name: image.Name},
+		Resources: state.VMResources{CPUs: image.MacOS.CPUs, MemoryMiB: image.MacOS.MemoryMiB},
+		Network:   state.VMNetwork{SSHBind: "127.0.0.1", SSHPort: 2222, AutoForward: true},
+	}
+	if err := st.SaveVM(record); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RegisterVM(record.Name, record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RemoveImage(image.Name, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range StateDiagnostics(st) {
+		if check.Name == "guest-config-"+record.Name {
+			if check.OK || check.Severity != "warn" || !strings.Contains(check.Message, "remove these declarations") {
+				t.Fatalf("declaration diagnostic = %+v", check)
+			}
+			return
+		}
+	}
+	t.Fatal("missing unsupported guest declaration diagnostic")
 }
