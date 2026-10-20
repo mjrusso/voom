@@ -1,7 +1,6 @@
 package process
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -87,10 +86,12 @@ func WaitForContext(ctx context.Context, ok func() bool, d time.Duration) error 
 }
 
 func matchesKind(pid int, kind string) (bool, error) {
-	cmdline, base, err := processInfo(pid)
+	withArgs := kind == "runtime-watch" || kind == "auto-forward"
+	parts, err := processInfo(pid, withArgs)
 	if err != nil {
 		return false, err
 	}
+	base := filepath.Base(strings.TrimPrefix(parts[0], "."))
 	switch kind {
 	case "qemu":
 		return strings.HasPrefix(base, "qemu-system"), nil
@@ -101,17 +102,15 @@ func matchesKind(pid int, kind string) (bool, error) {
 	case "virtiofsd":
 		return strings.Contains(base, "virtiofsd"), nil
 	case "runtime-watch":
-		parts := bytes.Split(cmdline, []byte{0})
 		for i := 1; i+1 < len(parts); i++ {
-			if string(parts[i]) == "debug" && string(parts[i+1]) == "watch-vm" {
+			if parts[i] == "debug" && parts[i+1] == "watch-vm" {
 				return true, nil
 			}
 		}
 		return false, nil
 	case "auto-forward":
-		parts := bytes.Split(cmdline, []byte{0})
 		for i := 1; i+2 < len(parts); i++ {
-			if string(parts[i]) == "forward" && string(parts[i+1]) == "auto" && string(parts[i+2]) == "watch" {
+			if parts[i] == "forward" && parts[i+1] == "auto" && parts[i+2] == "watch" {
 				return true, nil
 			}
 		}
@@ -119,34 +118,36 @@ func matchesKind(pid int, kind string) (bool, error) {
 	return false, nil
 }
 
-func processInfo(pid int) ([]byte, string, error) {
+func processInfo(pid int, withArgs bool) ([]string, error) {
 	if runtime.GOOS == "linux" {
 		cmdline, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		if len(cmdline) == 0 {
-			return nil, "", fmt.Errorf("empty process command for PID %d", pid)
+			return nil, fmt.Errorf("empty process command for PID %d", pid)
 		}
-		first := strings.TrimPrefix(string(bytes.Split(cmdline, []byte{0})[0]), ".")
-		return cmdline, filepath.Base(first), nil
+		parts := strings.Split(string(cmdline), "\x00")
+		if !withArgs {
+			parts = parts[:1]
+		}
+		return parts, nil
 	}
-	// Defensive timeout: ps should be near-instant; if it hangs, don't block forever.
+	field := "comm="
+	if withArgs {
+		field = "command="
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
-	if err != nil {
-		return nil, "", fmt.Errorf("process command unavailable for PID %d", pid)
-	}
+	out, err := exec.CommandContext(ctx, "ps", "-ww", "-p", strconv.Itoa(pid), "-o", field).Output()
 	line := strings.TrimSpace(string(out))
-	if line == "" {
-		return nil, "", fmt.Errorf("process command unavailable for PID %d", pid)
+	if err != nil || line == "" {
+		return nil, fmt.Errorf("process command unavailable for PID %d", pid)
 	}
-	fields := strings.Fields(line)
-	if len(fields) == 0 {
-		return nil, "", fmt.Errorf("process command unavailable for PID %d", pid)
+	if withArgs {
+		return strings.Fields(line), nil
 	}
-	return []byte(strings.Join(fields, "\x00")), filepath.Base(strings.TrimPrefix(fields[0], ".")), nil
+	return []string{line}, nil
 }
 
 // Alive reports whether the given PID corresponds to a live process the caller may signal.

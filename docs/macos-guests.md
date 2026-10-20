@@ -126,12 +126,12 @@ guest OS upgrades.
 
 ## Graphical sessions
 
-`voom start` opens a window titled with the VM name. The app uses the name
-`Voom: <vm name>`. Closing the window keeps the VM running and removes the
-app from the Dock and Command-Tab. Run `voom gui mac-dev` to restore the Dock
-entry and show the same display again. `gui` requires a running MacOS VM.
-Minimizing the window or switching to another app keeps its Dock entry
-available.
+`voom start` opens a window titled with the VM name. The Dock and menu bar
+show the app name `Voom: <vm name>`. Closing the window keeps the VM running
+and removes the app from the Dock and Command-Tab. Run `voom gui mac-dev` to
+restore the Dock entry and show the same display again. `gui` requires a
+running MacOS VM. Minimizing the window or switching to another app keeps its
+Dock entry available.
 
 Quit (Command-Q or the Dock menu) requests guest shutdown and keeps the app
 responsive while shutdown completes. If the guest refuses shutdown or remains
@@ -141,10 +141,16 @@ network helpers after confirmed vfkit exit, including after Force Quit or a
 crash. If process inspection fails, the watcher retains the helpers and
 reports the error in the `runtime-watch` log.
 
-The executable remains vfkit; the app name is set at startup without an
-app bundle. Restart a VM to use an updated vfkit build. MacOS guests
-require Voom's patched vfkit. An incompatible `VOOM_VFKIT` override is
-rejected before starting helpers.
+At each start, Voom creates an app bundle in the VM's runtime directory using a
+copy of the selected vfkit executable. _(Voom signs the bundle automatically
+with MacOS's built-in `codesign`, preserving vfkit's entitlements. It uses an
+ad-hoc signature, which does not require an Apple developer account, signing
+certificate, or Xcode installation.)_ App and window names are set at startup;
+restart the VM after renaming it to update them.
+
+MacOS guests require Voom's patched vfkit. An incompatible `VOOM_VFKIT`
+override is rejected before starting helpers. Restart a VM to use an updated
+vfkit build.
 
 GUI login uses the guest account's password, which Voom does not manage.
 

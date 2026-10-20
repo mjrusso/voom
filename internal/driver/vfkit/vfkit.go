@@ -17,7 +17,7 @@ import (
 	"github.com/mjrusso/voom/internal/host"
 )
 
-// GUIBrandingCapability requires application branding and Dock visibility control.
+// GUIBrandingCapability requires per-VM menu labels and Dock visibility control.
 const GUIBrandingCapability = "gui-branding-v1"
 
 var (

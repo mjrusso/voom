@@ -6,9 +6,9 @@ persistent GUI lifecycle options, display control over the existing REST
 socket, and a capability probe. It also enforces read-only directory shares
 in Virtualization.framework.
 The vendored Code-Hex/vz v3.7.1 GUI bridge is modified to hide and reopen its
-existing window, hide its Dock entry while the window is closed, apply GUI
-branding, retain the application event loop, and request graceful guest
-shutdown on Quit. Its MIT license is included in THIRD_PARTY_LICENSES.
+existing window, hide its Dock entry while the window is closed, set GUI menu
+labels, retain the application event loop, and request graceful guest shutdown
+on Quit. Its MIT license is included in THIRD_PARTY_LICENSES.
 
 Upstream: https://github.com/crc-org/vfkit
 GUI bindings: https://github.com/Code-Hex/vz

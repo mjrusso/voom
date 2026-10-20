@@ -31,13 +31,38 @@ Nix packages and release archives use the same source. The share patch adds host
 read-only directory exports and the `virtiofs-readonly-v1` capability. Release
 preparation uses Apple's toolchain selected by `xcode-select` and ad-hoc signs
 both Darwin architectures.
-The `gui-branding-v1` capability adds per-VM app names and Dock visibility
-control. The release smoke check verifies vfkit's capabilities and signature.
-In a logged-in graphical Mac session, test two running MacOS guests: check
-their `Voom: <vm name>` app names, close their windows, and confirm their Dock
-and Command-Tab entries disappear while the VMs keep running. Use `voom gui`
-to restore each window and its Dock entry. Check that minimizing a window or
-switching apps keeps its Dock entry. Also test Quit and Force Quit.
+
+The `gui-branding-v1` capability adds per-VM menu labels and Dock visibility
+control. Voom sets the app name shown by MacOS through a per-VM app bundle:
+it writes the name into `Info.plist` and copies vfkit into the bundle. Voom
+then applies an ad-hoc signature, preserving vfkit's entitlements. The release
+smoke check verifies the bundled vfkit's capabilities and signature.
+
+In a logged-in graphical MacOS session, test two running MacOS guests. Check
+that the Dock and menu bar show `Voom: <vm name>` for each guest. Close their
+windows and confirm that their Dock and Command-Tab entries disappear while
+the VMs keep running. Use `voom gui` to restore each window and its Dock entry.
+Check that minimizing a window or switching apps keeps its Dock entry. Test
+that Quit requests guest shutdown and Force Quit terminates the VM.
+
+To test app-name registration without a guest VM, run this command in a
+logged-in MacOS session with Go and Apple's SDK installed:
+
+```sh
+bash scripts/test-macos-app-name.sh
+```
+
+The script first confirms that setting the process name alone leaves the
+registered app name as `vfkit`. It then uses Voom's bundle builder to create
+two apps and checks that MacOS registers their distinct names. It also checks
+signatures, virtualization entitlements, process identification under paths
+containing spaces, long VM names, and name changes when a bundle is replaced.
+
+To check the registered app name of a running VM, use its vfkit PID and VM name:
+
+```sh
+bash scripts/check-macos-app-name.sh <vfkit-pid> <vm-name>
+```
 
 Use disposable directories so local tests do not touch your normal voom state:
 

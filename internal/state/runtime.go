@@ -72,6 +72,11 @@ func (r RuntimeLayout) VFKitRestSock() string {
 	return filepath.Join(r.dir, "vfkit.sock")
 }
 
+// GUIApp returns the per-VM display app bundle path.
+func (r RuntimeLayout) GUIApp() string {
+	return filepath.Join(r.dir, "display.app")
+}
+
 // EFIStore returns the path to the EFI variable store file.
 func (r RuntimeLayout) EFIStore() string {
 	return filepath.Join(r.dir, "efi-variable-store")

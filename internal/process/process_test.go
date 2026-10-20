@@ -109,9 +109,11 @@ func TestValidRecordMatchesExpectedProcessKinds(t *testing.T) {
 		args []string
 	}{
 		{"qemu-system-test", "qemu", nil},
+		{"vfkit-test", "vfkit", nil},
 		{"gvproxy-test", "gvproxy", nil},
 		{"virtiofsd-test", "virtiofsd", nil},
 		{"voom-test", "auto-forward", []string{"forward", "auto", "watch", "scratch"}},
+		{"voom-test", "runtime-watch", []string{"debug", "watch-vm", "scratch"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.kind, func(t *testing.T) {
@@ -128,13 +130,15 @@ func TestValidRecordMatchesExpectedProcessKinds(t *testing.T) {
 }
 
 func TestValidRecordRejectsUnrelatedProcess(t *testing.T) {
-	cmd := fakeNamedProcess(t, "not-voom-auto-forward")
+	cmd := fakeNamedProcess(t, "not-voom-auto-forward", "qemu-system-test", "vfkit", "gvproxy", "virtiofsd")
 	recordPath := filepath.Join(t.TempDir(), "service.process.json")
 	if err := Record(recordPath, cmd.Process.Pid); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := ValidRecord(recordPath, "auto-forward"); ok {
-		t.Fatal("unrelated process validated as auto-forward")
+	for _, kind := range []string{"qemu", "vfkit", "gvproxy", "virtiofsd", "auto-forward", "runtime-watch"} {
+		if _, ok := ValidRecord(recordPath, kind); ok {
+			t.Fatalf("unrelated process validated as %s", kind)
+		}
 	}
 }
 

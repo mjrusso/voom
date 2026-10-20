@@ -418,6 +418,10 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	if err := os.MkdirAll(cache, 0o755); err != nil {
 		return nil, err
 	}
+	driverExe, err = m.prepareGUIApp(ctx, vm, driverExe)
+	if err != nil {
+		return nil, err
+	}
 	for _, p := range rt.DriverSockets() {
 		_ = os.Remove(p)
 	}
