@@ -31,8 +31,13 @@ Nix packages and release archives use the same source. The share patch adds host
 read-only directory exports and the `virtiofs-readonly-v1` capability. Release
 preparation uses Apple's toolchain selected by `xcode-select` and ad-hoc signs
 both Darwin architectures.
-The release smoke check verifies vfkit's capabilities and signature. To test
-window close/reopen, Quit, and Force Quit, use a logged-in graphical Mac session.
+The `gui-branding-v1` capability adds per-VM app names and Dock visibility
+control. The release smoke check verifies vfkit's capabilities and signature.
+In a logged-in graphical Mac session, test two running MacOS guests: check
+their `Voom: <vm name>` app names, close their windows, and confirm their Dock
+and Command-Tab entries disappear while the VMs keep running. Use `voom gui`
+to restore each window and its Dock entry. Check that minimizing a window or
+switching apps keeps its Dock entry. Also test Quit and Force Quit.
 
 Use disposable directories so local tests do not touch your normal voom state:
 

@@ -165,7 +165,7 @@ func TestMacOSMinimalGuestPreparationAndVFKitCapabilities(t *testing.T) {
 		}
 	}
 	vfkit := filepath.Join(t.TempDir(), "vfkit")
-	if err := os.WriteFile(vfkit, []byte("#!/bin/sh\necho '{\"gui-lifecycle-v1\":1}'\n"), 0700); err != nil {
+	if err := os.WriteFile(vfkit, []byte("#!/bin/sh\necho '{\"gui-lifecycle-v1\":1,\"gui-branding-v1\":1}'\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("VOOM_VFKIT", vfkit)

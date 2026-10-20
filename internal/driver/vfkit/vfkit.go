@@ -17,6 +17,9 @@ import (
 	"github.com/mjrusso/voom/internal/host"
 )
 
+// GUIBrandingCapability requires application branding and Dock visibility control.
+const GUIBrandingCapability = "gui-branding-v1"
+
 var (
 	clientsMu sync.Mutex
 	clients   = map[string]*http.Client{}
@@ -56,12 +59,13 @@ type LinuxBoot struct {
 	SerialLog  string
 }
 
-// MacOSBoot identifies the persistent Apple platform files and display title.
+// MacOSBoot identifies the persistent Apple platform files and GUI identity.
 type MacOSBoot struct {
 	MachineIdentifier string
 	HardwareModel     string
 	AuxiliaryStorage  string
 	WindowTitle       string
+	ApplicationName   string
 }
 
 // ArgsConfig is the structured input used to build vfkit command-line arguments.
@@ -97,6 +101,7 @@ func Args(c ArgsConfig) ([]string, error) {
 			"--device", "virtio-input,keyboard",
 			"--device", "virtio-input,pointing",
 			"--gui", "--gui-keep-running", "--gui-title", boot.WindowTitle,
+			"--gui-app-name", boot.ApplicationName,
 		)
 	} else {
 		boot := c.Linux

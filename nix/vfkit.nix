@@ -16,6 +16,7 @@ buildGoModule {
   installCheckPhase = ''
     runHook preInstallCheck
     $out/bin/vfkit --capabilities | grep -q '"gui-lifecycle-v1":1'
+    $out/bin/vfkit --capabilities | grep -q '"gui-branding-v1":1'
     $out/bin/vfkit --capabilities | grep -q '"virtiofs-readonly-v1":1'
     runHook postInstallCheck
   '';

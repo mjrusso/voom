@@ -1,5 +1,5 @@
 diff --git a/cmd/vfkit/main.go b/cmd/vfkit/main.go
-index 397996b..7b6efea 100644
+index 397996b..a9b22f8 100644
 --- a/cmd/vfkit/main.go
 +++ b/cmd/vfkit/main.go
 @@ -1,3 +1,4 @@
@@ -28,12 +28,15 @@ index 397996b..7b6efea 100644
  	if vm.Config().Ignition != nil {
  		go func() {
  			if err := startIgnitionProvisionerServer(vm, vmConfig.Ignition.ConfigPath, vmConfig.Ignition.VsockPort); err != nil {
-@@ -284,7 +286,11 @@ func runVirtualMachine(vmConfig *config.VirtualMachine, vm *vf.VirtualMachine) e
+@@ -284,7 +286,14 @@ func runVirtualMachine(vmConfig *config.VirtualMachine, vm *vf.VirtualMachine) e
  	for _, gpuDev := range vmConfig.VirtioGPUDevices() {
  		if gpuDev.UsesGUI {
  			runtime.LockOSThread()
 -			err := vm.StartGraphicApplication(float64(gpuDev.Width), float64(gpuDev.Height))
-+			options := []vz.StartGraphicApplicationOption{vz.WithKeepRunningOnClose(opts.GUIKeepRunning)}
++			options := []vz.StartGraphicApplicationOption{
++				vz.WithKeepRunningOnClose(opts.GUIKeepRunning),
++				vz.WithApplicationName(opts.GUIAppName),
++			}
 +			if opts.GUITitle != "" {
 +				options = append(options, vz.WithWindowTitle(opts.GUITitle))
 +			}
@@ -42,7 +45,7 @@ index 397996b..7b6efea 100644
  			if err != nil {
  				return err
 diff --git a/cmd/vfkit/root.go b/cmd/vfkit/root.go
-index c7672c6..2f471f7 100644
+index c7672c6..3f94c8f 100644
 --- a/cmd/vfkit/root.go
 +++ b/cmd/vfkit/root.go
 @@ -1,6 +1,8 @@
@@ -61,16 +64,16 @@ index c7672c6..2f471f7 100644
 -	RunE: func(_ *cobra.Command, _ []string) error {
 +	RunE: func(cmd *cobra.Command, _ []string) error {
 +		if opts.Capabilities {
-+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]int{"gui-lifecycle-v1": 1, "virtiofs-readonly-v1": 1})
++			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]int{"gui-lifecycle-v1": 1, "gui-branding-v1": 1, "virtiofs-readonly-v1": 1})
 +		}
-+		if (opts.GUIKeepRunning || opts.GUITitle != "") && !opts.UseGUI {
-+			return fmt.Errorf("--gui-title and --gui-keep-running require --gui")
++		if (opts.GUIKeepRunning || opts.GUITitle != "" || opts.GUIAppName != "") && !opts.UseGUI {
++			return fmt.Errorf("--gui-title, --gui-app-name, and --gui-keep-running require --gui")
 +		}
  		// if vfkit stop execution by itself, i.e. when VM stops by guest OS
  		// we need to call ExecuteExitHandlers to clean up
  		defer util.ExecuteExitHandlers()
 diff --git a/pkg/cmdline/cmdline.go b/pkg/cmdline/cmdline.go
-index 70011df..0c890f8 100644
+index 70011df..1903c85 100644
 --- a/pkg/cmdline/cmdline.go
 +++ b/pkg/cmdline/cmdline.go
 @@ -1,3 +1,4 @@
@@ -78,24 +81,26 @@ index 70011df..0c890f8 100644
  package cmdline
  
  import (
-@@ -22,7 +23,10 @@ type Options struct {
+@@ -22,7 +23,11 @@ type Options struct {
  
  	LogLevel string
  
 -	UseGUI bool
 +	UseGUI         bool
 +	GUITitle       string
++	GUIAppName     string
 +	GUIKeepRunning bool
 +	Capabilities   bool
  
  	IgnitionPath string
  
-@@ -42,6 +46,9 @@ func AddFlags(cmd *cobra.Command, opts *Options) {
+@@ -42,6 +47,10 @@ func AddFlags(cmd *cobra.Command, opts *Options) {
  
  	cmd.Flags().VarP(&opts.Bootloader, "bootloader", "b", "bootloader configuration")
  	cmd.Flags().BoolVar(&opts.UseGUI, "gui", false, "display the contents of the virtual machine onto a graphical user interface")
 +	cmd.Flags().StringVar(&opts.GUITitle, "gui-title", "", "graphics window title")
-+	cmd.Flags().BoolVar(&opts.GUIKeepRunning, "gui-keep-running", false, "hide the window on close and request guest shutdown on Quit")
++	cmd.Flags().StringVar(&opts.GUIAppName, "gui-app-name", "", "graphics application name")
++	cmd.Flags().BoolVar(&opts.GUIKeepRunning, "gui-keep-running", false, "hide the window and Dock entry on close and request guest shutdown on Quit")
 +	cmd.Flags().BoolVar(&opts.Capabilities, "capabilities", false, "print Voom extension capabilities as JSON and exit")
  
  	cmd.MarkFlagsMutuallyExclusive("kernel", "bootloader")

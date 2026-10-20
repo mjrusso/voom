@@ -109,10 +109,16 @@ func contains(args []string, want string) bool {
 func TestMacOSBootUsesPersistentPlatformAndOmitsLinuxDevices(t *testing.T) {
 	args := mustArgs(t, ArgsConfig{
 		CPUs: 4, MemoryMiB: 8192, BootDisk: "/vm/disk.raw", NetSock: "/runtime/net.sock", RestSock: "/runtime/rest.sock", MAC: "02:12:34:56:78:9a",
-		MacOS: &MacOSBoot{MachineIdentifier: "/vm/MachineIdentifier", HardwareModel: "/vm/HardwareModel", AuxiliaryStorage: "/vm/AuxiliaryStorage", WindowTitle: "test-vm"},
+		MacOS: &MacOSBoot{MachineIdentifier: "/vm/MachineIdentifier", HardwareModel: "/vm/HardwareModel", AuxiliaryStorage: "/vm/AuxiliaryStorage", WindowTitle: "test-vm", ApplicationName: "Voom: test-vm"},
 	})
 	if !contains(args, "macos,machineIdentifierPath=/vm/MachineIdentifier,hardwareModelPath=/vm/HardwareModel,auxImagePath=/vm/AuxiliaryStorage") {
 		t.Fatalf("missing MacOS boot platform: %v", args)
+	}
+	for flag, value := range map[string]string{"--gui-title": "test-vm", "--gui-app-name": "Voom: test-vm"} {
+		i := slices.Index(args, flag)
+		if i < 0 || i+1 >= len(args) || args[i+1] != value {
+			t.Fatalf("missing %s %q: %v", flag, value, args)
+		}
 	}
 	joined := strings.Join(args, " ")
 	for _, forbidden := range []string{"seed.img", "virtio-serial", "efi,", "--kernel"} {
@@ -147,6 +153,8 @@ func TestExtensionsRequireCompatibleExecutable(t *testing.T) {
 	}{
 		{`{"gui-lifecycle-v1":1}`, []string{"gui-lifecycle-v1"}, true},
 		{`{}`, []string{"gui-lifecycle-v1"}, false},
+		{`{"gui-lifecycle-v1":1}`, []string{"gui-lifecycle-v1", GUIBrandingCapability}, false},
+		{`{"gui-lifecycle-v1":1,"gui-branding-v1":1}`, []string{"gui-lifecycle-v1", GUIBrandingCapability}, true},
 		{`not JSON`, []string{"gui-lifecycle-v1"}, false},
 		{`{"gui-lifecycle-v1":1}`, []string{"gui-lifecycle-v1", "virtiofs-readonly-v1"}, false},
 		{`{"gui-lifecycle-v1":1,"virtiofs-readonly-v1":1}`, []string{"gui-lifecycle-v1", "virtiofs-readonly-v1"}, true},

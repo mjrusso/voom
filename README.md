@@ -302,9 +302,10 @@ voom ssh mac-dev
 voom guest verify mac-dev
 ```
 
-Closing the window keeps the VM running. Run `voom gui mac-dev` or click its
-Dock icon to show it again. Quit requests guest shutdown; Force Quit
-terminates the VM immediately. The [graphical session
+The app uses the name `Voom: <vm name>`. Closing the window keeps the VM
+running and removes its Dock and Command-Tab entries. Run `voom gui mac-dev`
+to show it again. Quit requests guest shutdown; Force Quit terminates the VM
+immediately. The [graphical session
 guide](docs/macos-guests.md#graphical-sessions) describes shutdown behavior
 and helper cleanup.
 

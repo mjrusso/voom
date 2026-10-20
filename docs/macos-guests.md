@@ -126,9 +126,12 @@ guest OS upgrades.
 
 ## Graphical sessions
 
-`voom start` opens a window titled with the VM name. Closing the window hides
-it and keeps the VM running. Click its Dock icon or run `voom gui mac-dev` to
-show the same display again. `gui` requires a running MacOS VM.
+`voom start` opens a window titled with the VM name. The app uses the name
+`Voom: <vm name>`. Closing the window keeps the VM running and removes the
+app from the Dock and Command-Tab. Run `voom gui mac-dev` to restore the Dock
+entry and show the same display again. `gui` requires a running MacOS VM.
+Minimizing the window or switching to another app keeps its Dock entry
+available.
 
 Quit (Command-Q or the Dock menu) requests guest shutdown and keeps the app
 responsive while shutdown completes. If the guest refuses shutdown or remains
@@ -138,8 +141,8 @@ network helpers after confirmed vfkit exit, including after Force Quit or a
 crash. If process inspection fails, the watcher retains the helpers and
 reports the error in the `runtime-watch` log.
 
-The process name and Dock icon belong to vfkit; the window title uses the VM
-name at startup. Restart a VM to use an updated vfkit build. MacOS guests
+The executable remains vfkit; the app name is set at startup without an
+app bundle. Restart a VM to use an updated vfkit build. MacOS guests
 require Voom's patched vfkit. An incompatible `VOOM_VFKIT` override is
 rejected before starting helpers.
 

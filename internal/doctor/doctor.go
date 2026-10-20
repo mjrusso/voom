@@ -53,7 +53,7 @@ func Run(all bool) []Check {
 	}
 	add("qemu-img", runtime.GOOS == "linux", host.RequireExe("qemu-img"), "found")
 	if runtime.GOOS == "darwin" {
-		executable, err := vfkit.ResolveCompatible(context.Background(), "gui-lifecycle-v1", "virtiofs-readonly-v1")
+		executable, err := vfkit.ResolveCompatible(context.Background(), "gui-lifecycle-v1", vfkit.GUIBrandingCapability, "virtiofs-readonly-v1")
 		add("vfkit", true, err, "compatible: "+executable)
 	}
 	_, gvproxyErr := gvproxy.ResolveCompatible(context.Background(), gvproxy.GuestIsolationCapability)

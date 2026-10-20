@@ -56,6 +56,7 @@ func (m *Manager) vfkitArgs(vm *state.VMRecord, im *state.ImageRecord, shares []
 		dir := m.store.VMStorageDir(vm)
 		config.MacOS = &vfkit.MacOSBoot{
 			WindowTitle:       vm.Name,
+			ApplicationName:   "Voom: " + vm.Name,
 			MachineIdentifier: filepath.Join(dir, "MachineIdentifier"),
 			HardwareModel:     filepath.Join(dir, "HardwareModel"),
 			AuxiliaryStorage:  filepath.Join(dir, "AuxiliaryStorage"),
@@ -110,7 +111,7 @@ func requireDriver(ctx context.Context, vm *state.VMRecord) (string, error) {
 	case "vfkit":
 		var capabilities []string
 		if vm.MacOS != nil {
-			capabilities = append(capabilities, "gui-lifecycle-v1")
+			capabilities = append(capabilities, "gui-lifecycle-v1", vfkit.GUIBrandingCapability)
 		}
 		for _, sh := range vm.Shares {
 			if sh.Readonly {

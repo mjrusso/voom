@@ -39,6 +39,7 @@ test -x "$tmp/gvproxy"
 
 if [[ "$os" == darwin ]]; then
   "$tmp/vfkit" --capabilities | grep -q '"gui-lifecycle-v1":1'
+  "$tmp/vfkit" --capabilities | grep -q '"gui-branding-v1":1'
   "$tmp/vfkit" --capabilities | grep -q '"virtiofs-readonly-v1":1'
   /usr/bin/codesign --verify --strict "$tmp/vfkit"
   /usr/bin/codesign --display --entitlements :- "$tmp/vfkit" 2>/dev/null | grep -q '<key>com.apple.security.virtualization</key>'

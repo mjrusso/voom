@@ -107,7 +107,8 @@ func TestDoctorChecksVfkitExtensions(t *testing.T) {
 		capabilities string
 		ok           bool
 	}{
-		{`{"gui-lifecycle-v1":1,"virtiofs-readonly-v1":1}`, true},
+		{`{"gui-lifecycle-v1":1,"gui-branding-v1":1,"virtiofs-readonly-v1":1}`, true},
+		{`{"gui-lifecycle-v1":1,"virtiofs-readonly-v1":1}`, false},
 		{`{"gui-lifecycle-v1":1}`, false},
 	} {
 		if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf '%s\\n' '"+tc.capabilities+"'\n"), 0o700); err != nil {

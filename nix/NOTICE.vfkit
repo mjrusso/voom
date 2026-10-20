@@ -1,11 +1,13 @@
 Voom's vfkit build is based on crc-org/vfkit v0.6.4
 (f02465693e0cec8bb3b92a9d8324644c63a2e7f2), licensed under Apache-2.0.
 
-Voom modifies vfkit to expose window titles, persistent GUI lifecycle options,
-display control over the existing REST socket, and a capability probe. It also
-enforces read-only directory shares in Virtualization.framework.
+Voom modifies vfkit to expose window titles, application names,
+persistent GUI lifecycle options, display control over the existing REST
+socket, and a capability probe. It also enforces read-only directory shares
+in Virtualization.framework.
 The vendored Code-Hex/vz v3.7.1 GUI bridge is modified to hide and reopen its
-existing window, retain the application event loop, and request graceful guest
+existing window, hide its Dock entry while the window is closed, apply GUI
+branding, retain the application event loop, and request graceful guest
 shutdown on Quit. Its MIT license is included in THIRD_PARTY_LICENSES.
 
 Upstream: https://github.com/crc-org/vfkit

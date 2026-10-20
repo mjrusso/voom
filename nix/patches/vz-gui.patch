@@ -1,24 +1,33 @@
 diff --git a/virtualization.go b/virtualization.go
-index 0eab2bd..185c05b 100644
+index 0eab2bd..a4dcc64 100644
 --- a/virtualization.go
 +++ b/virtualization.go
-@@ -382,8 +382,9 @@ func (v *VirtualMachine) Stop() error {
+@@ -382,8 +382,10 @@ func (v *VirtualMachine) Stop() error {
  }
  
  type startGraphicApplicationOptions struct {
 -	title            string
 -	enableController bool
 +	title              string
++	applicationName    string
 +	enableController   bool
 +	keepRunningOnClose bool
  }
  
  // StartGraphicApplicationOption is an option for display graphics start.
-@@ -405,6 +406,25 @@ func WithController(enable bool) StartGraphicApplicationOption {
+@@ -405,6 +407,33 @@ func WithController(enable bool) StartGraphicApplicationOption {
  	}
  }
  
-+// WithKeepRunningOnClose hides the window on close and requests guest shutdown on Quit.
++// WithApplicationName sets the application name before AppKit starts.
++func WithApplicationName(name string) StartGraphicApplicationOption {
++	return func(options *startGraphicApplicationOptions) error {
++		options.applicationName = name
++		return nil
++	}
++}
++
++// WithKeepRunningOnClose hides the window and Dock entry on close and requests guest shutdown on Quit.
 +func WithKeepRunningOnClose(enable bool) StartGraphicApplicationOption {
 +	return func(options *startGraphicApplicationOptions) error {
 +		options.keepRunningOnClose = enable
@@ -40,16 +49,26 @@ index 0eab2bd..185c05b 100644
  // StartGraphicApplication starts an application to display graphics of the VM.
  //
  // You must to call runtime.LockOSThread before calling this method.
-@@ -429,6 +449,7 @@ func (v *VirtualMachine) StartGraphicApplication(width, height float64, opts ...
+@@ -422,6 +451,8 @@ func (v *VirtualMachine) StartGraphicApplication(width, height float64, opts ...
+ 	}
+ 	windowTitle := charWithGoString(defaultOpts.title)
+ 	defer windowTitle.Free()
++	applicationName := charWithGoString(defaultOpts.applicationName)
++	defer applicationName.Free()
+ 	C.startVirtualMachineWindow(
+ 		objc.Ptr(v),
+ 		v.dispatchQueue,
+@@ -429,6 +460,8 @@ func (v *VirtualMachine) StartGraphicApplication(width, height float64, opts ...
  		C.double(height),
  		windowTitle.CString(),
  		C.bool(defaultOpts.enableController),
 +		C.bool(defaultOpts.keepRunningOnClose),
++		applicationName.CString(),
  	)
  	return nil
  }
 diff --git a/virtualization_12.h b/virtualization_12.h
-index dd679a7..c5e1f8a 100644
+index dd679a7..4f13f0c 100644
 --- a/virtualization_12.h
 +++ b/virtualization_12.h
 @@ -45,4 +45,5 @@ void setKeyboardsVZVirtualMachineConfiguration(void *config,
@@ -58,23 +77,35 @@ index dd679a7..c5e1f8a 100644
  
 -void startVirtualMachineWindow(void *machine, void *queue, double width, double height, const char *title, bool enableController);
 \ No newline at end of file
-+void startVirtualMachineWindow(void *machine, void *queue, double width, double height, const char *title, bool enableController, bool keepRunningOnClose);
++void startVirtualMachineWindow(void *machine, void *queue, double width, double height, const char *title, bool enableController, bool keepRunningOnClose, const char *applicationName);
 +bool showVirtualMachineWindow(void *machine);
 \ No newline at end of file
 diff --git a/virtualization_12.m b/virtualization_12.m
-index 1ab6b52..12acdc6 100644
+index 1ab6b52..8726a10 100644
 --- a/virtualization_12.m
 +++ b/virtualization_12.m
-@@ -343,7 +343,7 @@ void *newVZUSBKeyboardConfiguration()
+@@ -343,14 +343,15 @@ void *newVZUSBKeyboardConfiguration()
      RAISE_UNSUPPORTED_MACOS_EXCEPTION();
  }
  
 -void startVirtualMachineWindow(void *machine, void *queue, double width, double height, const char *title, bool enableController)
-+void startVirtualMachineWindow(void *machine, void *queue, double width, double height, const char *title, bool enableController, bool keepRunningOnClose)
++void startVirtualMachineWindow(void *machine, void *queue, double width, double height, const char *title, bool enableController, bool keepRunningOnClose, const char *applicationName)
  {
-     // Create a shared app instance.
-     // This will initialize the global variable
-@@ -358,7 +358,8 @@ void startVirtualMachineWindow(void *machine, void *queue, double width, double
+-    // Create a shared app instance.
+-    // This will initialize the global variable
+-    // 'NSApp' with the application instance.
+-    [VZApplication sharedApplication];
+     if (@available(macOS 12, *)) {
+         @autoreleasepool {
++            // AppKit reads the process name when registering the application and building its menus.
++            if (applicationName[0] != '\0') {
++                [[NSProcessInfo processInfo] setProcessName:[NSString stringWithUTF8String:applicationName]];
++            }
++            [VZApplication sharedApplication];
+             NSString *windowTitle = [NSString stringWithUTF8String:title];
+             AppDelegate *appDelegate = [[[AppDelegate alloc]
+                 initWithVirtualMachine:(VZVirtualMachine *)machine
+@@ -358,7 +359,8 @@ void startVirtualMachineWindow(void *machine, void *queue, double width, double
                             windowWidth:(CGFloat)width
                            windowHeight:(CGFloat)height
                             windowTitle:windowTitle
@@ -84,7 +115,7 @@ index 1ab6b52..12acdc6 100644
  
              NSApp.delegate = appDelegate;
              [NSApp run];
-@@ -367,3 +368,24 @@ void startVirtualMachineWindow(void *machine, void *queue, double width, double
+@@ -367,3 +369,24 @@ void startVirtualMachineWindow(void *machine, void *queue, double width, double
      }
      RAISE_UNSUPPORTED_MACOS_EXCEPTION();
  }
@@ -125,7 +156,7 @@ index 3b81b28..e77944f 100644
  @end
 \ No newline at end of file
 diff --git a/virtualization_view.m b/virtualization_view.m
-index b57defc..c068477 100644
+index b57defc..17535cb 100644
 --- a/virtualization_view.m
 +++ b/virtualization_view.m
 @@ -29,18 +29,18 @@
@@ -193,7 +224,7 @@ index b57defc..c068477 100644
                  [NSApp terminate:nil];
              }
          });
-@@ -395,9 +401,73 @@ static NSString *const Space2ToolbarIdentifier = @"Space2";
+@@ -395,9 +401,75 @@ static NSString *const Space2ToolbarIdentifier = @"Space2";
      [NSApp activateIgnoringOtherApps:YES];
  }
  
@@ -204,6 +235,7 @@ index b57defc..c068477 100644
 +
 +- (void)showWindow
 +{
++    [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 +    [NSApp unhide:nil];
 +    [_window deminiaturize:nil];
 +    [_window makeKeyAndOrderFront:nil];
@@ -220,6 +252,7 @@ index b57defc..c068477 100644
 +{
 +    if (!_keepRunningOnClose) return YES;
 +    [sender orderOut:nil];
++    [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
 +    return NO;
 +}
 +
