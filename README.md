@@ -2,8 +2,6 @@
 
 ![voom — magic-free virtual machines](assets/voom.png)
 
-**`voom`**: *magic-free CLI for running local Linux and Mac VMs.*
-
 ---
 
 [Installation](#installation) · [Quickstarts](#getting-started) · [Guides and
@@ -13,9 +11,11 @@ reference](#guides-and-reference)
 
 Voom is a CLI for running and managing Linux and MacOS virtual machines.
 
+Voom does not run a persistent daemon and does not expose user-facing
+configuration files; instead all VM-related operations are managed via the CLI.
+
 Voom supports MacOS hosts (via [vfkit](https://github.com/crc-org/vfkit)) and
-Linux hosts (via [QEMU](https://www.qemu.org/)/[KVM](https://linux-kvm.org/)).
-In particular:
+Linux hosts (via [QEMU](https://www.qemu.org/)/[KVM](https://linux-kvm.org/)):
 
 - Linux hosts support running Linux guests
 - MacOS hosts support running Linux _and_ MacOS guests
@@ -24,9 +24,9 @@ For Linux guests on either supported host OS, Voom also supports:
 
 - Host directory shares and automatic TCP port forwarding, with per-VM port
   offsets to avoid collisions.
-- [HTTP proxy attachments](docs/proxy-attachments.md). External brokers such as
-  [Agent Vault](https://docs.agent-vault.dev/) and
-  [iron-proxy](https://docs.iron.sh/) can supply credentials without storing
+- [HTTP proxy attachments](docs/proxy-attachments.md). External brokers (such
+  as [Agent Vault](https://docs.agent-vault.dev/) and
+  [iron-proxy](https://docs.iron.sh/)) can supply credentials without storing
   them in the guest.
 
 On Linux hosts, Voom additionally supports:
