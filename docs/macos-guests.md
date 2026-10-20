@@ -27,8 +27,8 @@ services in MacOS images.
 
 ## Import and run
 
-Import the completed, stopped bundle using the SSH key authorized in the
-guest. Replace `~/vms/macos-bundle` with your bundle directory:
+With the source VM shut down, import its bundle using the SSH key authorized
+in the guest. Replace `~/vms/macos-bundle` with your bundle directory:
 
 ```bash
 voom image import macos ~/vms/macos-bundle \
@@ -143,9 +143,7 @@ name at startup. Restart a VM to use an updated vfkit build. MacOS guests
 require Voom's patched vfkit. An incompatible `VOOM_VFKIT` override is
 rejected before starting helpers.
 
-GUI login uses the guest account's password, which Voom does not manage. If
-the image builder generated a password you do not know, connect with `voom
-ssh` and run `sudo /usr/bin/passwd "$(id -un)"` inside the guest to set one.
+GUI login uses the guest account's password, which Voom does not manage.
 
 ## Supported guest features
 

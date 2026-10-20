@@ -2,31 +2,32 @@
 
 ![voom — magic-free virtual machines](assets/voom.png)
 
-**`voom`**: *run magic-free local VMs.*
+**`voom`**: *magic-free CLI for running local Linux and Mac VMs.*
+
+---
 
 [Installation](#installation) · [Quickstarts](#getting-started) · [Guides and
 reference](#guides-and-reference)
 
-----
+---
 
 Voom is a CLI for running and managing Linux and MacOS virtual machines.
-
-Voom has no daemon, and no user-edited configuration files. Commands manage VM
-state, logs, and runtime files in per-user directories.
 
 Voom supports MacOS hosts (via [vfkit](https://github.com/crc-org/vfkit)) and
 Linux hosts (via [QEMU](https://www.qemu.org/)/[KVM](https://linux-kvm.org/)).
 In particular:
 
 - Linux hosts support running Linux guests
-- MacOS hosts support MacOS and Linux guests
+- MacOS hosts support running Linux _and_ MacOS guests
 
 For Linux guests on either supported host OS, Voom also supports:
 
 - Host directory shares and automatic TCP port forwarding, with per-VM port
   offsets to avoid collisions.
-- [HTTP proxy attachments](docs/proxy-attachments.md). External brokers can
-  supply credentials without storing them in the guest.
+- [HTTP proxy attachments](docs/proxy-attachments.md). External brokers such as
+  [Agent Vault](https://docs.agent-vault.dev/) and
+  [iron-proxy](https://docs.iron.sh/) can supply credentials without storing
+  them in the guest.
 
 On Linux hosts, Voom additionally supports:
 
@@ -91,10 +92,9 @@ are not supported for either guest OS.
 
 Download a prebuilt archive for your platform from the [GitHub releases
 page](https://github.com/mjrusso/voom/releases), verify it against
-`checksums.txt`, and extract it into a directory on your `PATH`. Keep `voom`
-and its bundled helpers together. Every platform includes `gvproxy`. On Apple
-Silicon MacOS, also keep `vfkit` and `voom-macos-identity` there. Keep the
-extracted documentation layout intact so the README's local links work.
+`checksums.txt`, and extract it into a directory on your `PATH`. Keep `gvproxy`
+in the same directory as `voom`. On Apple Silicon MacOS, also keep `vfkit` and
+`voom-macos-identity` beside `voom`.
 
 > [!IMPORTANT]
 >
@@ -177,11 +177,13 @@ quickstart](#macos-guest).
 
 ### Linux guest
 
-These examples use official [Debian generic cloud
-images](https://cloud.debian.org/images/cloud/trixie/). Use `raw` on Apple
-Silicon MacOS and `qcow2` on Linux. The Debian `generic` image includes
-cloud-init, which reads Voom's NoCloud seed to configure SSH. Debian's
-similarly named `nocloud` image does not include cloud-init.
+For this quickstart, download the **`generic` variant** of the official
+[Debian cloud images](https://cloud.debian.org/images/cloud/trixie/), using
+`raw` on Apple Silicon MacOS and `qcow2` on Linux. Voom requires cloud-init
+for SSH-key injection and `--install-guest-helpers`. The `generic` image
+includes it; Debian's **`nocloud` variant does not**, so it will not work for
+this quickstart. Voom's NoCloud seed is a cloud-init data source, unrelated
+to Debian's `nocloud` image name.
 
 On an Apple Silicon Mac:
 
@@ -279,11 +281,11 @@ attachments](docs/proxy-attachments.md) for requirements and options.
 ### MacOS guest
 
 Use an Apple Silicon Mac running MacOS 27 or later with a logged-in graphical
-session. Prepare a stopped, installed MacOS bundle with SSH enabled and your
-public key authorized. Voom imports installed guests; it does not install
-MacOS. See the [MacOS guest guide](docs/macos-guests.md) for a builder and the
-bundle contract. All five guest-service capabilities in the bundle must be
-false.
+session. Start with an image bundle containing a VM with MacOS already
+installed, SSH enabled, and your public key authorized. Shut down that VM
+before importing the bundle. Voom does not install MacOS. See the
+[MacOS guest guide](docs/macos-guests.md) for an example builder and the bundle
+format.
 
 ```sh
 voom image import macos ~/vms/macos-bundle \
