@@ -108,7 +108,7 @@ export VOOM_RUNTIME_DIR="$PWD/.voom-test/runtime"
 ```
 
 To exercise the binary against a real VM, import an image and then create and
-start a VM. See [Getting Started](README.md#getting-started) for a full example;
+start a VM. See the [Linux quickstart](docs/linux-guests.md#getting-started) for a full example;
 the following works on an ARM64 Mac with a Debian image:
 
 ```sh

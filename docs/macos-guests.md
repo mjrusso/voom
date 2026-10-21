@@ -1,6 +1,7 @@
 # MacOS guests
 
-[README](../README.md) · [Command reference](commands/voom.md)
+[README](../README.md) · [Diagnostics and recovery](diagnostics-and-recovery.md) ·
+[Command reference](commands/voom.md)
 
 MacOS guests have separate host and guest requirements:
 
@@ -15,6 +16,17 @@ over SSH.
 
 Voom includes its patched vfkit 0.6.4 build in MacOS release archives and Nix
 packages; a separate vfkit installation is unnecessary.
+
+[Install Voom](../README.md#installation) before following the setup below.
+
+- [Prepare an image](#prepare-an-image)
+- [Import and run](#import-and-run)
+- [Guest verification](#guest-verification)
+- [Image bundle format](#image-bundle-format)
+- [Identity and resources](#identity-and-resources)
+- [Graphical sessions](#graphical-sessions)
+- [Supported guest features](#supported-guest-features)
+- [Reset a MacOS guest](#reset-a-macos-guest)
 
 ## Prepare an image
 
@@ -44,23 +56,53 @@ voom image import macos ~/vms/macos-bundle \
   --ssh-identity ~/.ssh/id_ed25519
 voom create mac-dev --image macos
 voom start mac-dev
-# Once the guest has booted and SSH is available:
-voom guest verify mac-dev
-voom ssh mac-dev
-voom stop mac-dev
-voom clone mac-dev mac-copy
 ```
 
 `--ssh-identity` takes the private key whose public key is already authorized
-in the guest. Voom records the host path to that key. It does not copy the key
-or change the guest's SSH access. MacOS SSH connections ignore host SSH
+in the guest. Supply `--ssh-user <account>` if the bundle does not declare
+the login account. Voom records the host path to the key. It does not copy the
+key or change the guest's SSH access. MacOS SSH connections ignore host SSH
 configuration.
+
+CPU and memory default to the baked allocation. `start` opens a graphical
+window; see [graphical sessions](#graphical-sessions) for closing and reopening
+it and shutting down the guest.
 
 `start` returns when vfkit's control socket is ready. The guest may still be
 booting; wait for SSH before running `guest verify`. Voom uses gvproxy to
 forward SSH to `192.168.127.3:22` in the guest. A standalone boot under
 another VM tool does not validate Voom's networking; check SSH after starting
 with Voom.
+
+Once SSH is available, verify the guest and connect:
+
+```sh
+voom guest verify mac-dev
+voom ssh mac-dev
+```
+
+To clone the guest, stop it first:
+
+```sh
+voom stop mac-dev
+voom clone mac-dev mac-copy
+```
+
+## Guest verification
+
+Run `voom guest verify mac-dev` after the guest has booted and SSH is available.
+It checks the driver process, SSH access, MacOS version and architecture,
+SSH host keys, boot information, and root access or passwordless sudo. It also
+checks the Apple platform files and collects hardware identity.
+
+Nix is optional. Verification checks installed Nix tools, the active system
+link, and the daemon when detected. MacOS guests have no control-share,
+listener-report, or automatic-forwarding checks.
+
+Verification runs once; it does not wait for boot or start missing services.
+It does not test the graphical window or lifecycle operations. See
+[verification results](diagnostics-and-recovery.md#guest-verification) for
+timeouts, JSON output, and handling failures.
 
 ## Image bundle format
 
@@ -179,8 +221,8 @@ suspend/resume. There is no serial console; use the window, SSH, or `voom logs
 
 Voom does not attach virtiofs shares, publish control-share configuration,
 start an automatic-forwarding watcher, or wait for guest-service reports for
-MacOS guests. `guest verify` checks SSH, architecture, platform storage,
-hardware identity, and other supported probes, including Nix when detected.
+MacOS guests. See [guest verification](#guest-verification) for the checks
+that apply to MacOS.
 
 Start, reset, and clone reject persisted shares, application forwards,
 automatic forwarding, and egress attachments before changing runtime or

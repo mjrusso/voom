@@ -1,10 +1,153 @@
 # Linux guests
 
-[README](../README.md) · [Command reference](commands/voom.md)
+[README](../README.md) · [Diagnostics and recovery](diagnostics-and-recovery.md) ·
+[Command reference](commands/voom.md)
 
 Linux guests run on Linux through QEMU/KVM and on Apple Silicon MacOS through
 vfkit. See the [support tables](../README.md#supported-hosts-and-guests) for
 host requirements and feature availability.
+
+- [Getting started](#getting-started)
+- [Guest verification](#guest-verification)
+- [Custom images](#custom-images)
+- [Image metadata](#image-metadata)
+- [Guest image contract](#guest-image-contract)
+- [Port forwarding](#port-forwarding)
+- [Networking details](#networking-details)
+- [Shares](#shares)
+- [NixOS switching](#nixos-switching)
+- [Disk growth](#disk-growth)
+- [USB passthrough](#usb-passthrough)
+- [PCI passthrough](#pci-passthrough)
+
+## Getting started
+
+[Install Voom](../README.md#installation) and its
+[host dependencies](../README.md#host-requirements) first.
+
+For this quickstart, download the **`generic` variant** of the official
+[Debian cloud images](https://cloud.debian.org/images/cloud/trixie/), using
+`raw` on Apple Silicon MacOS and `qcow2` on Linux. Voom requires cloud-init
+for SSH-key injection and `--install-guest-helpers`. The `generic` image
+includes it; Debian's **`nocloud` variant does not**, so it will not work for
+this quickstart. Voom's NoCloud seed is a cloud-init data source, unrelated
+to Debian's `nocloud` image name.
+
+On an Apple Silicon Mac:
+
+```bash
+URL=https://cloud.debian.org/images/cloud/trixie/latest
+IMG=debian-13-generic-arm64.raw
+curl -fLO "$URL/$IMG"
+curl -fLO "$URL/SHA512SUMS"
+shasum -a 512 --ignore-missing -c SHA512SUMS
+voom image import debian13 ./"$IMG" \
+  --ssh-user debian --arch aarch64-linux --install-guest-helpers
+```
+
+On an x86_64 Linux host:
+
+```bash
+URL=https://cloud.debian.org/images/cloud/trixie/latest
+IMG=debian-13-generic-amd64.qcow2
+curl -fLO "$URL/$IMG"
+curl -fLO "$URL/SHA512SUMS"
+sha512sum --ignore-missing -c SHA512SUMS
+voom image import debian13 ./"$IMG" \
+  --ssh-user debian --arch x86_64-linux --install-guest-helpers
+```
+
+On aarch64 Linux, use `debian-13-generic-arm64.qcow2` with `--arch
+aarch64-linux`.
+
+Have an SSH key pair available before starting. Voom uses the public keys at
+`~/.ssh/id_ed25519.pub`, `id_ecdsa.pub`, `id_rsa.pub`, or `id_dsa.pub`. Pass
+`--ssh-identity /path/to/private-key` at import to select a specific identity
+and its corresponding `.pub` file.
+
+`--install-guest-helpers` enables shares and automatic forwarding by
+installing Linux services on first boot. It requires systemd, cloud-init,
+virtiofs support, and network access to install `jq`, `gawk`, and `iproute2`.
+Omit the flag if you only need SSH and manual forwarding; skip the share and
+automatic-forwarding steps below in that case. On Linux hosts,
+the helpers also require host `virtiofsd` for the control share, even without
+user shares. To bake integrations into your own image, see
+[custom images](#custom-images).
+
+Create and start a VM:
+
+```sh
+voom create deb --image debian13
+voom start deb
+```
+
+Linux VMs default to 4 vCPUs and 4096 MiB of RAM. Use `--cpus` and `--memory`
+at creation to change them. `start` returns before the guest is ready for SSH;
+first boot also needs time for cloud-init. Once SSH is available:
+
+```sh
+voom ssh deb -- sudo cloud-init status --wait
+voom ssh deb -- uname -a
+voom guest verify deb
+voom ssh deb
+```
+
+To share a host directory, stop the VM and declare the share before starting
+it again. The host directory must already exist:
+
+```sh
+voom stop deb
+voom share add deb code ~/src/myproject /mnt/code
+voom start deb
+```
+
+Once SSH is available again, check the mount:
+
+```sh
+voom ssh deb -- ls /mnt/code
+```
+
+Enable automatic forwarding for eligible TCP listeners on all guest
+interfaces:
+
+```sh
+voom forward auto enable deb
+voom forward list deb
+```
+
+For example, a guest server on `0.0.0.0:8080` maps to host `127.0.0.1:8080`
+when that host port is available. Guest loopback listeners and SSH port 22 are
+excluded. A manual forward does not require listener reports:
+
+```sh
+voom forward add deb 8080 --host-port 18080
+```
+
+See [sharing](#shares), [forwarding](#port-forwarding), and
+[proxy attachments](proxy-attachments.md) for requirements and options.
+
+## Guest verification
+
+After SSH is available and first-boot setup has completed, run:
+
+```sh
+voom guest verify deb
+```
+
+Verification checks the driver process, SSH access, Linux version and
+architecture, SSH host keys, boot information, and root access or passwordless
+sudo. It also checks integrations enabled by the image and VM configuration:
+control-share mounts, declared share tags and access modes, recent listener
+reports, and the automatic-forwarding watcher. It does not send test traffic
+through forwarded ports.
+
+Nix is optional unless the image declares `nixosSwitch`. Verification checks
+installed Nix tools, the active system link, and the daemon when detected;
+images with `nixosSwitch` must pass all Nix checks.
+
+Verification runs once; it does not wait for boot or start missing services.
+See [verification results](diagnostics-and-recovery.md#guest-verification)
+for timeouts, JSON output, and handling failures.
 
 ## Custom images
 
@@ -192,7 +335,7 @@ virtiofs control-share mount).
 Automatic forwarding maps eligible TCP listeners on all guest interfaces to
 host loopback by default. It skips guest SSH port 22 and unavailable host
 ports. The following examples use the running Linux VM `deb` from the
-[quickstart](../README.md#linux-guest) and require Python 3 in the guest:
+[quickstart](#getting-started) and require Python 3 in the guest:
 
 ```bash
 voom forward auto enable deb
@@ -309,6 +452,19 @@ and `nixos-rebuild`; the guest needs root access or passwordless sudo for the
 configured target user. Voom runs `nixos-rebuild switch --target-host` over
 the VM's SSH mapping and records the successful switch. This command does not
 apply nix-darwin configurations to MacOS guests.
+
+## Disk growth
+
+Stop the VM before growing its disk. Replace `dev` with your VM name:
+
+```sh
+voom stop dev
+voom resources disk grow dev 20G
+voom start dev
+```
+
+This adds 20 GiB to the disk image. Expand the guest partition and filesystem
+as needed to use the additional space; Voom does not resize them.
 
 ## USB passthrough
 
