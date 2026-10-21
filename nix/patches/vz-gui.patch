@@ -186,66 +186,137 @@ diff --git a/virtualization_view.m b/virtualization_view.m
 +
  @end
 +
-+static const CGFloat AboutContentWidth = 300;
++static const CGFloat AboutContentWidth = 320;
  
  @implementation AboutViewController
  
-@@ -55,15 +57,38 @@
+@@ -54,64 +56,133 @@
+ - (void)loadView
  {
      self.view = [NSView new];
-     NSImageView *imageView = [NSImageView imageViewWithImage:[NSApp applicationIconImage]];
--    NSTextField *appLabel = [self makeLabel:[[NSProcessInfo processInfo] processName]];
 +    NSBundle *bundle = [NSBundle mainBundle];
 +    NSString *productName = [bundle objectForInfoDictionaryKey:@"VoomAppName"];
-+    NSString *instanceName = [[NSProcessInfo processInfo] processName];
-+    NSTextField *appLabel = [self makeLabel:productName ?: instanceName];
-     [appLabel setFont:[NSFont boldSystemFontOfSize:16]];
+     NSImageView *imageView = [NSImageView imageViewWithImage:[NSApp applicationIconImage]];
+-    NSTextField *appLabel = [self makeLabel:[[NSProcessInfo processInfo] processName]];
+-    [appLabel setFont:[NSFont boldSystemFontOfSize:16]];
 -    NSTextField *subLabel = [self makePoweredByLabel];
 -
 -    NSStackView *stackView = [NSStackView stackViewWithViews:@[
 -        imageView,
 -        appLabel,
 -        subLabel,
--    ]];
-+    NSTextField *creditsLabel = [self makeCreditsLabel];
-+
-+    NSMutableArray *views = [NSMutableArray arrayWithObjects:imageView, appLabel, nil];
++    NSTextField *appLabel = [self makeLabel:productName ?: [[NSProcessInfo processInfo] processName]];
++    [appLabel setFont:[NSFont systemFontOfSize:productName ? 26 : 16 weight:NSFontWeightBold]];
++    NSStackView *stackView = [NSStackView stackViewWithViews:@[imageView, appLabel]];
++    [stackView setOrientation:NSUserInterfaceLayoutOrientationVertical];
++    [stackView setDistribution:NSStackViewDistributionFill];
++    [stackView setSpacing:6];
++    [stackView setAlignment:NSLayoutAttributeCenterX];
++    [stackView setCustomSpacing:12 afterView:imageView];
 +    if (productName) {
-+        NSURL *projectURL = [NSURL URLWithString:[bundle objectForInfoDictionaryKey:@"VoomProjectURL"]];
-+        NSMutableAttributedString *title = [self makeHyperLink:productName withURL:projectURL];
-+        [title addAttribute:NSFontAttributeName value:appLabel.font range:NSMakeRange(0, title.length)];
-+        [appLabel setSelectable:YES];
-+        [appLabel setAllowsEditingTextAttributes:YES];
-+        [appLabel setAttributedStringValue:title];
 +        NSString *version = [bundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
-+        [views addObject:[self makeLabel:[NSString stringWithFormat:@"Version %@", version]]];
-+        [views addObject:[self makeLabel:instanceName]];
++        NSTextField *versionLabel = [self makeLabel:[NSString stringWithFormat:@"Version %@", version]];
++        [versionLabel setTextColor:[NSColor secondaryLabelColor]];
++        [stackView addArrangedSubview:versionLabel];
++        [stackView setCustomSpacing:24 afterView:versionLabel];
++        NSTextField *descriptionLabel = [self makeLabel:@"Voom is a CLI for running and managing Linux and MacOS virtual machines."];
++        [stackView addArrangedSubview:descriptionLabel];
++        [stackView setCustomSpacing:24 afterView:descriptionLabel];
 +        NSString *vmName = [bundle objectForInfoDictionaryKey:@"VoomVMName"];
-+        NSString *description = [NSString stringWithFormat:@"Voom manages local virtual machines from the command line.\n\nThis display app was created automatically for %@. Closing its window leaves the VM running. To reopen it, run voom gui %@.", vmName, vmName];
-+        [views addObject:[self makeLabel:description]];
++        NSTextField *guestLabel = [self makeLabel:[NSString stringWithFormat:@"This display app was created automatically by Voom for the MacOS guest named %@.", vmName]];
++        [stackView addArrangedSubview:guestLabel];
++        [stackView setCustomSpacing:12 afterView:guestLabel];
++        NSTextField *closingLabel = [self makeLabel:@"Closing the display window leaves the VM running."];
++        [stackView addArrangedSubview:closingLabel];
++        [stackView setCustomSpacing:12 afterView:closingLabel];
++        [stackView addArrangedSubview:[self makeLabel:@"To reopen the display, run:"]];
++        NSTextField *reopenLabel = [self makeLabel:[NSString stringWithFormat:@"voom gui %@", vmName]];
++        [reopenLabel setFont:[NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular]];
++        [reopenLabel setSelectable:YES];
++        [stackView addArrangedSubview:reopenLabel];
++        [stackView setCustomSpacing:24 afterView:reopenLabel];
++        NSTextField *projectLabel = [self makeLabel:@""];
++        [projectLabel setSelectable:YES];
++        [projectLabel setAllowsEditingTextAttributes:YES];
++        NSURL *projectURL = [NSURL URLWithString:[bundle objectForInfoDictionaryKey:@"VoomProjectURL"]];
++        [projectLabel setAttributedStringValue:[self makeHyperLink:@"Voom on GitHub" withURL:projectURL]];
++        [stackView addArrangedSubview:projectLabel];
++        NSMutableAttributedString *authorLinks = [self makeHyperLink:@"mjrusso.com" withURL:[NSURL URLWithString:@"https://mjrusso.com"]];
++        [authorLinks appendAttributedString:[[[NSAttributedString alloc] initWithString:@" · "] autorelease]];
++        [authorLinks appendAttributedString:[self makeHyperLink:@"@mjrusso" withURL:[NSURL URLWithString:@"https://twitter.com/mjrusso"]]];
++        NSTextField *authorLabel = [self makeLabel:@""];
++        [authorLabel setSelectable:YES];
++        [authorLabel setAllowsEditingTextAttributes:YES];
++        [authorLabel setAttributedStringValue:authorLinks];
++        [stackView addArrangedSubview:authorLabel];
++        [stackView setCustomSpacing:18 afterView:authorLabel];
 +    }
-+    [views addObject:creditsLabel];
++    NSTextField *creditsLabel = [self makeCreditsLabel];
++    [stackView addArrangedSubview:creditsLabel];
++    [stackView setCustomSpacing:12 afterView:creditsLabel];
 +    if (productName) {
 +        NSTextField *licenses = [self makeLabel:@""];
 +        [licenses setSelectable:YES];
 +        [licenses setAllowsEditingTextAttributes:YES];
 +        NSURL *licensesURL = [NSURL URLWithString:[bundle objectForInfoDictionaryKey:@"VoomLicensesURL"]];
 +        [licenses setAttributedStringValue:[self makeHyperLink:@"Third-party licenses" withURL:licensesURL]];
-+        [views addObject:licenses];
++        [stackView addArrangedSubview:licenses];
++        [stackView setCustomSpacing:18 afterView:licenses];
++        NSMutableAttributedString *copyright = [[[NSMutableAttributedString alloc]
++            initWithString:@"Copyright © 2026 " attributes:@{NSForegroundColorAttributeName: [NSColor secondaryLabelColor]}] autorelease];
++        [copyright appendAttributedString:[self makeHyperLink:@"Michael Russo" withURL:[NSURL URLWithString:@"https://mjrusso.com"]]];
++        [copyright appendAttributedString:[[[NSAttributedString alloc] initWithString:@"."] autorelease]];
++        NSMutableParagraphStyle *paragraph = [[[NSMutableParagraphStyle alloc] init] autorelease];
++        paragraph.alignment = NSTextAlignmentCenter;
++        [copyright addAttribute:NSParagraphStyleAttributeName value:paragraph range:NSMakeRange(0, copyright.length)];
++        [copyright addAttribute:NSFontAttributeName value:[NSFont systemFontOfSize:11] range:NSMakeRange(0, copyright.length)];
++        NSTextField *copyrightLabel = [self makeLabel:@""];
++        [copyrightLabel setSelectable:YES];
++        [copyrightLabel setAllowsEditingTextAttributes:YES];
++        [copyrightLabel setAttributedStringValue:copyright];
++        [stackView addArrangedSubview:copyrightLabel];
 +    }
-+    NSStackView *stackView = [NSStackView stackViewWithViews:views];
-     [stackView setOrientation:NSUserInterfaceLayoutOrientationVertical];
-     [stackView setDistribution:NSStackViewDistributionFillProportionally];
-     [stackView setSpacing:10];
-@@ -84,28 +109,35 @@
-                                                 constant:32],
-         [stackView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor
-                                                  constant:-32],
--        [stackView.widthAnchor constraintEqualToConstant:300]
++    [self.view addSubview:stackView];
++    [stackView setTranslatesAutoresizingMaskIntoConstraints:NO];
++    [imageView setTranslatesAutoresizingMaskIntoConstraints:NO];
++    for (NSView *view in stackView.arrangedSubviews) {
++        if ([view isKindOfClass:[NSTextField class]]) {
++            [view.widthAnchor constraintEqualToAnchor:stackView.widthAnchor].active = YES;
++        }
++    }
++    [NSLayoutConstraint activateConstraints:@[
++        [imageView.widthAnchor constraintEqualToConstant:productName ? 128 : 80],
++        [imageView.heightAnchor constraintEqualToConstant:productName ? 128 : 80],
++        [stackView.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:24],
++        [stackView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-24],
++        [stackView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:24],
++        [stackView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-24],
 +        [stackView.widthAnchor constraintEqualToConstant:AboutContentWidth]
      ]];
- }
- 
+-    [stackView setOrientation:NSUserInterfaceLayoutOrientationVertical];
+-    [stackView setDistribution:NSStackViewDistributionFillProportionally];
+-    [stackView setSpacing:10];
+-    [stackView setAlignment:NSLayoutAttributeCenterX];
+-    [stackView setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+-    [stackView setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationVertical];
+-
+-    [self.view addSubview:stackView];
+-
+-    [NSLayoutConstraint activateConstraints:@[
+-        [imageView.widthAnchor constraintEqualToConstant:80], // image size
+-        [imageView.heightAnchor constraintEqualToConstant:80], // image size
+-        [stackView.topAnchor constraintEqualToAnchor:self.view.topAnchor
+-                                            constant:4],
+-        [stackView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor
+-                                               constant:-16],
+-        [stackView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor
+-                                                constant:32],
+-        [stackView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor
+-                                                 constant:-32],
+-        [stackView.widthAnchor constraintEqualToConstant:300]
+-    ]];
+-}
+-
 -- (NSTextField *)makePoweredByLabel
 -{
 -    NSMutableAttributedString *poweredByAttr = [[[NSMutableAttributedString alloc]
@@ -260,17 +331,18 @@ diff --git a/virtualization_view.m b/virtualization_view.m
 -                          value:[NSFont systemFontOfSize:12]
 -                          range:NSMakeRange(0, [poweredByAttr length])];
 -
++}
++
 +- (NSTextField *)makeCreditsLabel
 +{
 +    BOOL branded = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"VoomAppName"] != nil;
 +    NSString *text = branded
-+        ? @"Voom uses vfkit and vz for virtualization, and gvproxy for networking.\n\nVirtualization is provided by Apple’s Virtualization.framework."
++        ? @"Voom uses vfkit and vz for virtualization,\nand gvproxy for networking."
 +        : @"Powered by github.com/Code-Hex/vz";
 +    NSDictionary *links = branded ? @{
 +        @"vfkit": @"https://github.com/crc-org/vfkit",
 +        @"vz": @"https://github.com/Code-Hex/vz",
-+        @"gvproxy": @"https://github.com/containers/gvisor-tap-vsock",
-+        @"Apple’s Virtualization.framework": @"https://developer.apple.com/documentation/virtualization"
++        @"gvproxy": @"https://github.com/containers/gvisor-tap-vsock"
 +    } : @{@"github.com/Code-Hex/vz": @"https://github.com/Code-Hex/vz"};
 +    NSMutableAttributedString *credits = [[[NSMutableAttributedString alloc]
 +        initWithString:text attributes:@{NSForegroundColorAttributeName: [NSColor labelColor]}] autorelease];
@@ -279,7 +351,10 @@ diff --git a/virtualization_view.m b/virtualization_view.m
 +        [credits replaceCharactersInRange:[text rangeOfString:name]
 +                    withAttributedString:[self makeHyperLink:name withURL:url]];
 +    }
-+    [credits addAttribute:NSFontAttributeName value:[NSFont systemFontOfSize:12]
++    NSMutableParagraphStyle *paragraph = [[[NSMutableParagraphStyle alloc] init] autorelease];
++    paragraph.alignment = NSTextAlignmentCenter;
++    [credits addAttribute:NSParagraphStyleAttributeName value:paragraph range:NSMakeRange(0, credits.length)];
++    [credits addAttribute:NSFontAttributeName value:[NSFont systemFontOfSize:11]
 +                    range:NSMakeRange(0, credits.length)];
      NSTextField *label = [self makeLabel:@""];
      [label setSelectable:YES];
@@ -289,7 +364,14 @@ diff --git a/virtualization_view.m b/virtualization_view.m
      return label;
  }
  
-@@ -121,6 +153,7 @@
+ - (NSTextField *)makeLabel:(NSString *)label
+ {
+     NSTextField *appLabel = [NSTextField labelWithString:label];
++    [appLabel setFont:[NSFont systemFontOfSize:12]];
+     [appLabel setTextColor:[NSColor labelColor]];
+     [appLabel setEditable:NO];
+     [appLabel setSelectable:NO];
+@@ -121,6 +192,7 @@
      [appLabel setAlignment:NSTextAlignmentCenter];
      [appLabel setLineBreakMode:NSLineBreakByWordWrapping];
      [appLabel setUsesSingleLineMode:NO];
@@ -297,7 +379,26 @@ diff --git a/virtualization_view.m b/virtualization_view.m
      [appLabel setMaximumNumberOfLines:20];
      return appLabel;
  }
-@@ -172,6 +205,9 @@
+@@ -135,13 +207,17 @@
+     [attrString addAttribute:NSLinkAttributeName value:[aURL absoluteString] range:range];
+ 
+     // make the text appear in blue
+-    [attrString addAttribute:NSForegroundColorAttributeName value:[NSColor blueColor] range:range];
++    [attrString addAttribute:NSForegroundColorAttributeName value:[NSColor linkColor] range:range];
+ 
+     // next make the text appear with an underline
+     [attrString addAttribute:NSUnderlineStyleAttributeName
+                        value:[NSNumber numberWithInt:NSUnderlineStyleSingle]
+                        range:range];
+ 
++    NSMutableParagraphStyle *paragraph = [[[NSMutableParagraphStyle alloc] init] autorelease];
++    paragraph.alignment = NSTextAlignmentCenter;
++    [attrString addAttribute:NSParagraphStyleAttributeName value:paragraph range:range];
++    [attrString addAttribute:NSFontAttributeName value:[NSFont systemFontOfSize:12] range:range];
+     [attrString endEditing];
+     return [attrString autorelease];
+ }
+@@ -172,6 +248,9 @@
      NSWindow *_window;
      NSToolbar *_toolbar;
      BOOL _enableController;
@@ -307,7 +408,7 @@ diff --git a/virtualization_view.m b/virtualization_view.m
      // Overlay for pause mode.
      NSVisualEffectView *_pauseOverlayView;
      // Zoom function properties.
-@@ -187,6 +223,7 @@
+@@ -187,6 +266,7 @@
                            windowHeight:(CGFloat)windowHeight
                             windowTitle:(NSString *)windowTitle
                        enableController:(BOOL)enableController
@@ -315,7 +416,7 @@ diff --git a/virtualization_view.m b/virtualization_view.m
  {
      self = [super init];
      _virtualMachine = virtualMachine;
-@@ -209,6 +246,7 @@
+@@ -209,6 +289,7 @@
      _window = [self createMainWindowWithTitle:windowTitle width:windowWidth height:windowHeight];
      _toolbar = [self createCustomToolbar];
      _enableController = enableController;
@@ -323,7 +424,7 @@ diff --git a/virtualization_view.m b/virtualization_view.m
      [_virtualMachine addObserver:self
                        forKeyPath:@"state"
                           options:NSKeyValueObservingOptionNew
-@@ -287,7 +325,8 @@
+@@ -287,7 +368,8 @@
              }
              // Terminating GUI Application from Guest and Host.
              // See: https://github.com/Code-Hex/vz/issues/150
@@ -333,7 +434,7 @@ diff --git a/virtualization_view.m b/virtualization_view.m
                  [NSApp terminate:nil];
              }
          });
-@@ -395,9 +434,75 @@
+@@ -395,9 +477,75 @@
      [NSApp activateIgnoringOtherApps:YES];
  }
  
@@ -410,7 +511,7 @@ diff --git a/virtualization_view.m b/virtualization_view.m
  }
  
  - (void)setupGraphicWindow
-@@ -819,9 +924,10 @@
+@@ -819,9 +967,10 @@
  {
      NSMenu *appMenu = [[[NSMenu alloc] init] autorelease];
      NSString *applicationName = [[NSProcessInfo processInfo] processName];
@@ -422,7 +523,7 @@ diff --git a/virtualization_view.m b/virtualization_view.m
                 action:@selector(openAboutWindow:)
          keyEquivalent:@""] autorelease];
  
-@@ -887,11 +993,11 @@
+@@ -887,11 +1036,11 @@
  - (NSMenu *)setupHelpMenu
  {
      NSMenu *helpMenu = [[[NSMenu alloc] initWithTitle:@"Help"] autorelease];
@@ -439,7 +540,7 @@ diff --git a/virtualization_view.m b/virtualization_view.m
      }
      [NSApp setHelpMenu:helpMenu];
      return helpMenu;
-@@ -915,6 +1021,12 @@
+@@ -915,6 +1064,12 @@
      [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:url]];
  }
  

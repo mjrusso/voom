@@ -42,7 +42,7 @@ the bundled vfkit's capabilities and signature.
 
 The GUI bridge reads Voom's project, Help, and license URLs, product name,
 version, and VM name from the app bundle. About explains the display app's
-role and credits vfkit, vz, gvproxy, and Apple's Virtualization.framework.
+role and credits vfkit, vz, and gvproxy.
 An unbranded vfkit retains its upstream menus. Build metadata in
 `internal/buildinfo` supplies both the CLI version output and app bundle.
 
@@ -69,7 +69,7 @@ that Quit requests guest shutdown and Force Quit terminates the VM.
 Check that Help contains Voom Help without a Report Issue item, and opens
 Voom's MacOS guest documentation. About Voom should explain the app's role,
 show the correct Voom version and VM name, and link to Voom, vfkit, vz,
-gvproxy, Apple's Virtualization.framework, and the third-party license guide.
+gvproxy, and the third-party license guide.
 
 To test app-name registration without a guest VM, run this command in a
 logged-in MacOS session with Go, Nix, and Apple's SDK installed:

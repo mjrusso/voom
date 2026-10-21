@@ -85,11 +85,15 @@ int main(int argc, const char *argv[])
         if (branded) {
             NSString *version = [NSString stringWithFormat:@"Version %s", argv[1]];
             require([text containsObject:version], @"About has the wrong Voom version");
-            require([text containsObject:instanceName], @"About is missing the VM name");
-            NSTextField *title = labels[[text indexOfObject:@"Voom"]];
-            id projectLink = [title.attributedStringValue attribute:NSLinkAttributeName atIndex:0 effectiveRange:NULL];
-            require([[projectLink description] isEqualToString:@"https://github.com/mjrusso/voom"], @"Voom title has the wrong project link");
-            require([[text componentsJoinedByString:@"\n"] containsString:@"voom gui menu-probe"], @"About is missing the command to reopen this VM");
+            require([text containsObject:@"This display app was created automatically by Voom for the MacOS guest named menu-probe."], @"About is missing the VM name");
+            NSUInteger projectIndex = [text indexOfObject:@"Voom on GitHub"];
+            require(projectIndex != NSNotFound, @"About is missing the Voom project link");
+            NSTextField *project = labels[projectIndex];
+            id projectLink = [project.attributedStringValue attribute:NSLinkAttributeName atIndex:0 effectiveRange:NULL];
+            require([[projectLink description] isEqualToString:@"https://github.com/mjrusso/voom"], @"Voom has the wrong project link");
+            NSUInteger reopenIndex = [text indexOfObject:@"voom gui menu-probe"];
+            require(reopenIndex != NSNotFound, @"About is missing the command to reopen this VM");
+            require([labels[reopenIndex] isSelectable], @"The reopen command must be selectable for copying");
             NSUInteger licensesIndex = [text indexOfObject:@"Third-party licenses"];
             require(licensesIndex != NSNotFound, @"About is missing the licenses link");
             NSTextField *licenses = labels[licensesIndex];
@@ -100,17 +104,31 @@ int main(int argc, const char *argv[])
                 if ([label.stringValue containsString:@"gvproxy"]) creditLabel = label;
             }
             require(creditLabel != nil, @"About is missing dependency credits");
+            NSParagraphStyle *paragraph = [creditLabel.attributedStringValue attribute:NSParagraphStyleAttributeName atIndex:0 effectiveRange:NULL];
+            require(paragraph != nil && paragraph.alignment == NSTextAlignmentCenter, @"Multiline credits must stay centered");
+            for (NSTextField *label in labels) {
+                if (![label.stringValue hasPrefix:@"Copyright ©"]) continue;
+                NSParagraphStyle *copyrightParagraph = [label.attributedStringValue attribute:NSParagraphStyleAttributeName atIndex:0 effectiveRange:NULL];
+                require(copyrightParagraph != nil && copyrightParagraph.alignment == NSTextAlignmentCenter, @"The entire copyright notice must be centered");
+            }
             NSDictionary *links = @{
+                @"Michael Russo": @"https://mjrusso.com",
+                @"mjrusso.com": @"https://mjrusso.com",
+                @"@mjrusso": @"https://twitter.com/mjrusso",
                 @"vfkit": @"https://github.com/crc-org/vfkit",
                 @"vz": @"https://github.com/Code-Hex/vz",
-                @"gvproxy": @"https://github.com/containers/gvisor-tap-vsock",
-                @"Apple’s Virtualization.framework": @"https://developer.apple.com/documentation/virtualization"
+                @"gvproxy": @"https://github.com/containers/gvisor-tap-vsock"
             };
             for (NSString *name in links) {
-                NSUInteger location = [creditLabel.stringValue rangeOfString:name].location;
-                require(location != NSNotFound, @"About is missing a dependency credit");
-                id link = [creditLabel.attributedStringValue attribute:NSLinkAttributeName atIndex:location effectiveRange:NULL];
-                require([[link description] isEqualToString:links[name]], @"Dependency credit has the wrong link");
+                BOOL found = NO;
+                for (NSTextField *label in labels) {
+                    NSUInteger location = [label.stringValue rangeOfString:name].location;
+                    if (location == NSNotFound) continue;
+                    id link = [label.attributedStringValue attribute:NSLinkAttributeName atIndex:location effectiveRange:NULL];
+                    require([[link description] isEqualToString:links[name]], @"About link has the wrong destination");
+                    found = YES;
+                }
+                require(found, @"About is missing a project, author, or dependency link");
             }
         } else {
             require([text containsObject:@"Powered by github.com/Code-Hex/vz"], @"Upstream About credits changed");
