@@ -19,7 +19,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/mjrusso/voom/internal/cli.version={{.Version}} -X github.com/mjrusso/voom/internal/cli.commit={{.Commit}} -X github.com/mjrusso/voom/internal/cli.date={{.Date}}
+      - -s -w -X github.com/mjrusso/voom/internal/buildinfo.Version={{.Version}} -X github.com/mjrusso/voom/internal/buildinfo.Commit={{.Commit}} -X github.com/mjrusso/voom/internal/buildinfo.Date={{.Date}}
   - id: gvproxy
     dir: .release/gvproxy
     main: ./cmd/gvproxy

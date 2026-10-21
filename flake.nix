@@ -46,9 +46,9 @@
           nativeBuildInputs = [ pkgs.installShellFiles ];
           vendorHash = "sha256-fxOjkVStDgZInA0/HEzi1/ZaI0XO+bc7sI94ok0QenY=";
           ldflags = [
-            "-X github.com/mjrusso/voom/internal/cli.version=${version}"
-            "-X github.com/mjrusso/voom/internal/cli.commit=${commit}"
-            "-X github.com/mjrusso/voom/internal/cli.date=${date}"
+            "-X github.com/mjrusso/voom/internal/buildinfo.Version=${version}"
+            "-X github.com/mjrusso/voom/internal/buildinfo.Commit=${commit}"
+            "-X github.com/mjrusso/voom/internal/buildinfo.Date=${date}"
           ];
           postInstall = ''
             installShellCompletion --cmd voom \

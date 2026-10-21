@@ -155,10 +155,9 @@ index 3b81b28..e77944f 100644
  @end
 \ No newline at end of file
 diff --git a/virtualization_view.m b/virtualization_view.m
-index b57defc..17535cb 100644
 --- a/virtualization_view.m
 +++ b/virtualization_view.m
-@@ -29,18 +29,18 @@
+@@ -29,19 +29,21 @@
  
  - (void)terminate:(id)sender
  {
@@ -177,17 +176,128 @@ index b57defc..17535cb 100644
 -    // This method is used to end up the event loop.
 -    // If no events are coming, the event loop will always be in a waiting state.
 -    [self postEvent:self.currentEvent atStart:NO];
+-}
 +    // A REST shutdown while hidden may have no current AppKit event.
 +    NSEvent *wake = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
 +                                     location:NSZeroPoint modifierFlags:0 timestamp:0
 +                                 windowNumber:0 context:nil subtype:0 data1:0 data2:0];
 +    [self postEvent:wake atStart:NO];
- }
++}
 +
  @end
++
++static const CGFloat AboutContentWidth = 300;
  
  @implementation AboutViewController
-@@ -172,6 +172,9 @@
+ 
+@@ -55,15 +57,38 @@
+ {
+     self.view = [NSView new];
+     NSImageView *imageView = [NSImageView imageViewWithImage:[NSApp applicationIconImage]];
+-    NSTextField *appLabel = [self makeLabel:[[NSProcessInfo processInfo] processName]];
++    NSBundle *bundle = [NSBundle mainBundle];
++    NSString *productName = [bundle objectForInfoDictionaryKey:@"VoomAppName"];
++    NSString *instanceName = [[NSProcessInfo processInfo] processName];
++    NSTextField *appLabel = [self makeLabel:productName ?: instanceName];
+     [appLabel setFont:[NSFont boldSystemFontOfSize:16]];
+-    NSTextField *subLabel = [self makePoweredByLabel];
+-
+-    NSStackView *stackView = [NSStackView stackViewWithViews:@[
+-        imageView,
+-        appLabel,
+-        subLabel,
+-    ]];
++    NSTextField *creditsLabel = [self makeCreditsLabel];
++
++    NSMutableArray *views = [NSMutableArray arrayWithObjects:imageView, appLabel, nil];
++    if (productName) {
++        NSURL *projectURL = [NSURL URLWithString:[bundle objectForInfoDictionaryKey:@"VoomProjectURL"]];
++        NSMutableAttributedString *title = [self makeHyperLink:productName withURL:projectURL];
++        [title addAttribute:NSFontAttributeName value:appLabel.font range:NSMakeRange(0, title.length)];
++        [appLabel setSelectable:YES];
++        [appLabel setAllowsEditingTextAttributes:YES];
++        [appLabel setAttributedStringValue:title];
++        NSString *version = [bundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
++        [views addObject:[self makeLabel:[NSString stringWithFormat:@"Version %@", version]]];
++        [views addObject:[self makeLabel:instanceName]];
++        NSString *vmName = [bundle objectForInfoDictionaryKey:@"VoomVMName"];
++        NSString *description = [NSString stringWithFormat:@"Voom manages local virtual machines from the command line.\n\nThis display app was created automatically for %@. Closing its window leaves the VM running. To reopen it, run voom gui %@.", vmName, vmName];
++        [views addObject:[self makeLabel:description]];
++    }
++    [views addObject:creditsLabel];
++    if (productName) {
++        NSTextField *licenses = [self makeLabel:@""];
++        [licenses setSelectable:YES];
++        [licenses setAllowsEditingTextAttributes:YES];
++        NSURL *licensesURL = [NSURL URLWithString:[bundle objectForInfoDictionaryKey:@"VoomLicensesURL"]];
++        [licenses setAttributedStringValue:[self makeHyperLink:@"Third-party licenses" withURL:licensesURL]];
++        [views addObject:licenses];
++    }
++    NSStackView *stackView = [NSStackView stackViewWithViews:views];
+     [stackView setOrientation:NSUserInterfaceLayoutOrientationVertical];
+     [stackView setDistribution:NSStackViewDistributionFillProportionally];
+     [stackView setSpacing:10];
+@@ -84,28 +109,35 @@
+                                                 constant:32],
+         [stackView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor
+                                                  constant:-32],
+-        [stackView.widthAnchor constraintEqualToConstant:300]
++        [stackView.widthAnchor constraintEqualToConstant:AboutContentWidth]
+     ]];
+ }
+ 
+-- (NSTextField *)makePoweredByLabel
+-{
+-    NSMutableAttributedString *poweredByAttr = [[[NSMutableAttributedString alloc]
+-        initWithString:@"Powered by "
+-            attributes:@{
+-                NSForegroundColorAttributeName : [NSColor labelColor]
+-            }] autorelease];
+-    NSURL *repositoryURL = [NSURL URLWithString:@"https://github.com/Code-Hex/vz"];
+-    NSMutableAttributedString *repository = [self makeHyperLink:@"github.com/Code-Hex/vz" withURL:repositoryURL];
+-    [poweredByAttr appendAttributedString:repository];
+-    [poweredByAttr addAttribute:NSFontAttributeName
+-                          value:[NSFont systemFontOfSize:12]
+-                          range:NSMakeRange(0, [poweredByAttr length])];
+-
++- (NSTextField *)makeCreditsLabel
++{
++    BOOL branded = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"VoomAppName"] != nil;
++    NSString *text = branded
++        ? @"Voom uses vfkit and vz for virtualization, and gvproxy for networking.\n\nVirtualization is provided by Apple’s Virtualization.framework."
++        : @"Powered by github.com/Code-Hex/vz";
++    NSDictionary *links = branded ? @{
++        @"vfkit": @"https://github.com/crc-org/vfkit",
++        @"vz": @"https://github.com/Code-Hex/vz",
++        @"gvproxy": @"https://github.com/containers/gvisor-tap-vsock",
++        @"Apple’s Virtualization.framework": @"https://developer.apple.com/documentation/virtualization"
++    } : @{@"github.com/Code-Hex/vz": @"https://github.com/Code-Hex/vz"};
++    NSMutableAttributedString *credits = [[[NSMutableAttributedString alloc]
++        initWithString:text attributes:@{NSForegroundColorAttributeName: [NSColor labelColor]}] autorelease];
++    for (NSString *name in links) {
++        NSURL *url = [NSURL URLWithString:links[name]];
++        [credits replaceCharactersInRange:[text rangeOfString:name]
++                    withAttributedString:[self makeHyperLink:name withURL:url]];
++    }
++    [credits addAttribute:NSFontAttributeName value:[NSFont systemFontOfSize:12]
++                    range:NSMakeRange(0, credits.length)];
+     NSTextField *label = [self makeLabel:@""];
+     [label setSelectable:YES];
+     [label setAllowsEditingTextAttributes:YES];
+-    [label setAttributedStringValue:poweredByAttr];
++    [label setAttributedStringValue:credits];
+     return label;
+ }
+ 
+@@ -121,6 +153,7 @@
+     [appLabel setAlignment:NSTextAlignmentCenter];
+     [appLabel setLineBreakMode:NSLineBreakByWordWrapping];
+     [appLabel setUsesSingleLineMode:NO];
++    [appLabel setPreferredMaxLayoutWidth:AboutContentWidth];
+     [appLabel setMaximumNumberOfLines:20];
+     return appLabel;
+ }
+@@ -172,6 +205,9 @@
      NSWindow *_window;
      NSToolbar *_toolbar;
      BOOL _enableController;
@@ -197,7 +307,7 @@ index b57defc..17535cb 100644
      // Overlay for pause mode.
      NSVisualEffectView *_pauseOverlayView;
      // Zoom function properties.
-@@ -187,6 +190,7 @@
+@@ -187,6 +223,7 @@
                            windowHeight:(CGFloat)windowHeight
                             windowTitle:(NSString *)windowTitle
                        enableController:(BOOL)enableController
@@ -205,7 +315,7 @@ index b57defc..17535cb 100644
  {
      self = [super init];
      _virtualMachine = virtualMachine;
-@@ -209,6 +213,7 @@
+@@ -209,6 +246,7 @@
      _window = [self createMainWindowWithTitle:windowTitle width:windowWidth height:windowHeight];
      _toolbar = [self createCustomToolbar];
      _enableController = enableController;
@@ -213,7 +323,7 @@ index b57defc..17535cb 100644
      [_virtualMachine addObserver:self
                        forKeyPath:@"state"
                           options:NSKeyValueObservingOptionNew
-@@ -287,7 +292,8 @@
+@@ -287,7 +325,8 @@
              }
              // Terminating GUI Application from Guest and Host.
              // See: https://github.com/Code-Hex/vz/issues/150
@@ -223,7 +333,7 @@ index b57defc..17535cb 100644
                  [NSApp terminate:nil];
              }
          });
-@@ -395,9 +401,75 @@ static NSString *const Space2ToolbarIdentifier = @"Space2";
+@@ -395,9 +434,75 @@
      [NSApp activateIgnoringOtherApps:YES];
  }
  
@@ -300,3 +410,45 @@ index b57defc..17535cb 100644
  }
  
  - (void)setupGraphicWindow
+@@ -819,9 +924,10 @@
+ {
+     NSMenu *appMenu = [[[NSMenu alloc] init] autorelease];
+     NSString *applicationName = [[NSProcessInfo processInfo] processName];
++    NSString *productName = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"VoomAppName"];
+ 
+     NSMenuItem *aboutMenuItem = [[[NSMenuItem alloc]
+-        initWithTitle:[NSString stringWithFormat:@"About %@", applicationName]
++        initWithTitle:[NSString stringWithFormat:@"About %@", productName ?: applicationName]
+                action:@selector(openAboutWindow:)
+         keyEquivalent:@""] autorelease];
+ 
+@@ -887,11 +993,11 @@
+ - (NSMenu *)setupHelpMenu
+ {
+     NSMenu *helpMenu = [[[NSMenu alloc] initWithTitle:@"Help"] autorelease];
+-    NSArray *menuItems = @[
+-        [[[NSMenuItem alloc] initWithTitle:@"Report issue" action:@selector(reportIssue:) keyEquivalent:@""] autorelease],
+-    ];
+-    for (NSMenuItem *menuItem in menuItems) {
+-        [helpMenu addItem:menuItem];
++    BOOL hasVoomHelp = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"VoomHelpURL"] != nil;
++    if (hasVoomHelp) {
++        [helpMenu addItem:[[[NSMenuItem alloc] initWithTitle:@"Voom Help" action:@selector(openVoomHelp:) keyEquivalent:@""] autorelease]];
++    } else {
++        [helpMenu addItem:[[[NSMenuItem alloc] initWithTitle:@"Report issue" action:@selector(reportIssue:) keyEquivalent:@""] autorelease]];
+     }
+     [NSApp setHelpMenu:helpMenu];
+     return helpMenu;
+@@ -915,6 +1021,12 @@
+     [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:url]];
+ }
+ 
++- (void)openVoomHelp:(id)sender
++{
++    NSString *url = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"VoomHelpURL"];
++    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:url]];
++}
++
+ - (void)openAboutWindow:(id)sender
+ {
+     AboutPanel *aboutPanel = [[[AboutPanel alloc] init] autorelease];

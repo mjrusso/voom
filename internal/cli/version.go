@@ -5,14 +5,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/spf13/cobra"
-)
+	"github.com/mjrusso/voom/internal/buildinfo"
 
-// Populated at build time via -ldflags -X.
-var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
+	"github.com/spf13/cobra"
 )
 
 // VersionInfo carries the build's version, commit, and date for display and JSON output.
@@ -24,7 +19,7 @@ type VersionInfo struct {
 
 // CurrentVersion returns the build's version metadata as set by -ldflags at build time.
 func CurrentVersion() VersionInfo {
-	return VersionInfo{Version: version, Commit: commit, Date: date}
+	return VersionInfo{Version: buildinfo.Version, Commit: buildinfo.Commit, Date: buildinfo.Date}
 }
 
 // WriteVersion renders v to w as text or JSON depending on format.

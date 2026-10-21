@@ -40,6 +40,12 @@ filename so the Dock uses the localized name. Voom then applies an ad-hoc
 signature, preserving vfkit's entitlements. The release smoke check verifies
 the bundled vfkit's capabilities and signature.
 
+The GUI bridge reads Voom's project, Help, and license URLs, product name,
+version, and VM name from the app bundle. About explains the display app's
+role and credits vfkit, vz, gvproxy, and Apple's Virtualization.framework.
+An unbranded vfkit retains its upstream menus. Build metadata in
+`internal/buildinfo` supplies both the CLI version output and app bundle.
+
 Voom embeds `assets/voom.icns` and writes it to `Contents/Resources` before
 signing. `CFBundleIconFile` selects it as the app icon. The original artwork is
 `assets/icon.png`. To regenerate the rounded icon with transparent margins,
@@ -60,9 +66,13 @@ Dock and Command-Tab entries disappear while the VMs keep running. Use
 `voom gui` to restore each window and its Dock entry.
 Check that minimizing a window or switching apps keeps its Dock entry. Test
 that Quit requests guest shutdown and Force Quit terminates the VM.
+Check that Help contains Voom Help without a Report Issue item, and opens
+Voom's MacOS guest documentation. About Voom should explain the app's role,
+show the correct Voom version and VM name, and link to Voom, vfkit, vz,
+gvproxy, Apple's Virtualization.framework, and the third-party license guide.
 
 To test app-name registration without a guest VM, run this command in a
-logged-in MacOS session with Go and Apple's SDK installed:
+logged-in MacOS session with Go, Nix, and Apple's SDK installed:
 
 ```sh
 bash scripts/test-macos-app-name.sh
@@ -76,6 +86,8 @@ but the Dock falls back to the bundle filename. The script also checks
 MacOS icon decoding, signatures, virtualization entitlements, process
 identification under paths containing spaces, long VM names, and name changes
 when a bundle is replaced.
+It compiles the patched GUI bridge to check Help menu contents, links, and About
+contents for both Voom apps and an unbranded vfkit without opening a browser.
 
 To check both names for a running VM, use its vfkit PID and VM name:
 

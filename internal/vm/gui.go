@@ -16,9 +16,8 @@ func (m *Manager) prepareGUIApp(ctx context.Context, vm *state.VMRecord, executa
 	if vm.MacOS == nil {
 		return executable, nil
 	}
-	appName := "Voom: " + vm.Name
 	bundleID := "io.github.mjrusso.voom.vm." + vm.ID
-	return buildGUIApp(ctx, executable, m.store.Runtime(vm).GUIApp(), appName, bundleID)
+	return buildGUIApp(ctx, executable, m.store.Runtime(vm).GUIApp(), vm.Name, bundleID)
 }
 
 // ShowGUI focuses the existing display without starting a VM.

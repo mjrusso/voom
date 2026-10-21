@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/mjrusso/voom/assets"
+	"github.com/mjrusso/voom/internal/buildinfo"
 )
 
 func TestGUIAppCopiesExecutableAndReplacesMetadata(t *testing.T) {
@@ -23,7 +24,7 @@ func TestGUIAppCopiesExecutableAndReplacesMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	bundle := filepath.Join(dir, "display app", "Voom-dev.app")
-	for _, name := range []string{"Voom: old", `Voom: dev <&> "test"`, "Voom: " + strings.Repeat("a", 247)} {
+	for _, name := range []string{"old", `dev <&> "test"`, strings.Repeat("a", 247)} {
 		executable, err := writeGUIApp(context.Background(), link, bundle, name, "io.github.mjrusso.voom.vm.test")
 		if err != nil {
 			t.Fatal(err)
@@ -31,8 +32,14 @@ func TestGUIAppCopiesExecutableAndReplacesMetadata(t *testing.T) {
 		values := readGUIAppPlist(t, filepath.Join(bundle, "Contents", "Info.plist"))
 		for key, want := range map[string]string{
 			"CFBundleName": "Voom-dev", "CFBundleDisplayName": "Voom-dev",
-			"CFBundleDevelopmentRegion": "en",
-			"CFBundleIdentifier":        "io.github.mjrusso.voom.vm.test", "CFBundleExecutable": "vfkit",
+			"CFBundleDevelopmentRegion":  "en",
+			"CFBundleShortVersionString": buildinfo.Version,
+			"VoomAppName":                "Voom",
+			"VoomVMName":                 name,
+			"VoomProjectURL":             "https://github.com/mjrusso/voom",
+			"VoomHelpURL":                "https://github.com/mjrusso/voom/blob/main/docs/macos-guests.md",
+			"VoomLicensesURL":            "https://github.com/mjrusso/voom/blob/main/docs/third-party-licenses.md",
+			"CFBundleIdentifier":         "io.github.mjrusso.voom.vm.test", "CFBundleExecutable": "vfkit",
 		} {
 			if values[key] != want {
 				t.Fatalf("%s = %q, want %q", key, values[key], want)
@@ -47,8 +54,8 @@ func TestGUIAppCopiesExecutableAndReplacesMetadata(t *testing.T) {
 		}
 		localized := readGUIAppPlist(t, filepath.Join(bundle, "Contents", "Resources", "en.lproj", "InfoPlist.strings"))
 		for _, key := range []string{"CFBundleName", "CFBundleDisplayName"} {
-			if localized[key] != name {
-				t.Fatalf("localized %s = %q, want %q", key, localized[key], name)
+			if localized[key] != "Voom: "+name {
+				t.Fatalf("localized %s = %q, want %q", key, localized[key], "Voom: "+name)
 			}
 		}
 		info, err := os.Lstat(executable)

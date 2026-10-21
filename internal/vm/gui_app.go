@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/mjrusso/voom/assets"
+	"github.com/mjrusso/voom/internal/buildinfo"
 	"github.com/mjrusso/voom/internal/state"
 )
 
@@ -23,6 +24,12 @@ const guiAppInfoPlist = `<?xml version="1.0" encoding="UTF-8"?>
 <key>CFBundleDisplayName</key><string>%[1]s</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>%[3]s</string>
+<key>VoomAppName</key><string>Voom</string>
+<key>VoomVMName</key><string>%[4]s</string>
+<key>VoomProjectURL</key><string>https://github.com/mjrusso/voom</string>
+<key>VoomHelpURL</key><string>https://github.com/mjrusso/voom/blob/main/docs/macos-guests.md</string>
+<key>VoomLicensesURL</key><string>https://github.com/mjrusso/voom/blob/main/docs/third-party-licenses.md</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>CFBundleDevelopmentRegion</key><string>en</string>
 <key>LSHasLocalizedDisplayName</key><true/>
@@ -38,8 +45,8 @@ const guiAppLocalizedNames = `<?xml version="1.0" encoding="UTF-8"?>
 `
 
 // The previous instance must have exited before replacing its bundle.
-func buildGUIApp(ctx context.Context, source, bundlePath, appName, bundleID string) (string, error) {
-	executable, err := writeGUIApp(ctx, source, bundlePath, appName, bundleID)
+func buildGUIApp(ctx context.Context, source, bundlePath, vmName, bundleID string) (string, error) {
+	executable, err := writeGUIApp(ctx, source, bundlePath, vmName, bundleID)
 	if err != nil {
 		return "", err
 	}
@@ -50,7 +57,7 @@ func buildGUIApp(ctx context.Context, source, bundlePath, appName, bundleID stri
 	return executable, nil
 }
 
-func writeGUIApp(ctx context.Context, source, bundlePath, appName, bundleID string) (string, error) {
+func writeGUIApp(ctx context.Context, source, bundlePath, vmName, bundleID string) (string, error) {
 	resolved, err := filepath.EvalSymlinks(source)
 	if err != nil {
 		return "", err
@@ -68,7 +75,7 @@ func writeGUIApp(ctx context.Context, source, bundlePath, appName, bundleID stri
 	}
 	// The Dock uses localized names only when the base names match the bundle filename.
 	baseName := strings.TrimSuffix(filepath.Base(bundlePath), ".app")
-	plist := fmt.Sprintf(guiAppInfoPlist, html.EscapeString(baseName), html.EscapeString(bundleID))
+	plist := fmt.Sprintf(guiAppInfoPlist, html.EscapeString(baseName), html.EscapeString(bundleID), html.EscapeString(buildinfo.Version), html.EscapeString(vmName))
 	if err := os.WriteFile(filepath.Join(bundlePath, "Contents", "Info.plist"), []byte(plist), 0o644); err != nil {
 		return "", err
 	}
@@ -80,7 +87,7 @@ func writeGUIApp(ctx context.Context, source, bundlePath, appName, bundleID stri
 	if err := os.WriteFile(filepath.Join(resourcesDir, "voom.icns"), assets.MacOSIcon, 0o644); err != nil {
 		return "", err
 	}
-	localizedNames := fmt.Sprintf(guiAppLocalizedNames, html.EscapeString(appName))
+	localizedNames := fmt.Sprintf(guiAppLocalizedNames, html.EscapeString("Voom: "+vmName))
 	if err := os.WriteFile(filepath.Join(localizedDir, "InfoPlist.strings"), []byte(localizedNames), 0o644); err != nil {
 		return "", err
 	}

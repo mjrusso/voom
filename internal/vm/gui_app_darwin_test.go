@@ -10,8 +10,48 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mjrusso/voom/internal/buildinfo"
 	"github.com/mjrusso/voom/internal/process"
 )
+
+func TestGUIAppMenus(t *testing.T) {
+	if os.Getenv("VOOM_TEST_GUI") != "1" {
+		t.Skip("set VOOM_TEST_GUI=1 in a logged-in MacOS session with Nix and Apple's SDK")
+	}
+	root := filepath.Join("..", "..")
+	command := exec.Command("nix", "build", "path:.#vfkit-source", "--no-link", "--print-out-paths")
+	command.Dir = root
+	command.Stderr = os.Stderr
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("prepare vfkit source: %v", err)
+	}
+	vendor := filepath.Join(strings.TrimSpace(string(output)), "vendor", "github.com", "Code-Hex", "vz", "v3")
+	dir := t.TempDir()
+	source := filepath.Join(dir, "vfkit")
+	output, err = exec.Command("/usr/bin/xcrun", "--sdk", "macosx", "clang", "-fno-objc-arc", "-fblocks",
+		"-framework", "Cocoa", "-framework", "Virtualization", "-I", vendor,
+		filepath.Join(root, "native", "macos-menus", "main.m"), filepath.Join(vendor, "virtualization_view.m"), "-o", source).CombinedOutput()
+	if err != nil {
+		t.Fatalf("compile menu probe: %v\n%s", err, output)
+	}
+	output, err = exec.Command("/usr/bin/codesign", "--force", "--sign", "-", source).CombinedOutput()
+	if err != nil {
+		t.Fatalf("sign menu probe: %v\n%s", err, output)
+	}
+	output, err = exec.Command(source).CombinedOutput()
+	if err != nil {
+		t.Fatalf("unbranded menus: %v\n%s", err, output)
+	}
+	executable, err := buildGUIApp(context.Background(), source, filepath.Join(dir, "display.app"), "menu-probe", "io.github.mjrusso.voom.menu-probe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err = exec.Command(executable, buildinfo.Version).CombinedOutput()
+	if err != nil {
+		t.Fatalf("Voom menus: %v\n%s", err, output)
+	}
+}
 
 func TestGUIAppRegistersPerVMNames(t *testing.T) {
 	if os.Getenv("VOOM_TEST_GUI") != "1" {
@@ -42,7 +82,7 @@ func TestGUIAppRegistersPerVMNames(t *testing.T) {
 	var instances []instance
 	for _, name := range []string{"first", "second"} {
 		bundle := filepath.Join(dir, name, "display.app")
-		executable, err := buildGUIApp(context.Background(), source, bundle, "Voom: "+name, "io.github.mjrusso.voom.probe."+name)
+		executable, err := buildGUIApp(context.Background(), source, bundle, name, "io.github.mjrusso.voom.probe."+name)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -76,7 +116,7 @@ function run(argv) {
 	bundle := filepath.Join(dir, "renamed", "display.app")
 	for _, name := range []string{"before-rename", "after-rename"} {
 		t.Run(name, func(t *testing.T) {
-			executable, err := buildGUIApp(context.Background(), source, bundle, "Voom: "+name, "io.github.mjrusso.voom.probe.renamed")
+			executable, err := buildGUIApp(context.Background(), source, bundle, name, "io.github.mjrusso.voom.probe.renamed")
 			if err != nil {
 				t.Fatal(err)
 			}

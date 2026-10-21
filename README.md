@@ -531,4 +531,7 @@ boundaries, and the release process, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Voom is released under the terms of the [MIT License](LICENSE).
 
+See [Third-party licenses](docs/third-party-licenses.md) for bundled components
+and the locations of their license notices.
+
 Copyright (c) 2026, [Michael Russo](https://mjrusso.com).
