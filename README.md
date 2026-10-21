@@ -155,8 +155,9 @@ For instructions on building from source, see
   [OpenSSH](https://www.openssh.com/) (`ssh`).
 - **MacOS**: an Apple Silicon Mac with [OpenSSH](https://www.openssh.com/)
   (`ssh`, included with MacOS).
-  MacOS guests additionally require MacOS 27 or later on the host and a logged-in
-  graphical session; see the [MacOS guest guide](docs/macos-guests.md).
+  MacOS guests additionally require MacOS 27 or later on both the host and
+  guest, with a logged-in graphical session on the host; see the
+  [MacOS guest guide](docs/macos-guests.md).
 
 Optional integrations: [virtiofsd](https://gitlab.com/virtio-fs/virtiofsd)
 (Linux/QEMU shares), [Nix](https://nixos.org/download/) and
@@ -281,8 +282,8 @@ attachments](docs/proxy-attachments.md) for requirements and options.
 ### MacOS guest
 
 Use an Apple Silicon Mac running MacOS 27 or later with a logged-in graphical
-session. Start with an image bundle containing a VM with MacOS already
-installed, SSH enabled, and your public key authorized. Shut down that VM
+session. Start with an image bundle containing MacOS 27 or later already
+installed, with SSH enabled and your public key authorized. Shut down that VM
 before importing the bundle. Voom does not install MacOS. See the
 [MacOS guest guide](docs/macos-guests.md) for an example builder and the bundle
 format.

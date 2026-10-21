@@ -2,10 +2,19 @@
 
 [README](../README.md) · [Command reference](commands/voom.md)
 
-MacOS guests require an Apple Silicon Mac running MacOS 27 or later and a
-logged-in graphical session. Voom includes its patched vfkit 0.6.4 build in
-MacOS release archives and Nix packages; a separate vfkit installation is
-unnecessary.
+MacOS guests have separate host and guest requirements:
+
+| Component | Requirement |
+|-----------|-------------|
+| Host | Apple Silicon Mac running MacOS 27 or later, with a logged-in graphical session |
+| Guest | ARM64 MacOS 27 or later, supplied as an installed image bundle |
+
+Voom rejects older host versions and image bundles that declare an older
+MacOS version. `voom guest verify` also checks the running guest's version
+over SSH.
+
+Voom includes its patched vfkit 0.6.4 build in MacOS release archives and Nix
+packages; a separate vfkit installation is unnecessary.
 
 ## Prepare an image
 
