@@ -41,8 +41,17 @@ signature, preserving vfkit's entitlements. The release smoke check verifies
 the bundled vfkit's capabilities and signature.
 
 Voom embeds `assets/voom.icns` and writes it to `Contents/Resources` before
-signing. `CFBundleIconFile` selects it as the app icon. Regenerate the `.icns`
-file when changing the icon artwork.
+signing. `CFBundleIconFile` selects it as the app icon. The original artwork is
+`assets/icon.png`. To regenerate the rounded icon with transparent margins,
+run this command with Python and Pillow installed:
+
+```sh
+python3 scripts/build-macos-icon.py
+```
+
+The script writes `assets/voom.icns` and preserves the source artwork. Commit
+both files so the icon can be regenerated. Python and Pillow are only needed
+when changing the icon; ordinary builds use the committed `.icns` file.
 
 In a logged-in graphical MacOS session, test two running MacOS guests. Check
 that the Dock and menu bar show `Voom: <vm name>` for each guest and that both
