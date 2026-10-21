@@ -13,6 +13,32 @@ Images must be explicitly imported, VMs must be created explicitly
 (referencing an existing, already-imported image), and optional guest
 integrations are always opt-in.
 
+## Commands overview
+
+| Area      | Commands                                                                                                |
+|-----------|---------------------------------------------------------------------------------------------------------|
+| Lifecycle | `create`, `start`, `stop`, `restart`, `remove`, `clone`, `rename`                                       |
+| Images    | `image import`, `image inspect`, `image list`, `image remove`                                           |
+| Compute   | `resources cpus`, `resources memory`                                                                    |
+| Disk      | `resources disk grow`, `disk reset`                                                                     |
+| Access    | `ssh`, `console`, `gui`, `ssh-config`, `config show`, `config ssh-port`                                 |
+| Forwards  | `forward add`, `forward remove`, `forward list`, `forward discover`, `forward auto enable`/`disable`/`offset` |
+| Egress    | `config egress set`, `config egress clear`, `config egress enable`, `config egress disable`             |
+| Shares    | `share add`, `share remove`, `share list`                                                               |
+| USB       | `usb discover`, `usb add`, `usb remove`, `usb list`                                                     |
+| PCI       | `pci discover`, `pci add`, `pci remove`, `pci list` (alias: `gpu`)                                      |
+| NixOS     | `nixos switch`                                                                                          |
+| Inspect   | `list`, `info`, `logs`, `events`, `doctor`, `guest verify`, `guest ports`, `debug paths`, `debug helpers`, `version`, `skill`            |
+
+The [support tables](../README.md#supported-hosts-and-guests) describe which commands
+apply to each host and guest. Most non-streaming commands accept `--output
+json`; `ssh`, `console`, and `nixos switch` use text or subprocess output.
+
+See the [command reference](commands/voom.md) for flags and arguments,
+and [aliases and shell
+completion](#aliases-and-shell-completion) for shortcuts and
+shell setup.
+
 ## Directories
 
 | Purpose                     | Linux default                                  | Override           |

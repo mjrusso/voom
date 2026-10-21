@@ -17,6 +17,7 @@ host requirements and feature availability.
 - [Shares](#shares)
 - [NixOS switching](#nixos-switching)
 - [Disk growth](#disk-growth)
+- [Reset a Linux guest](#reset-a-linux-guest)
 - [USB passthrough](#usb-passthrough)
 - [PCI passthrough](#pci-passthrough)
 
@@ -465,6 +466,27 @@ voom start dev
 
 This adds 20 GiB to the disk image. Expand the guest partition and filesystem
 as needed to use the additional space; Voom does not resize them.
+
+## Reset a Linux guest
+
+Reset stops the VM and replaces its disk with a copy of an imported Linux
+image, discarding guest changes. Replace `dev` with your VM name and `base`
+with the imported image name:
+
+```sh
+voom disk reset dev --image base
+voom start dev
+```
+
+The VM name, Voom ID, CPU and memory allocation, SSH port, and NIC MAC address
+stay the same. Shares and forwarding settings are preserved. Voom adopts the
+selected image's SSH user and identity path. Reset cannot switch a VM between
+Linux and MacOS.
+
+Wait for SSH and any first-boot setup to finish before running
+`voom guest verify dev`. See [guest verification](#guest-verification) for
+checks and [storage replacement](reference.md#storage-replacement) for commit
+and failure handling.
 
 ## USB passthrough
 

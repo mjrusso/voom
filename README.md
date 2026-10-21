@@ -182,42 +182,75 @@ then choose a guest OS:
 
 ## Common operations
 
-The following commands work for both guest OSes. Replace `dev` with your VM
-name and `base` with an imported image name. Each example covers a separate
-operation.
+These examples work for both Linux and MacOS guests. Replace `dev` with your VM
+name.
 
-### Lifecycle and resources
+### Inspect VMs
+
+List your VMs, then inspect one for its status, resource allocation, and SSH
+connection details:
 
 ```sh
 voom list
 voom info dev
-voom restart dev
+```
+
+### Stop or restart a VM
+
+Stop a VM when you have finished using it:
+
+```sh
+voom stop dev
+```
+
+Voom requests guest shutdown, then terminates remaining VM processes if
+needed. The guest disk is preserved. Run `voom start dev` to start it again,
+or `voom restart dev` to stop and start it in one command.
+
+### Clone a VM
+
+Stop the source VM, then copy it into a new VM named `dev-copy`:
+
+```sh
 voom stop dev
 voom clone dev dev-copy
+voom start dev-copy
+```
+
+The clone has its own disk containing the source's current guest state,
+including installed software, user accounts, credentials, and SSH host keys.
+It keeps the source's CPU and memory allocation but gets its own Voom ID,
+SSH port, and NIC MAC address. MacOS clones also get a new
+[Apple machine identifier](docs/macos-guests.md#identity-and-resources).
+
+For Linux guests, host directory shares, application forwards,
+automatic-forwarding settings, USB/PCI assignments, and proxy attachments are
+not copied. The clone command prints commands you can use to recreate shares,
+forwards, and device assignments. A proxy attachment needs a separate backend
+for the clone; see [proxy attachments](docs/proxy-attachments.md).
+
+### Change CPU or memory allocation
+
+Stop the VM before changing its allocation. This example sets 8 vCPUs and
+8192 MiB of RAM:
+
+```sh
+voom stop dev
 voom resources cpus dev 8
 voom resources memory dev 8192MiB
 voom start dev
 ```
 
-`stop` requests guest shutdown, then terminates remaining VM processes if
-needed. Stop and restart preserve the guest disk.
-
-Clone requires a stopped VM. CPU and memory changes, share changes, and SSH
-port changes also require a stopped VM. MacOS allocations must meet the
-recorded [resource minimums](docs/macos-guests.md#identity-and-resources).
-Linux clones omit shares, application forwards, automatic forwarding,
-USB/PCI assignments, and proxy attachments. The command prints instructions for recreating shares,
-forwards, and passthrough assignments; proxy attachments need a separate
-backend for the clone.
-
-See [disk growth](docs/linux-guests.md#disk-growth) for expanding a Linux
-guest disk.
+MacOS allocations must meet the recorded
+[resource minimums](docs/macos-guests.md#identity-and-resources).
+For expanding a Linux guest disk, see [disk growth](docs/linux-guests.md#disk-growth).
 
 ### SSH and file transfer
 
-Host SSH ports default to the first available port in 2222–2299 and are saved
-with the VM. Use `--ssh-port` at creation or `voom config ssh-port` while
-stopped to choose another port. SSH binds to host loopback by default.
+By default, Voom assigns each VM the first available host SSH port in the
+2222–2299 range and saves that port with the VM. Use `--ssh-port` at creation
+or `voom config ssh-port` while stopped to choose another port. SSH binds to
+host loopback by default.
 
 Use the generated OpenSSH configuration with standard SSH tools. Replace `dev`
 with your VM name; its SSH alias is `voom-dev`:
@@ -234,21 +267,7 @@ Regenerate the file after changing the VM's name, SSH port, user, or identity.
 See the [SSH reference](docs/reference.md#networking-and-ssh) for key handling
 and networking details.
 
-### Reset and removal
-
-Reset discards guest changes and replaces storage from an imported image:
-
-```sh
-voom disk reset dev --image base
-voom start dev
-```
-
-Reset preserves the VM name, Voom ID, resource allocation, SSH port, and NIC
-MAC, and adopts the selected image's SSH access metadata. It cannot switch
-between Linux and MacOS. A MacOS reset also replaces the Apple platform files
-and assigns a new Apple identity. See [storage
-replacement](docs/reference.md#storage-replacement) for commit and failure
-handling.
+### Remove a VM
 
 Remove a VM when it is no longer needed:
 
@@ -260,6 +279,10 @@ Removal asks for confirmation; use `--force` to skip it. Removing a VM deletes
 its storage, not its imported source image. VM disks are independent copies;
 see [image ownership and removal](docs/reference.md#images).
 
+To rebuild an existing VM from an image, see reset instructions for
+[Linux](docs/linux-guests.md#reset-a-linux-guest) or
+[MacOS](docs/macos-guests.md#reset-a-macos-guest).
+
 ## Guides and reference
 
 - [Linux guests](docs/linux-guests.md): getting started, verification, custom
@@ -270,35 +293,12 @@ see [image ownership and removal](docs/reference.md#images).
   logs, verification failures, and runtime cleanup.
 - [HTTP proxy attachments](docs/proxy-attachments.md): external credential
   brokers, guest configuration, security boundaries, and recovery.
-- [Reference](docs/reference.md): directories, helper selection, storage,
-  events, command effects, aliases, and shell completion.
+- [Reference](docs/reference.md): command overview, directories, helper
+  selection, storage, events, command effects, aliases, and shell completion.
 - [Command reference](docs/commands/voom.md): flags and arguments for every command.
 
-## Commands overview
-
-| Area      | Commands                                                                                                |
-|-----------|---------------------------------------------------------------------------------------------------------|
-| Lifecycle | `create`, `start`, `stop`, `restart`, `remove`, `clone`, `rename`                                       |
-| Images    | `image import`, `image inspect`, `image list`, `image remove`                                           |
-| Compute   | `resources cpus`, `resources memory`                                                                    |
-| Disk      | `resources disk grow`, `disk reset`                                                                     |
-| Access    | `ssh`, `console`, `gui`, `ssh-config`, `config show`, `config ssh-port`                                 |
-| Forwards  | `forward add`, `forward remove`, `forward list`, `forward discover`, `forward auto enable`/`disable`/`offset` |
-| Egress    | `config egress set`, `config egress clear`, `config egress enable`, `config egress disable`             |
-| Shares    | `share add`, `share remove`, `share list`                                                               |
-| USB       | `usb discover`, `usb add`, `usb remove`, `usb list`                                                     |
-| PCI       | `pci discover`, `pci add`, `pci remove`, `pci list` (alias: `gpu`)                                      |
-| NixOS     | `nixos switch`                                                                                          |
-| Inspect   | `list`, `info`, `logs`, `events`, `doctor`, `guest verify`, `guest ports`, `debug paths`, `debug helpers`, `version`, `skill`            |
-
-The [support tables](#supported-hosts-and-guests) describe which commands
-apply to each host and guest. Most non-streaming commands accept `--output
-json`; `ssh`, `console`, and `nixos switch` use text or subprocess output.
-
-See the [command reference](docs/commands/voom.md) for flags and arguments,
-and [aliases and shell
-completion](docs/reference.md#aliases-and-shell-completion) for shortcuts and
-shell setup.
+Use `voom --help` to list commands and `voom <command> --help` for a
+command's usage and options.
 
 ## Agent skill
 
