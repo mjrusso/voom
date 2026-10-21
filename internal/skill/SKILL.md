@@ -1,27 +1,29 @@
 ---
 name: voom
-description: "Create and control local Linux VMs with the Voom CLI on MacOS or Linux hosts. Use when the user mentions Voom, asks to operate a VM known to be managed by Voom, or explicitly asks to run work in a disposable local VM. Do not use merely because a task involves Linux, NixOS, testing, or isolation. Treat existing Voom VMs as user-owned state: inspect them freely, but do not disrupt or destroy them without explicit authorization."
+description: "Create and control local Linux and MacOS VMs with the Voom CLI. Use when the user mentions Voom, asks to operate a VM known to be managed by Voom, or explicitly asks to run work in a disposable local VM. Do not use merely because a task involves Linux, MacOS, NixOS, testing, or isolation. Treat existing Voom VMs as user-owned state: inspect them freely, but do not disrupt or destroy them without explicit authorization."
 ---
 
 # Voom
 
-Use Voom on MacOS or Linux hosts to create and control local Linux virtual
-machines. It uses vfkit on MacOS and QEMU/KVM on Linux. Voom has no daemon and
-follows an explicit image import, VM create, and VM start lifecycle.
+Use Voom to manage local Linux and MacOS virtual machines. Linux guests run
+with vfkit on MacOS hosts or QEMU/KVM on Linux hosts. MacOS guests require an
+Apple Silicon Mac running MacOS 27 or later, a graphical login session, and
+an installed ARM64 MacOS 27+ image bundle. Voom has no daemon: import an image,
+create a VM, then start it.
 
 ## Check the environment
 
-Check for `/run/voom` first. If it exists, you are already inside a Voom guest.
-Do not try to manage host VMs from that guest; explain the situation and stop.
-Otherwise, confirm that the `voom` binary is available on the host.
+Confirm that you are on the host and that `voom` is available. Linux guests
+with a control share have `/run/voom`. MacOS guests lack that marker;
+its absence does not prove you are on the host. Use the session context and
+confirm with the user if unclear. Do not manage host VMs from inside a guest.
 
-Run `voom doctor` before creating or starting a VM, and when diagnosing host
-problems. If a check fails, read its report; other Voom operations may still be
-available.
+Run `voom doctor` before creating or starting a VM and when diagnosing host
+problems. Read failures; inspection and cleanup may still be available.
 
 ## Use the installed CLI as the authority
 
-The installed binary defines the command syntax for its version. Start with:
+The installed binary defines its command syntax. Start with:
 
 ```bash
 voom --help
@@ -29,9 +31,8 @@ voom image --help
 voom forward --help
 ```
 
-Use `voom <command> --help` before an unfamiliar operation. Do not guess flags
-or run a mutating command without its required arguments merely to discover
-its syntax.
+Use `voom <command> --help` before unfamiliar operations. Do not discover
+syntax by guessing flags or running incomplete mutating commands.
 
 Use `--output json` when inspecting state or consuming results
 programmatically. In particular, do not parse Voom's human-readable tables:
@@ -46,25 +47,22 @@ voom usb list <name> --output json
 voom pci list <name> --output json
 ```
 
-Human- and subprocess-oriented commands such as `ssh`, `console`, and `logs`
-have command-specific payloads. The global output flag does not turn those
-payloads into structured JSON. When only success or failure matters, use the
-exit status.
+`ssh`, `console`, and `logs` have their own payloads; `--output json` does not
+convert those to JSON. Use exit status when only success or failure matters.
 
-## Select images by capability
+## Select images by guest OS and capability
 
-Inspect the available images instead of inventing an image name or assuming a
-host-specific default. Check that the image system matches the host
-architecture and that its capabilities support the task. If exactly one image
-is suitable, use it. Ask the user when the choice is ambiguous or no suitable
-image exists.
+Choose the guest OS from the task, not the host OS. Inspect available images;
+do not invent names or assume defaults. Match the guest OS to the task and
+architecture to the host, then check capabilities. `arch: aarch64-darwin`
+identifies a MacOS image or VM.
+Use the sole suitable image; ask when the choice is ambiguous or none fits.
 
-Image capabilities gate guest integrations:
+For Linux guests, image capabilities gate integrations:
 
 - Automatic forwarding requires `guestPortReport` and `controlShare`.
 - Mounting declared shares requires `controlShare` and `guestShareMount`.
-- An enabled explicit proxy attachment requires `controlShare`. A disabled
-  attachment does not.
+- Configuring or enabling an explicit proxy attachment requires `controlShare`.
 - `voom nixos switch` requires `nixosSwitch`.
 
 If a capability is absent, report the gap. Retrying cannot add a missing image
@@ -73,8 +71,8 @@ capability.
 ## Treat start as asynchronous
 
 `voom start` returns when the VM driver is reachable, before the guest has
-necessarily booted. SSH, guest port reports, and automatic forwards may appear
-later. Do not run a dependent SSH command immediately after `start`.
+necessarily booted. Wait for SSH before dependent work. Linux guest port
+reports and automatic forwards may arrive later still.
 
 After starting, poll `voom ssh <name> -- true` every two seconds with a
 two-minute deadline enforced by the agent's command runner. Retry connection
@@ -82,20 +80,20 @@ failures while the guest boots, but leave SSH errors visible so configuration
 and authentication failures are not hidden. Do not rely on the external
 `timeout` command: it is not installed by default on every MacOS host.
 
-`voom events` provides best-effort VM, forwarding, and egress change
-notifications, not guest or SSH readiness. Events are wake-up hints and must
-be reconciled with current state.
+After SSH is ready, use `voom guest verify <name> --output json` to check guest
+health and supported integrations. It runs once without boot retries and
+checks Nix when detected; MacOS guests do not require Nix.
 
-An empty `voom forward list` immediately after start may mean "not yet."
-Automatic forwards appear only after the guest reports listeners and the host
-reconciles them.
+`voom events` gives best-effort change notifications, not readiness. Reconcile
+events with current state. On Linux guests, an empty forward list after start
+can mean listener reports and reconciliation are still pending.
 
 ## Workflows
 
 ### Use a disposable VM
 
-Choose a distinctive `scratch-` name, record the VM name and ID returned by
-`create`, and keep that identity for cleanup.
+Choose a distinctive `scratch-` name. Record and report the VM name and stable
+ID returned by `create`; keep that identity for cleanup.
 
 ```bash
 voom create <scratch-name> --image <image> --output json
@@ -105,9 +103,9 @@ voom stop <scratch-name> --output json
 voom remove <scratch-name> --force --output json
 ```
 
-Wait for SSH after `start`. Clean up only the scratch VM created for the task,
-then report what was removed. If work fails before cleanup, preserve enough
-identity information for the user to find the VM.
+Wait for SSH after `start`. Clean up only the VM created for this task. Report
+what was removed or left in place. Preserve its name and ID if work or cleanup
+fails.
 
 ### Run a command in an existing VM
 
@@ -124,7 +122,8 @@ reconfigure the VM afterward unless the user requested that operation.
 
 ### Reach a guest service from the host
 
-Automatic forwarding discovers TCP listeners only. For a TCP service, verify
+Application forwarding is supported only for Linux guests. Automatic
+forwarding discovers TCP listeners only. For a TCP service, verify
 the image capabilities, enable automatic forwarding if needed, and poll the
 effective forwarding state:
 
@@ -136,9 +135,8 @@ voom forward list <name> --output json
 Read `voom forward auto enable --help` before selecting bind or LAN exposure.
 Exposing a service beyond loopback requires explicit user intent.
 
-Enabling automatic forwarding starts the watcher but does not wait for its
-first reconciliation. Repeat `voom forward list <name> --output json` until the
-expected installed row appears or the operation reaches its deadline.
+Enabling starts the watcher without waiting for reconciliation. Poll the
+forward list until the installed row appears or the deadline expires.
 
 For a UDP service, add a manual forward using the gvproxy bundled with Voom:
 
@@ -157,29 +155,23 @@ voom forward remove <name> 15353 --protocol udp --bind 127.0.0.1 --output json
 ### Handle a forwarding failure
 
 After a forwarding error, inspect `voom info <name> --output json` and
-`voom forward list <name> --output json` before retrying. Read each forwarding
-row's `status` and `reason`; a saved declaration or reserved port does not mean
-the forward is installed.
+`voom forward list <name> --output json` before retrying. Read `status` and
+`reason`; a saved declaration or reserved port does not prove installation.
 
-If a forwarding mutation's outcome is unknown, Voom tries to stop gvproxy.
-Once its termination is confirmed, Voom stops the VM because its networking
-is gone and clears runtime forwarding reservations. Saved forwarding
-configuration is preserved for the next start. If termination cannot be
-confirmed, Voom keeps the affected ports reserved. Unresolved endpoints can
-appear as `reservation` rows with `uncertain` status. Report that state; do not
-treat it as guest boot delay or delete runtime records to free the ports.
+For an unknown mutation outcome, Voom tries to stop gvproxy. Confirmed exit
+stops the VM and clears runtime reservations; saved forwarding configuration
+remains. If exit cannot be confirmed, affected ports stay reserved, possibly
+as `reservation` rows with `uncertain` status. Report these; do not treat them
+as boot delay or delete runtime records to free ports.
 
-A rejected automatic forward or a failure to save it before installation can
-leave the VM running. Check its observed state instead of assuming every
-forwarding error stopped it. Restart an existing VM only when authorized by
-the user's request.
+Rejected forwards or failures before installation can leave the VM running.
+Check observed state; restart an existing VM only when authorized.
 
 ### Configure an explicit proxy attachment
 
-Use this workflow only when the user asks to connect a VM to an existing HTTP
-CONNECT proxy available through a host Unix socket. The attachment does not
-disable direct network access and is not an enforcement boundary. Voom does
-not create or manage the proxy backend.
+Use only for a requested Linux guest connection to an HTTP CONNECT proxy
+through a host Unix socket. Direct network access stays enabled; this is not
+an enforcement boundary. Voom does not create or manage the proxy backend.
 
 Inspect the VM first. Bind every change to its immutable ID, and assign a
 different backend socket to each VM:
@@ -191,15 +183,12 @@ voom config egress enable <name> --expect-id <vm-id> --output json
 voom info <name> --output json
 ```
 
-When coordinating with an external attachment manager, save the declaration
-with `--disabled`, complete the manager's policy checks, and then enable it.
-Add `--ca-cert` only for a requested public CA certificate bundle. `set` and
-`clear` require a stopped VM. `enable` and `disable` also work while the VM is
-running.
+With an external attachment manager, save with `--disabled`, complete its
+policy checks, then enable. Use `--ca-cert` only for a requested public CA
+bundle. Target changes require a stopped VM; enabled-state changes work live.
 
-`voom list --output json` reports the saved attachment state. `voom info
-<name> --output json` also reports observed runtime state. Removing a VM does
-not detach or remove its proxy backend.
+`list` reports saved attachment state; `info` also reports runtime state.
+Removing a VM does not detach or remove its proxy backend.
 
 ### Rebuild a NixOS guest
 
@@ -209,6 +198,34 @@ Verify `nixosSwitch`, inspect the installed syntax, and then run the rebuild:
 voom nixos switch --help
 voom nixos switch <name> --flake <flake-ref>
 ```
+
+### Use a MacOS guest
+
+Import a powered-off installed bundle with SSH enabled and your public key
+already authorized. Voom does not install MacOS or inject keys:
+
+```bash
+voom image import <image> <bundle-dir> --ssh-identity <private-key> --output json
+```
+
+Supply `--ssh-user` if the bundle lacks a login account. Voom records the
+private key's host path; keep it available. Do not use `--install-guest-helpers`.
+Neither host nor guest needs Nix to run a prepared image.
+
+`start` opens a GUI. Closing it hides the Dock entry and leaves the VM running.
+Use `voom gui <name>` to reopen a running VM's window. Quit requests shutdown;
+Force Quit terminates the VM. GUI login uses the guest password, which Voom
+does not manage.
+
+All image capabilities must be false. Shares, application forwards, listener
+reports, egress (even disabled), USB/PCI, `nixos switch`, and disk growth are
+unsupported. Ordinary networking and SSH work; use SSH for file transfers.
+
+Clone requires a stopped source and copies guest credentials and SSH host keys.
+Create, clone, and disk reset assign fresh Apple identities; restarts preserve
+identity. Reset stops the VM and replaces guest storage and platform files;
+it cannot switch between Linux and MacOS. CPU/memory changes require a stopped
+VM and must meet recorded Apple minimums; creation defaults use baked values.
 
 ### Attach a USB device on Linux
 
@@ -224,11 +241,10 @@ voom info <name> --output json
 voom usb remove <name> <device-name> --output json
 ```
 
-Voom applies assignment changes immediately when the QEMU VM is running. If an
-operation reports that the `/dev/bus/usb` node is inaccessible, report the
-required host udev or ACL change. Do not weaken permissions for all USB devices.
-The `usbStatus` rows from `info` separate host connectivity from QEMU runtime
-state. Voom does not install guest flashing tools or host udev rules.
+USB changes apply immediately to running QEMU VMs. For inaccessible
+`/dev/bus/usb` nodes, report the required udev or ACL change; do not weaken
+permissions for all USB devices. `info`'s `usbStatus` separates host
+connectivity from runtime state. Voom installs no flashing tools or udev rules.
 
 ### Assign a PCI device on Linux
 
@@ -244,22 +260,24 @@ voom info <name> --output json
 voom pci remove <name> <device-name> --output json
 ```
 
-A slot such as `0000:41:00` assigns all of its functions; a function such as
-`0000:41:00.0` assigns one. When discovery or `start` reports a host problem,
-such as a function bound to a host driver, a missing IOMMU group, an
-inaccessible `/dev/vfio` node, or a low memlock limit, report the required host
-change. Voom does not bind drivers, install udev rules, or change limits.
+A slot like `0000:41:00` assigns all functions; `0000:41:00.0` assigns one.
+Report host-driver conflicts, missing IOMMU groups, inaccessible `/dev/vfio`
+nodes, or low memlock limits. Voom does not bind drivers, install udev rules,
+or change limits.
 
 ### Diagnose a VM
 
-Start with state and host checks, then inspect logs or the console as needed:
+Start with host checks, VM state, and logs:
 
 ```bash
 voom doctor --output json
 voom info <name> --output json
 voom logs <name>
-voom console <name>
 ```
+
+Verify the guest after SSH is ready. `voom console <name>` is a Linux serial
+console. MacOS guests have no serial console; use `voom gui`, SSH, or vfkit
+logs from `voom logs`.
 
 ## Safety and coordination
 
