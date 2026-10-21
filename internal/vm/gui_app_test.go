@@ -1,12 +1,15 @@
 package vm
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mjrusso/voom/assets"
 )
 
 func TestGUIAppCopiesExecutableAndReplacesMetadata(t *testing.T) {
@@ -34,6 +37,13 @@ func TestGUIAppCopiesExecutableAndReplacesMetadata(t *testing.T) {
 			if values[key] != want {
 				t.Fatalf("%s = %q, want %q", key, values[key], want)
 			}
+		}
+		icon, err := os.ReadFile(filepath.Join(bundle, "Contents", "Resources", values["CFBundleIconFile"]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(icon) == 0 || !bytes.Equal(icon, assets.MacOSIcon) {
+			t.Fatal("bundle icon does not match the embedded icon")
 		}
 		localized := readGUIAppPlist(t, filepath.Join(bundle, "Contents", "Resources", "en.lproj", "InfoPlist.strings"))
 		for _, key := range []string{"CFBundleName", "CFBundleDisplayName"} {

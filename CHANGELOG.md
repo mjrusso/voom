@@ -12,9 +12,10 @@
   clone, start, stop, restart, remove, and reset VMs. Support the graphical
   console, ordinary guest networking, SSH, remote commands, and persistent Apple
   platform storage. Host and guest require MacOS 27 or later, with a graphical
-  login session on the host. Nix is optional. The Dock and menu bar use the app
-  name `Voom: <vm name>`. Closing the window keeps the VM running and removes
-  the app from the Dock and Command-Tab; reopen the window with `voom gui`.
+  login session on the host. Nix is optional. The app uses the Voom icon and
+  appears as `Voom: <vm name>` in the Dock and menu bar. Closing the window keeps
+  the VM running and removes the app from the Dock and Command-Tab; reopen the
+  window with `voom gui`.
   Minimizing the window keeps its Dock entry. Quitting requests guest shutdown.
   Create, clone, and reset assign fresh Apple identities; restarts
   preserve them. SSH host keys and credentials are copied with the disk. Resource

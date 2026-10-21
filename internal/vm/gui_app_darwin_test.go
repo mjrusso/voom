@@ -46,7 +46,18 @@ func TestGUIAppRegistersPerVMNames(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		output, err := exec.Command("/usr/bin/codesign", "--verify", "--strict", bundle).CombinedOutput()
+		output, err := exec.Command("/usr/bin/osascript", "-l", "JavaScript", "-e", `
+ObjC.import('AppKit');
+function run(argv) {
+    const bundle = $.NSBundle.bundleWithPath(argv[0]);
+    const name = ObjC.unwrap(bundle.objectForInfoDictionaryKey('CFBundleIconFile'));
+    const image = $.NSImage.alloc.initWithContentsOfFile(argv[0] + '/Contents/Resources/' + name);
+    if (!image.isValid) throw new Error('MacOS could not decode the bundled app icon');
+}`, bundle).CombinedOutput()
+		if err != nil {
+			t.Fatalf("decode app icon: %v\n%s", err, output)
+		}
+		output, err = exec.Command("/usr/bin/codesign", "--verify", "--strict", bundle).CombinedOutput()
 		if err != nil {
 			t.Fatalf("verify bundle: %v\n%s", err, output)
 		}

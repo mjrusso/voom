@@ -303,12 +303,12 @@ voom ssh mac-dev
 voom guest verify mac-dev
 ```
 
-The Dock and menu bar show the app name `Voom: <vm name>`. Closing the window
-keeps the VM running and removes the app from the Dock and Command-Tab. Run
-`voom gui mac-dev` to restore the Dock entry and show the window again. Quit
-requests guest shutdown; Force Quit terminates the VM immediately. The [graphical session
-guide](docs/macos-guests.md#graphical-sessions) describes shutdown behavior
-and helper cleanup.
+The app uses the Voom icon and appears as `Voom: <vm name>` in the Dock and
+menu bar. Closing the window keeps the VM running and removes the app from
+the Dock and Command-Tab. Run `voom gui mac-dev` to restore the Dock entry and
+show the window again. Quit requests guest shutdown; Force Quit terminates
+the VM immediately. The [graphical session guide](docs/macos-guests.md#graphical-sessions)
+describes shutdown behavior and helper cleanup.
 
 Create, clone, and reset assign a fresh Apple machine identifier. Stop/start
 preserves it. Clones copy the guest's existing users, credentials, and SSH

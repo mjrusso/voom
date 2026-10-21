@@ -140,7 +140,7 @@ show the app name `Voom: <vm name>`. Closing the window keeps the VM running
 and removes the app from the Dock and Command-Tab. Run `voom gui mac-dev` to
 restore the Dock entry and show the same display again. `gui` requires a
 running MacOS VM. Minimizing the window or switching to another app keeps its
-Dock entry available.
+Dock entry available. All VM apps use the Voom icon.
 
 Quit (Command-Q or the Dock menu) requests guest shutdown and keeps the app
 responsive while shutdown completes. If the guest refuses shutdown or remains

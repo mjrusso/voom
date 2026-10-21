@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mjrusso/voom/assets"
 	"github.com/mjrusso/voom/internal/state"
 )
 
@@ -16,6 +17,7 @@ const guiAppInfoPlist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>vfkit</string>
+<key>CFBundleIconFile</key><string>voom.icns</string>
 <key>CFBundleIdentifier</key><string>%[2]s</string>
 <key>CFBundleName</key><string>%[1]s</string>
 <key>CFBundleDisplayName</key><string>%[1]s</string>
@@ -70,8 +72,12 @@ func writeGUIApp(ctx context.Context, source, bundlePath, appName, bundleID stri
 	if err := os.WriteFile(filepath.Join(bundlePath, "Contents", "Info.plist"), []byte(plist), 0o644); err != nil {
 		return "", err
 	}
-	localizedDir := filepath.Join(bundlePath, "Contents", "Resources", "en.lproj")
+	resourcesDir := filepath.Join(bundlePath, "Contents", "Resources")
+	localizedDir := filepath.Join(resourcesDir, "en.lproj")
 	if err := os.MkdirAll(localizedDir, 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(resourcesDir, "voom.icns"), assets.MacOSIcon, 0o644); err != nil {
 		return "", err
 	}
 	localizedNames := fmt.Sprintf(guiAppLocalizedNames, html.EscapeString(appName))

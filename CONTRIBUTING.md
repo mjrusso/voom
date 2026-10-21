@@ -40,10 +40,15 @@ filename so the Dock uses the localized name. Voom then applies an ad-hoc
 signature, preserving vfkit's entitlements. The release smoke check verifies
 the bundled vfkit's capabilities and signature.
 
+Voom embeds `assets/voom.icns` and writes it to `Contents/Resources` before
+signing. `CFBundleIconFile` selects it as the app icon. Regenerate the `.icns`
+file when changing the icon artwork.
+
 In a logged-in graphical MacOS session, test two running MacOS guests. Check
-that the Dock and menu bar show `Voom: <vm name>` for each guest. Close their
-windows and confirm that their Dock and Command-Tab entries disappear while
-the VMs keep running. Use `voom gui` to restore each window and its Dock entry.
+that the Dock and menu bar show `Voom: <vm name>` for each guest and that both
+Dock entries use the Voom icon. Close their windows and confirm that their
+Dock and Command-Tab entries disappear while the VMs keep running. Use
+`voom gui` to restore each window and its Dock entry.
 Check that minimizing a window or switching apps keeps its Dock entry. Test
 that Quit requests guest shutdown and Force Quit terminates the VM.
 
@@ -59,8 +64,9 @@ registered app name as `vfkit`. It then uses Voom's bundle builder to create
 two apps and checks their registered app names and filesystem display names.
 The filesystem check catches cases where the menu bar uses the intended name
 but the Dock falls back to the bundle filename. The script also checks
-signatures, virtualization entitlements, process identification under paths
-containing spaces, long VM names, and name changes when a bundle is replaced.
+MacOS icon decoding, signatures, virtualization entitlements, process
+identification under paths containing spaces, long VM names, and name changes
+when a bundle is replaced.
 
 To check both names for a running VM, use its vfkit PID and VM name:
 
