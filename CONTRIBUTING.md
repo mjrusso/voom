@@ -34,9 +34,11 @@ both Darwin architectures.
 
 The `gui-branding-v1` capability adds per-VM menu labels and Dock visibility
 control. Voom sets the app name shown by MacOS through a per-VM app bundle:
-it writes the name into `Info.plist` and copies vfkit into the bundle. Voom
-then applies an ad-hoc signature, preserving vfkit's entitlements. The release
-smoke check verifies the bundled vfkit's capabilities and signature.
+it copies vfkit into the bundle and writes the VM name into localized
+`InfoPlist.strings` resources. The base names in `Info.plist` match the bundle
+filename so the Dock uses the localized name. Voom then applies an ad-hoc
+signature, preserving vfkit's entitlements. The release smoke check verifies
+the bundled vfkit's capabilities and signature.
 
 In a logged-in graphical MacOS session, test two running MacOS guests. Check
 that the Dock and menu bar show `Voom: <vm name>` for each guest. Close their
@@ -54,11 +56,13 @@ bash scripts/test-macos-app-name.sh
 
 The script first confirms that setting the process name alone leaves the
 registered app name as `vfkit`. It then uses Voom's bundle builder to create
-two apps and checks that MacOS registers their distinct names. It also checks
+two apps and checks their registered app names and filesystem display names.
+The filesystem check catches cases where the menu bar uses the intended name
+but the Dock falls back to the bundle filename. The script also checks
 signatures, virtualization entitlements, process identification under paths
 containing spaces, long VM names, and name changes when a bundle is replaced.
 
-To check the registered app name of a running VM, use its vfkit PID and VM name:
+To check both names for a running VM, use its vfkit PID and VM name:
 
 ```sh
 bash scripts/check-macos-app-name.sh <vfkit-pid> <vm-name>

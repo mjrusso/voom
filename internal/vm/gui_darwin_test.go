@@ -31,12 +31,11 @@ func TestPrepareGUIAppSupportsLongNamesAndRename(t *testing.T) {
 		if executable != filepath.Join(bundle, "Contents", "MacOS", "vfkit") {
 			t.Fatalf("unexpected executable path: %s", executable)
 		}
-		plist, err := os.ReadFile(filepath.Join(bundle, "Contents", "Info.plist"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(plist), "<string>Voom: "+name+"</string>") {
-			t.Fatal("bundle does not contain the current VM name")
+		localized := readGUIAppPlist(t, filepath.Join(bundle, "Contents", "Resources", "en.lproj", "InfoPlist.strings"))
+		for _, key := range []string{"CFBundleName", "CFBundleDisplayName"} {
+			if localized[key] != "Voom: "+name {
+				t.Fatalf("localized %s does not contain the current VM name", key)
+			}
 		}
 	}
 }

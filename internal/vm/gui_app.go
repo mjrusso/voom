@@ -22,6 +22,16 @@ const guiAppInfoPlist = `<?xml version="1.0" encoding="UTF-8"?>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>CFBundleDevelopmentRegion</key><string>en</string>
+<key>LSHasLocalizedDisplayName</key><true/>
+</dict></plist>
+`
+
+const guiAppLocalizedNames = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleName</key><string>%[1]s</string>
+<key>CFBundleDisplayName</key><string>%[1]s</string>
 </dict></plist>
 `
 
@@ -54,8 +64,18 @@ func writeGUIApp(ctx context.Context, source, bundlePath, appName, bundleID stri
 	if err := os.Chmod(executable, 0o755); err != nil {
 		return "", err
 	}
-	plist := fmt.Sprintf(guiAppInfoPlist, html.EscapeString(appName), html.EscapeString(bundleID))
+	// The Dock uses localized names only when the base names match the bundle filename.
+	baseName := strings.TrimSuffix(filepath.Base(bundlePath), ".app")
+	plist := fmt.Sprintf(guiAppInfoPlist, html.EscapeString(baseName), html.EscapeString(bundleID))
 	if err := os.WriteFile(filepath.Join(bundlePath, "Contents", "Info.plist"), []byte(plist), 0o644); err != nil {
+		return "", err
+	}
+	localizedDir := filepath.Join(bundlePath, "Contents", "Resources", "en.lproj")
+	if err := os.MkdirAll(localizedDir, 0o755); err != nil {
+		return "", err
+	}
+	localizedNames := fmt.Sprintf(guiAppLocalizedNames, html.EscapeString(appName))
+	if err := os.WriteFile(filepath.Join(localizedDir, "InfoPlist.strings"), []byte(localizedNames), 0o644); err != nil {
 		return "", err
 	}
 	return executable, nil

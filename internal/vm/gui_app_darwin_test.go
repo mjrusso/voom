@@ -41,7 +41,7 @@ func TestGUIAppRegistersPerVMNames(t *testing.T) {
 	}
 	var instances []instance
 	for _, name := range []string{"first", "second"} {
-		bundle := filepath.Join(dir, name+".app")
+		bundle := filepath.Join(dir, name, "display.app")
 		executable, err := buildGUIApp(context.Background(), source, bundle, "Voom: "+name, "io.github.mjrusso.voom.probe."+name)
 		if err != nil {
 			t.Fatal(err)
@@ -62,7 +62,7 @@ func TestGUIAppRegistersPerVMNames(t *testing.T) {
 			t.Fatalf("registered app name: %v\n%s", err, output)
 		}
 	}
-	bundle := filepath.Join(dir, "renamed.app")
+	bundle := filepath.Join(dir, "renamed", "display.app")
 	for _, name := range []string{"before-rename", "after-rename"} {
 		t.Run(name, func(t *testing.T) {
 			executable, err := buildGUIApp(context.Background(), source, bundle, "Voom: "+name, "io.github.mjrusso.voom.probe.renamed")

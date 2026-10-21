@@ -25,27 +25,20 @@ func TestGUIAppCopiesExecutableAndReplacesMetadata(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		data, err := os.ReadFile(filepath.Join(bundle, "Contents", "Info.plist"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		var plist struct {
-			Keys   []string `xml:"dict>key"`
-			Values []string `xml:"dict>string"`
-		}
-		if err := xml.Unmarshal(data, &plist); err != nil {
-			t.Fatal(err)
-		}
-		values := map[string]string{}
-		for i, value := range plist.Values {
-			values[plist.Keys[i]] = value
-		}
+		values := readGUIAppPlist(t, filepath.Join(bundle, "Contents", "Info.plist"))
 		for key, want := range map[string]string{
-			"CFBundleName": name, "CFBundleDisplayName": name,
-			"CFBundleIdentifier": "io.github.mjrusso.voom.vm.test", "CFBundleExecutable": "vfkit",
+			"CFBundleName": "Voom-dev", "CFBundleDisplayName": "Voom-dev",
+			"CFBundleDevelopmentRegion": "en",
+			"CFBundleIdentifier":        "io.github.mjrusso.voom.vm.test", "CFBundleExecutable": "vfkit",
 		} {
 			if values[key] != want {
 				t.Fatalf("%s = %q, want %q", key, values[key], want)
+			}
+		}
+		localized := readGUIAppPlist(t, filepath.Join(bundle, "Contents", "Resources", "en.lproj", "InfoPlist.strings"))
+		for _, key := range []string{"CFBundleName", "CFBundleDisplayName"} {
+			if localized[key] != name {
+				t.Fatalf("localized %s = %q, want %q", key, localized[key], name)
 			}
 		}
 		info, err := os.Lstat(executable)
@@ -60,4 +53,31 @@ func TestGUIAppCopiesExecutableAndReplacesMetadata(t *testing.T) {
 			t.Fatalf("source changed when the bundle was modified: %q, %v", original, err)
 		}
 	}
+}
+
+func readGUIAppPlist(t *testing.T, path string) map[string]string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plist struct {
+		Dict struct {
+			Entries []struct {
+				XMLName xml.Name
+				Value   string `xml:",chardata"`
+			} `xml:",any"`
+		} `xml:"dict"`
+	}
+	if err := xml.Unmarshal(data, &plist); err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{}
+	for i := 0; i+1 < len(plist.Dict.Entries); i += 2 {
+		key, value := plist.Dict.Entries[i], plist.Dict.Entries[i+1]
+		if key.XMLName.Local == "key" && value.XMLName.Local == "string" {
+			values[key.Value] = value.Value
+		}
+	}
+	return values
 }

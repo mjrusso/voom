@@ -31,7 +31,15 @@ function run(argv) {
             throw new Error('FAIL: PID ' + pid + ' has registered app name ' +
                 JSON.stringify(actual) + '; expected ' + JSON.stringify(expected));
         }
-        return 'PASS: PID ' + pid + ' has registered app name ' + JSON.stringify(actual);
+        const path = ObjC.unwrap(application.bundleURL.path);
+        const filesystem = ObjC.unwrap($.NSFileManager.defaultManager.displayNameAtPath(path));
+        if (filesystem !== expected && filesystem !== expected + '.app') {
+            throw new Error('FAIL: PID ' + pid + ' has filesystem display name ' +
+                JSON.stringify(filesystem) + '; expected ' + JSON.stringify(expected) +
+                ' with an optional .app extension');
+        }
+        return 'PASS: PID ' + pid + ' has registered app name ' + JSON.stringify(actual) +
+            ' and filesystem display name ' + JSON.stringify(filesystem);
     }
     throw new Error('No running MacOS application found for PID ' + pid);
 }
