@@ -20,13 +20,16 @@ Linux hosts (via [QEMU](https://www.qemu.org/)/[KVM](https://linux-kvm.org/)):
 - Linux hosts support running Linux guests
 - MacOS hosts support running Linux _and_ MacOS guests
 
+Voom provides support for manual port forwarding (TCP and UDP) on MacOS and
+Linux guests.
+
 For Linux guests on either supported host OS, Voom also supports:
 
-- Host directory shares and automatic TCP port forwarding, with per-VM port
-  offsets to avoid collisions.
-- [HTTP proxy attachments](docs/proxy-attachments.md). External brokers (such
-  as [Agent Vault](https://docs.agent-vault.dev/) and
-  [iron-proxy](https://docs.iron.sh/)) can supply credentials without storing
+- Host directory shares.
+- Automatic TCP port forwarding, with per-VM port offsets to avoid collisions.
+- [HTTP proxy attachments](docs/proxy-attachments.md), enabling external
+  brokers (such as [Agent Vault](https://docs.agent-vault.dev/) and
+  [iron-proxy](https://docs.iron.sh/)) to supply credentials without storing
   them in the guest.
 
 On Linux hosts, Voom additionally supports:
@@ -37,8 +40,6 @@ On Linux hosts, Voom additionally supports:
   devices from the guest.
 
 MacOS guests are not yet as full-featured as Linux guests.
-
-Note that all guests support manual port forwarding (TCP and UDP).
 
 ## Supported hosts and guests
 
@@ -57,29 +58,30 @@ All supported combinations provide image import, VM creation, start, stop,
 restart, removal, clone, reset, persistent storage, ordinary guest networking,
 SSH, remote command execution, and guest verification.
 
-| Feature                                     | Linux guest on Linux | Linux guest on MacOS | MacOS guest on MacOS |
-|---------------------------------------------|----------------------|----------------------|----------------------|
-| Host directory shares                       | Yes¹                 | Yes¹                 | No                   |
-| Manual TCP/UDP application forwards         | Yes                  | Yes                  | Yes                  |
-| Automatic TCP forwards and listener reports | Yes¹                 | Yes¹                 | No                   |
-| Explicit HTTP proxy attachments             | Yes¹                 | Yes¹                 | No                   |
-| Serial console log                          | Yes²                 | Yes²                 | No                   |
-| Graphical console                           | No                   | No                   | Yes                  |
-| Disk growth                                 | Yes                  | Yes                  | No                   |
-| `nixos switch`                              | NixOS only¹          | NixOS only¹          | No                   |
-| USB passthrough                             | Yes                  | No                   | No                   |
-| PCI/GPU passthrough                         | x86_64 only          | No                   | No                   |
+| Feature                                     | Linux guest on Linux | Linux guest on MacOS | MacOS guest on MacOS³ |
+|---------------------------------------------|----------------------|----------------------|-----------------------|
+| Host directory shares                       | Yes¹                 | Yes¹                 | No                    |
+| Manual TCP/UDP application forwards         | Yes⁴                 | Yes⁴                 | Yes⁴                  |
+| Automatic TCP forwards and listener reports | Yes¹                 | Yes¹                 | No                    |
+| Explicit HTTP proxy attachments             | Yes¹                 | Yes¹                 | No                    |
+| Serial console log                          | Yes²                 | Yes²                 | No                    |
+| Graphical console                           | No                   | No                   | Yes                   |
+| Disk growth                                 | Yes                  | Yes                  | No                    |
+| Snapshots and suspend/resume                | No                   | No                   | No                    |
+| `nixos switch`                              | NixOS only¹          | NixOS only¹          | No                    |
+| USB passthrough                             | Yes                  | No                   | No                    |
+| PCI/GPU passthrough                         | x86_64 only          | No                   | No                    |
 
 ¹ Requires the corresponding [Linux guest capabilities and
 services](docs/linux-guests.md#guest-image-contract).
 
-² `voom console` follows the serial log; it is not an interactive terminal.
-The guest must be configured to write serial output.
+² `voom console` follows the serial log; it is not an interactive terminal. The
+guest must be configured to write serial output.
 
-_MacOS guests use SSH for file transfer and remote commands; they do not use
-Voom's reserved control share, or a guest agent. Manual forwards do not require
-guest services. Snapshots and suspend/resume are not supported for either guest
-OS._
+³ MacOS guests use SSH for file transfer and remote commands. They do not use
+Voom's reserved control share or a guest agent.
+
+⁴ Manual port forwarding does not require guest services.
 
 ## Installation
 
