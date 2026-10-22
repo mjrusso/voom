@@ -19,16 +19,23 @@ are in [NOTICE.vfkit](../nix/NOTICE.vfkit) and
 On Linux hosts, Voom uses a separately installed QEMU/KVM for virtualization;
 see [host requirements](installation.md#host-requirements).
 
-Full helper license texts and dependency notices are included with Voom's
+Full license texts and dependency notices are included with Voom's
 distributions:
 
+- All release archives contain `THIRD_PARTY_LICENSES.voom/` for dependencies
+  linked into `voom`.
 - All release archives contain `LICENSE.gvproxy`, `NOTICE.gvproxy`, and
   `THIRD_PARTY_LICENSES/` for gvproxy.
 - MacOS release archives also contain `LICENSE.vfkit`, `NOTICE.vfkit`, and
   `THIRD_PARTY_LICENSES.vfkit/` for vfkit and vz.
-- Nix installations provide gvproxy notices under `share/licenses/gvproxy/`
+- Nix installations provide Voom dependency licenses under
+  `share/licenses/voom/` and gvproxy notices under `share/licenses/gvproxy/`
   in the Voom package. MacOS packages also provide vfkit and vz notices under
   `share/licenses/vfkit/`.
+
+Release archives include the linked modification notices under `nix/`, along
+with the root-level notices beside the helpers, and include `go.mod` and
+`go.sum`.
 
 Voom's Go module dependencies are recorded in [go.mod](../go.mod) and
 [go.sum](../go.sum).

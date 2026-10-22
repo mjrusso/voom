@@ -43,7 +43,7 @@
           inherit version;
           src = self;
           subPackages = [ "cmd/voom" ];
-          nativeBuildInputs = [ pkgs.installShellFiles ];
+          nativeBuildInputs = [ pkgs.installShellFiles pkgs.go-licenses ];
           vendorHash = "sha256-fxOjkVStDgZInA0/HEzi1/ZaI0XO+bc7sI94ok0QenY=";
           ldflags = [
             "-X github.com/mjrusso/voom/internal/buildinfo.Version=${version}"
@@ -59,6 +59,7 @@
             ${pkgs.lib.optionalString pkgs.stdenv.isDarwin "ln -s ${vfkit}/bin/vfkit $out/bin/vfkit"}
             ${pkgs.lib.optionalString hasMacOSIdentity "ln -s ${macosIdentity}/bin/voom-macos-identity $out/bin/voom-macos-identity"}
             mkdir -p $out/share/licenses
+            go-licenses save ./cmd/voom --save_path=$out/share/licenses/voom/THIRD_PARTY_LICENSES
             ln -s ${gvproxy}/share/licenses/gvproxy $out/share/licenses/gvproxy
             ${pkgs.lib.optionalString pkgs.stdenv.isDarwin "ln -s ${vfkit}/share/licenses/vfkit $out/share/licenses/vfkit"}
           '';

@@ -19,18 +19,26 @@ done
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 for archive in "$dist"/voom_*.tar.gz; do
-  rm -rf "$tmp"/*
+  rm -rf "${tmp:?}"/*
   tar -xzf "$archive" -C "$tmp"
   test -f "$tmp/LICENSE"
   test -f "$tmp/LICENSE.gvproxy"
   test -f "$tmp/NOTICE.gvproxy"
   test -f "$tmp/THIRD_PARTY_LICENSES/gopkg.in/yaml.v3/NOTICE"
   test -f "$tmp/THIRD_PARTY_LICENSES/gvisor.dev/gvisor/pkg/LICENSE"
+  platform="${archive##*/}"
+  platform="${platform#voom_}"
+  platform="${platform%.tar.gz}"
+  platform="${platform/_x64/_amd64}"
+  CGO_ENABLED=0 GOOS="${platform%_*}" GOARCH="${platform#*_}" \
+    go-licenses save ./cmd/voom --save_path="$tmp/voom-licenses"
+  diff -r "$tmp/voom-licenses" "$tmp/THIRD_PARTY_LICENSES.voom"
   test -f "$tmp/README.md"
   test -f "$tmp/CHANGELOG.md"
   for doc in CONTRIBUTING.md assets/voom.png docs/installation.md \
     docs/linux-guests.md docs/macos-guests.md docs/proxy-attachments.md \
-    docs/reference.md docs/commands/voom.md nix/GVPROXY.md; do
+    docs/reference.md docs/third-party-licenses.md docs/commands/voom.md \
+    nix/GVPROXY.md nix/NOTICE.gvproxy nix/NOTICE.vfkit go.mod go.sum; do
     test -f "$tmp/$doc"
   done
   test -x "$tmp/voom"

@@ -364,8 +364,10 @@ dist/checksums.txt
 ```
 
 Each archive contains `LICENSE`, `LICENSE.gvproxy`, `NOTICE.gvproxy`,
-`THIRD_PARTY_LICENSES`, `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
-`docs/`, `assets/voom.png`, `nix/GVPROXY.md`, `voom`, and `gvproxy`.
+`THIRD_PARTY_LICENSES` for gvproxy, `THIRD_PARTY_LICENSES.voom` for Voom,
+`README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `docs/`, `assets/voom.png`,
+`nix/GVPROXY.md`, `nix/NOTICE.gvproxy`, `nix/NOTICE.vfkit`, `go.mod`, `go.sum`,
+`voom`, and `gvproxy`.
 Darwin archives also contain vfkit and its license notices; Darwin arm64 includes
 `voom-macos-identity`. The native preparation scripts build those helpers before
 GoReleaser assembles the archives. Verify with `sha256sum -c checksums.txt`.

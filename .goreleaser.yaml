@@ -3,6 +3,7 @@ project_name: voom
 before:
   hooks:
     - go mod tidy
+    - scripts/prepare-voom-release.sh
     - scripts/prepare-gvproxy-release.sh
     - scripts/prepare-vfkit-release.sh
     - scripts/build-macos-identity.sh .release/native/darwin_arm64/voom-macos-identity
@@ -41,6 +42,8 @@ archives:
       {{ .ProjectName }}_{{ .Os }}_{{ if eq .Arch "amd64" }}x64{{ else }}{{ .Arch }}{{ end }}
     files:
       - LICENSE
+      - src: .release/voom-licenses/{{ .Os }}_{{ .Arch }}/**/*
+        dst: THIRD_PARTY_LICENSES.voom
       - src: .release/gvproxy/LICENSE
         dst: LICENSE.gvproxy
       - src: nix/NOTICE.gvproxy
@@ -68,6 +71,10 @@ archives:
       - docs/*.md
       - docs/commands/*.md
       - nix/GVPROXY.md
+      - nix/NOTICE.gvproxy
+      - nix/NOTICE.vfkit
+      - go.mod
+      - go.sum
 checksum:
   name_template: checksums.txt
 snapshot:

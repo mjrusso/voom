@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Include missing third-party license files in release archives and Nix packages.
+- Fix broken links to license notices and dependency information in the
+  bundled license guide.
+
 ## v1.5.0 - 2026-10-22
 
 - Add support for running MacOS guests, with features including a graphical
