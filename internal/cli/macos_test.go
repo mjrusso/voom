@@ -76,7 +76,6 @@ func TestMacOSImportInspectionDiagnosticsAndAccess(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"share", "add", "mac", "src", t.TempDir(), "/Volumes/src"},
-		{"forward", "add", "mac", "8080"},
 		{"forward", "auto", "enable", "mac"},
 		{"forward", "discover", "mac"},
 		{"guest", "ports", "mac"},
@@ -84,6 +83,10 @@ func TestMacOSImportInspectionDiagnosticsAndAccess(t *testing.T) {
 		if err := runCmdErr(args...); err == nil || !strings.Contains(err.Error(), "not supported for MacOS") {
 			t.Fatalf("%v: %v", args, err)
 		}
+	}
+	runCmd(t, "forward", "add", "mac", "8000", "--auto")
+	if out := runCmd(t, "forward", "list", "mac"); !strings.Contains(out, "192.168.127.3:8000") || !strings.Contains(out, "stopped") {
+		t.Fatalf("missing manual forward: %s", out)
 	}
 	var verification bytes.Buffer
 	command := NewRootCommand()

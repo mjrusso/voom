@@ -89,8 +89,9 @@ reset. Both contain raw disks, and image import accepts either extension.
 Each VM runs its own gvproxy process for ordinary outbound networking and
 host-to-guest port mappings. Voom does not create a host bridge or assign a
 separate routable address to each VM. SSH maps a persisted host port to guest
-`192.168.127.3:22`; it remains available for MacOS guests even though
-application forwarding is unsupported there.
+`192.168.127.3:22`. Manual TCP/UDP forwards support Linux and MacOS guests
+without guest services. Automatic forwarding requires Linux guest listener
+reports.
 
 Voom's gvproxy build blocks guest access to host loopback services through
 `192.168.127.254`, `host.containers.internal`, and `host.docker.internal`.
@@ -273,10 +274,10 @@ port reports.
 
 The table below lists command effects. For MacOS, “disk” includes the Apple
 platform files. `seed.img`, control-share files, and automatic-forwarding
-state are generated only for Linux guests. Application forwarding, shares,
-egress attachments, and passthrough are also limited to the [supported
-combinations](../README.md#supported-hosts-and-guests). Disk growth and `nixos
-switch` support Linux guests only.
+state are generated only for Linux guests. Shares, egress attachments, and
+passthrough are limited to the
+[supported combinations](../README.md#supported-hosts-and-guests). Disk
+growth and `nixos switch` support Linux guests only.
 
 | Command | Reads | Writes or removes |
 | --- | --- | --- |

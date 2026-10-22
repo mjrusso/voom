@@ -23,7 +23,7 @@ func forwardAddCommand() *cobra.Command {
 	var hostPort int
 	var bind, protocol string
 	var lan, auto bool
-	cmd := &cobra.Command{Use: "add <name> <guest-port>", ValidArgsFunction: completeVMNames, Short: "Add a manual TCP or UDP forward", Long: "Add an application port forward to a Linux guest. Application forwarding is not supported for MacOS guests; the SSH mapping remains available.", Example: "  voom forward add dev 8080 --protocol tcp --host-port 18080 --bind 127.0.0.1\n  voom forward add dev 5353 --protocol udp --host-port 15353 --bind 127.0.0.1", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "add <name> <guest-port>", ValidArgsFunction: completeVMNames, Short: "Add a manual TCP or UDP forward", Long: "Add a manual TCP or UDP forward to a Linux or MacOS guest. No guest services are required. The application must listen on the guest's network address or 0.0.0.0.", Example: "  voom forward add dev 8080 --protocol tcp --host-port 18080 --bind 127.0.0.1\n  voom forward add dev 5353 --protocol udp --host-port 15353 --bind 127.0.0.1", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		protocol, err := forward.NormalizeProtocol(protocol)
 		if err != nil {
 			return err
@@ -197,7 +197,7 @@ func forwardAutoCommand() *cobra.Command {
 	enableOffset := 0
 	enableBind := ""
 	enableLan := false
-	enable := &cobra.Command{Use: "enable <name>", ValidArgsFunction: completeVMNames, Short: "Enable auto-forwarding", Long: "Enable automatic application forwarding for a Linux guest. Automatic forwarding is not supported for MacOS guests; the SSH mapping remains available.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	enable := &cobra.Command{Use: "enable <name>", ValidArgsFunction: completeVMNames, Short: "Enable auto-forwarding", Long: "Enable automatic TCP forwarding from a Linux guest's listener reports.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if enableLan && enableBind != "" {
 			return errors.New("--lan and --bind are mutually exclusive")
 		}

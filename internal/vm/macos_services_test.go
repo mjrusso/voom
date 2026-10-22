@@ -25,7 +25,6 @@ func TestMacOSUnsupportedCommandsHaveNoSideEffects(t *testing.T) {
 	ctx := context.Background()
 	enabled := true
 	offset := 10000
-	bind := "127.0.0.1"
 	for _, tc := range []struct {
 		name string
 		run  func() error
@@ -34,11 +33,6 @@ func TestMacOSUnsupportedCommandsHaveNoSideEffects(t *testing.T) {
 			_, err := manager.AddShare(ctx, record.Name, "src", t.TempDir(), "/Volumes/src", true)
 			return err
 		}},
-		{"forward", func() error {
-			_, err := manager.AddForward(ctx, record.Name, 8080, 18080, bind, false, "tcp")
-			return err
-		}},
-		{"allocated forward", func() error { _, err := manager.AddForward(ctx, record.Name, 8080, 0, bind, true, "udp"); return err }},
 		{"automatic forwarding", func() error {
 			_, err := manager.UpdateAutoForward(ctx, record.Name, AutoForwardUpdate{Enabled: &enabled})
 			return err
@@ -80,11 +74,7 @@ func TestMacOSUnsupportedCommandsHaveNoSideEffects(t *testing.T) {
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := manager.AddForward(ctx, record.Name, 8080, 18080, bind, false, "tcp")
-	if err == nil || !strings.Contains(err.Error(), "not supported for MacOS") {
-		t.Fatal(err)
-	}
-	_, err = manager.UpdateAutoForward(ctx, record.Name, AutoForwardUpdate{Enabled: &enabled})
+	_, err := manager.UpdateAutoForward(ctx, record.Name, AutoForwardUpdate{Enabled: &enabled})
 	if err == nil || !strings.Contains(err.Error(), "not supported for MacOS") {
 		t.Fatal(err)
 	}
@@ -99,14 +89,12 @@ func TestMacOSUnsupportedCommandsHaveNoSideEffects(t *testing.T) {
 }
 
 func TestMacOSPersistedUnsupportedDeclarationsRejectBeforeRuntimeChanges(t *testing.T) {
-	for _, feature := range []string{"share", "forward", "auto-forward", "egress", "disabled egress"} {
+	for _, feature := range []string{"share", "auto-forward", "egress", "disabled egress"} {
 		t.Run(feature, func(t *testing.T) {
 			st, record, image := macosResetFixture(t)
 			switch feature {
 			case "share":
 				record.Shares = []share.Decl{{Tag: "src", HostPath: t.TempDir(), GuestPath: "/Volumes/src"}}
-			case "forward":
-				record.Network.Forwards = []forward.Decl{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 18080, GuestPort: 8080}}
 			case "auto-forward":
 				record.Network.AutoForward = true
 			default:
@@ -181,25 +169,27 @@ func TestMacOSMinimalGuestPreparationAndVFKitCapabilities(t *testing.T) {
 	}
 }
 
-func TestMacOSSSHMappingWithoutApplicationForwarding(t *testing.T) {
+func TestMacOSInstallsSSHAndManualForwards(t *testing.T) {
 	st, manager, record, proxy := newAutoForwardFixture(t)
 	record.MacOS = &state.MacOSPlatform{IdentitySHA256: strings.Repeat("a", 64), CPUs: 4, MemoryMiB: 8192, MinimumCPUs: 4, MinimumMemoryMiB: 8192, Version: "27.0.1", Build: "26A434"}
 	record.SchemaVersion, record.Arch, record.Driver = 2, "aarch64-darwin", "vfkit"
 	record.StorageGeneration = strings.Repeat("a", 32)
 	record.Resources = state.VMResources{CPUs: 4, MemoryMiB: 8192}
-	record.Network = state.VMNetwork{SSHPort: freeLoopbackPort(t), SSHBind: "127.0.0.1"}
+	record.Network = state.VMNetwork{SSHPort: 2222, SSHBind: "127.0.0.1"}
+	record.Network.Forwards = []forward.Decl{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 18000, GuestPort: 8000}}
 	if err := st.SaveVM(record); err != nil {
 		t.Fatal(err)
 	}
 	if err := manager.installDeclaredForwardsLocked(record); err != nil {
 		t.Fatal(err)
 	}
-	local := forward.Address(record.Network.SSHBind, record.Network.SSHPort)
-	if remote, ok := proxy.remote(local); !ok || remote != "192.168.127.3:22" {
-		t.Fatalf("SSH mapping: %q %v", remote, ok)
-	}
-	if exposes, removes := proxy.counts(); exposes != 1 || removes != 0 {
-		t.Fatalf("unexpected mappings: %d %d", exposes, removes)
+	for local, want := range map[string]string{
+		"127.0.0.1:2222":  "192.168.127.3:22",
+		"127.0.0.1:18000": "192.168.127.3:8000",
+	} {
+		if remote, ok := proxy.remote(local); !ok || remote != want {
+			t.Fatalf("mapping %s: got %q, %v; want %s", local, remote, ok, want)
+		}
 	}
 }
 

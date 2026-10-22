@@ -26,6 +26,7 @@ packages; a separate vfkit installation is unnecessary.
 - [Identity and resources](#identity-and-resources)
 - [Graphical sessions](#graphical-sessions)
 - [Supported guest features](#supported-guest-features)
+- [Manual port forwarding](#manual-port-forwarding)
 - [Reset a MacOS guest](#reset-a-macos-guest)
 
 ## Prepare an image
@@ -209,28 +210,52 @@ GUI login uses the guest account's password, which Voom does not manage.
 
 MacOS guests support import, create, start, stop, restart, remove, clone,
 reset, the graphical console, ordinary guest networking, SSH, remote command
-execution, persistent storage, and Apple hardware identity management.
+execution, manual TCP/UDP port forwarding, persistent storage, and Apple
+hardware identity management.
 
-Voom-managed user shares, the reserved `voom-control` share, application port
-forwards (manual and automatic), guest listener reports, and egress/proxy
-attachments are unsupported. The host-side SSH mapping remains available. Use
-SSH to transfer files and execute commands. MacOS guests also do not support
-USB or PCI passthrough, `nixos switch`, disk growth, snapshots, or
-suspend/resume. There is no serial console; use the window, SSH, or `voom logs
-<name>` for vfkit logs.
+Voom-managed user shares, the reserved `voom-control` share, automatic port
+forwarding, guest listener reports, and egress/proxy attachments are
+unsupported. Use SSH to transfer files and execute commands. MacOS guests
+also do not support USB or PCI passthrough, `nixos switch`, disk growth,
+snapshots, or suspend/resume. There is no serial console; use the window, SSH,
+or `voom logs <name>` for vfkit logs.
 
 Voom does not attach virtiofs shares, publish control-share configuration,
 start an automatic-forwarding watcher, or wait for guest-service reports for
 MacOS guests. See [guest verification](#guest-verification) for the checks
 that apply to MacOS.
 
-Start, reset, and clone reject persisted shares, application forwards,
-automatic forwarding, and egress attachments before changing runtime or
-storage. Inspection, stop, remove, share/forward removal, automatic-forwarding
-disablement, and egress clearing remain available for cleanup. `voom doctor`
-warns about unsupported image capabilities and VM declarations without
-blocking inspection or removal. Linux guests retain sharing, forwarding, guest
-services, and egress support, including through vfkit on MacOS hosts.
+Start, reset, and clone reject persisted shares, automatic forwarding, and
+egress attachments before changing runtime or storage. You can still inspect,
+stop, or remove the VM and clear unsupported settings. `voom doctor` warns
+about unsupported image capabilities and VM settings without blocking
+inspection or removal.
+
+## Manual port forwarding
+
+Manual TCP/UDP forwarding does not require guest services:
+
+```sh
+voom forward add mac-dev 8000
+voom forward add mac-dev 5353 --protocol udp --host-port 15353
+voom forward list mac-dev
+```
+
+The first command maps host `127.0.0.1:8000` to guest `192.168.127.3:8000`.
+Applications must listen on the guest's network address or `0.0.0.0`. Use an
+SSH tunnel for services that listen only on guest loopback.
+
+Forwards can be added or removed while the VM is running or stopped. They
+survive restart and reset. Clones do not inherit them. The source VM reserves
+its host ports even when stopped, so choose a different host port or `--auto`
+when recreating a forward on a clone.
+
+Use the host port and protocol when removing a forward:
+
+```sh
+voom forward remove mac-dev 15353 --protocol udp
+voom forward remove mac-dev 8000
+```
 
 ## Reset a MacOS guest
 
@@ -244,10 +269,10 @@ voom guest verify mac-dev
 Reset stops the VM and replaces its disk, hardware model, auxiliary storage,
 and Apple machine identifier from the selected image. It discards guest
 changes and generates a fresh Apple identity. The VM name, Voom ID, CPU and
-memory allocation, SSH port, and NIC MAC stay the same. Voom adopts the
-selected image's SSH access metadata. Unsupported declarations and images that
-cannot support the VM's resource allocation are rejected before shutdown.
-Reset cannot change a VM between Linux and MacOS.
+memory allocation, SSH port, NIC MAC, and manual forwards stay the same. Voom
+adopts the selected image's SSH access metadata. Unsupported declarations and
+images that cannot support the VM's resource allocation are rejected before
+shutdown.
 
 Reset can repair missing boot files, provided the source image is complete and
 the old runtime has released its storage locks.

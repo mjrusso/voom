@@ -36,7 +36,9 @@ On Linux hosts, Voom additionally supports:
 - [USB passthrough](docs/linux-guests.md#usb-passthrough), for accessing USB
   devices from the guest.
 
-(MacOS guests work, but are not as full-featured at this point.)
+MacOS guests are not yet as full-featured as Linux guests.
+
+Note that all guests support manual port forwarding (TCP and UDP).
 
 ## Supported hosts and guests
 
@@ -58,7 +60,7 @@ SSH, remote command execution, and guest verification.
 | Feature                                     | Linux guest on Linux | Linux guest on MacOS | MacOS guest on MacOS |
 |---------------------------------------------|----------------------|----------------------|----------------------|
 | Host directory shares                       | Yes¹                 | Yes¹                 | No                   |
-| Manual TCP/UDP application forwards         | Yes                  | Yes                  | No                   |
+| Manual TCP/UDP application forwards         | Yes                  | Yes                  | Yes                  |
 | Automatic TCP forwards and listener reports | Yes¹                 | Yes¹                 | No                   |
 | Explicit HTTP proxy attachments             | Yes¹                 | Yes¹                 | No                   |
 | Serial console log                          | Yes²                 | Yes²                 | No                   |
@@ -74,10 +76,10 @@ services](docs/linux-guests.md#guest-image-contract).
 ² `voom console` follows the serial log; it is not an interactive terminal.
 The guest must be configured to write serial output.
 
-MacOS guests use SSH for file transfer and remote commands. They do not use
-Voom's reserved control share or a guest agent. Application-forwarding limits
-do not affect the host port mapping used for SSH. Snapshots and suspend/resume
-are not supported for either guest OS.
+_MacOS guests use SSH for file transfer and remote commands; they do not use
+Voom's reserved control share, or a guest agent. Manual forwards do not require
+guest services. Snapshots and suspend/resume are not supported for either guest
+OS._
 
 ## Installation
 
@@ -223,11 +225,12 @@ It keeps the source's CPU and memory allocation but gets its own Voom ID,
 SSH port, and NIC MAC address. MacOS clones also get a new
 [Apple machine identifier](docs/macos-guests.md#identity-and-resources).
 
-For Linux guests, host directory shares, application forwards,
-automatic-forwarding settings, USB/PCI assignments, and proxy attachments are
-not copied. The clone command prints commands you can use to recreate shares,
-forwards, and device assignments. A proxy attachment needs a separate backend
-for the clone; see [proxy attachments](docs/proxy-attachments.md).
+For Linux and MacOS guests, manual forwards are not copied. For Linux guests,
+host directory shares, automatic-forwarding settings, USB/PCI assignments, and
+proxy attachments are also not copied; however, the clone command prints
+commands that you can manually invoke to recreate shares, forwards, and device
+assignments. A proxy attachment needs a separate backend for the clone; see
+[proxy attachments](docs/proxy-attachments.md).
 
 ### Change CPU or memory allocation
 

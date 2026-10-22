@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/mjrusso/voom/internal/forward"
+	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 )
 
@@ -26,6 +27,16 @@ func TestManualForwardMutationsAndCleanup(t *testing.T) {
 	if err := st.RegisterVM(rec.Name, rec.ID); err != nil {
 		t.Fatal(err)
 	}
+	testManualForwardMutationsAndCleanup(t, st, rec)
+}
+
+func TestMacOSManualForwardMutationsAndCleanup(t *testing.T) {
+	st, rec, _ := macosResetFixture(t)
+	testManualForwardMutationsAndCleanup(t, st, rec)
+}
+
+func testManualForwardMutationsAndCleanup(t *testing.T, st *state.Store, rec *state.VMRecord) {
+	t.Helper()
 	m := New(st)
 	ctx := context.Background()
 	probe, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -44,7 +55,7 @@ func TestManualForwardMutationsAndCleanup(t *testing.T) {
 			t.Fatalf("%s wildcard conflict accepted", proto)
 		}
 	}
-	reserved, err := st.PortReserved("udp", "127.0.0.1", 22)
+	reserved, err := st.PortReserved("udp", "127.0.0.1", rec.Network.SSHPort)
 	if err != nil || reserved {
 		t.Fatalf("UDP SSH reservation: %t %v", reserved, err)
 	}
@@ -113,7 +124,11 @@ func TestManualForwardMutationsAndCleanup(t *testing.T) {
 	}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
-	driver := fakeNamedVMProcess(t, "qemu-system-test")
+	driverName := "qemu-system-test"
+	if rec.Driver == "vfkit" {
+		driverName = "vfkit"
+	}
+	driver := fakeNamedVMProcess(t, driverName)
 	writeProcessRecord(t, rt.VMProcessRecord(), driver)
 	rows, err := m.ForwardRows(ctx, []string{rec.Name})
 	if err != nil {
@@ -170,6 +185,9 @@ func TestManualForwardMutationsAndCleanup(t *testing.T) {
 	}
 	rec, err = st.LoadVM(rec.Name)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := process.StopRecorded(rt.VMProcessRecord(), state.VMProcessKind(rec.Driver), processStopTimeout); err != nil {
 		t.Fatal(err)
 	}
 	stop, err := m.stopRuntime(ctx, rec)

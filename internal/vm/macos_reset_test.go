@@ -19,6 +19,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/state"
 )
 
@@ -83,6 +84,10 @@ func macosResetFixture(t *testing.T) (*state.Store, *state.VMRecord, *state.Imag
 
 func TestMacOSResetReplacesCompleteStateAndCloneUsesActiveGeneration(t *testing.T) {
 	st, original, im := macosResetFixture(t)
+	original.Network.Forwards = []forward.Decl{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: freeLoopbackPort(t), GuestPort: 8000}}
+	if err := st.SaveVM(original); err != nil {
+		t.Fatal(err)
+	}
 	manager := New(st)
 	for range 2 {
 		if err := manager.ResetDisk(context.Background(), "mac", "golden"); err != nil {
@@ -132,6 +137,9 @@ func TestMacOSResetReplacesCompleteStateAndCloneUsesActiveGeneration(t *testing.
 	}
 	if err := clone.MacOS.ValidateStorage(st.VMStorageDir(clone)); err != nil {
 		t.Fatal(err)
+	}
+	if len(clone.Network.Forwards) != 0 {
+		t.Fatalf("clone inherited host port reservations: %+v", clone.Network.Forwards)
 	}
 	if _, err := st.LoadVM("clone"); err != nil {
 		t.Fatal(err)

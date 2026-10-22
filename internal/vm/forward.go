@@ -47,9 +47,6 @@ func (m *Manager) AddForward(ctx context.Context, name string, guestPort, hostPo
 		return forward.Decl{}, err
 	}
 	defer unlock()
-	if vm.MacOS != nil {
-		return forward.Decl{}, errors.New("application port forwarding is not supported for MacOS guests; SSH remains available")
-	}
 	if err := m.recoverPendingForwardMutation(vm); err != nil {
 		return forward.Decl{}, err
 	}

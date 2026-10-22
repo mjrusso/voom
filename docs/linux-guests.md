@@ -480,8 +480,7 @@ voom start dev
 
 The VM name, Voom ID, CPU and memory allocation, SSH port, and NIC MAC address
 stay the same. Shares and forwarding settings are preserved. Voom adopts the
-selected image's SSH user and identity path. Reset cannot switch a VM between
-Linux and MacOS.
+selected image's SSH user and identity path.
 
 Wait for SSH and any first-boot setup to finish before running
 `voom guest verify dev`. See [guest verification](#guest-verification) for

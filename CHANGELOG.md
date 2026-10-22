@@ -8,22 +8,21 @@
 > Voom versions cannot read. Existing Linux VMs remain supported and move to
 > schema 2 on reset.
 
-- Add MacOS guest support on Apple Silicon: import baked image bundles, create,
-  clone, start, stop, restart, remove, and reset VMs. Support the graphical
-  console, ordinary guest networking, SSH, remote commands, and persistent Apple
-  platform storage. Host and guest require MacOS 27 or later, with a graphical
-  login session on the host. Nix is optional. The app uses the Voom icon and
+- Add MacOS guest support on Apple Silicon: import baked image bundles, and
+  create, clone, start, stop, restart, remove, and reset VMs. Support guest
+  networking, SSH, remote commands, and persistent Apple platform storage.
+  Manual TCP/UDP forwarding works without guest services. Host and guest
+  require MacOS 27 or later, with a graphical login session on the host. Nix is
+  optional. See the [MacOS guest guide](docs/macos-guests.md) for image
+  requirements and limitations.
+- Add a graphical console for MacOS guests. The app uses the Voom icon and
   appears as `Voom: <vm name>` in the Dock and menu bar. Closing the window keeps
   the VM running and removes the app from the Dock and Command-Tab; reopen the
-  window with `voom gui`.
-  Minimizing the window keeps its Dock entry. Quitting requests guest shutdown.
-  Create, clone, and reset assign fresh Apple identities; restarts
-  preserve them. SSH host keys and credentials are copied with the disk. Resource
-  allocations default to the baked values and must meet Apple's recorded
-  minimums. Bundles must declare all five guest-service capabilities false.
-  User shares, the reserved control share, application forwarding, guest listener
-  reports, and egress attachments are unsupported for MacOS guests. SSH routing
-  remains available. Linux guests retain sharing, forwarding, and egress support.
+  window with `voom gui`. Minimizing the window keeps its Dock entry. Quitting
+  requests guest shutdown.
+- Assign fresh Apple identities when creating, cloning, or resetting MacOS VMs;
+  preserve them across restarts. SSH host keys and credentials are copied with
+  the disk.
 - Bundle patched vfkit 0.6.4 and the Apple identity helper in MacOS release
   archives and Nix packages. A separate vfkit installation is no longer needed.
   The bundled vfkit is ad-hoc signed with the virtualization entitlement;

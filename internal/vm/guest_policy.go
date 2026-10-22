@@ -9,8 +9,8 @@ import (
 
 // ValidateGuestDeclarations checks VM-owned feature policy without loading an image.
 func ValidateGuestDeclarations(vm *state.VMRecord) error {
-	if vm.MacOS != nil && (len(vm.Shares) > 0 || len(vm.Network.Forwards) > 0 || vm.Network.AutoForward || vm.Network.Egress != nil) {
-		return fmt.Errorf("MacOS guests do not support user shares, application forwards, automatic forwarding, or egress attachments; remove these declarations before starting, resetting, or cloning")
+	if vm.MacOS != nil && (len(vm.Shares) > 0 || vm.Network.AutoForward || vm.Network.Egress != nil) {
+		return fmt.Errorf("MacOS guests do not support user shares, automatic forwarding, or egress attachments; remove these declarations before starting, resetting, or cloning")
 	}
 	return nil
 }

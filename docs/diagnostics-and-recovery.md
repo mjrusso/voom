@@ -95,8 +95,9 @@ or [MacOS import instructions](macos-guests.md#import-and-run).
 
 ### Shares or application forwards are missing
 
-These integrations support Linux guests only. Check the image capabilities
-and guest services with `voom guest verify dev`. Inspect forwarding state:
+Manual TCP/UDP forwarding supports Linux and MacOS guests. Shares and
+automatic forwarding require Linux guest services; check them with
+`voom guest verify dev`. Inspect forwarding state:
 
 ```sh
 voom forward list dev

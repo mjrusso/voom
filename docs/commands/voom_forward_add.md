@@ -4,7 +4,7 @@ Add a manual TCP or UDP forward
 
 ### Synopsis
 
-Add an application port forward to a Linux guest. Application forwarding is not supported for MacOS guests; the SSH mapping remains available.
+Add a manual TCP or UDP forward to a Linux or MacOS guest. No guest services are required. The application must listen on the guest's network address or 0.0.0.0.
 
 ```
 voom forward add <name> <guest-port> [flags]

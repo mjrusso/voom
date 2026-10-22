@@ -4,7 +4,7 @@ Enable auto-forwarding
 
 ### Synopsis
 
-Enable automatic application forwarding for a Linux guest. Automatic forwarding is not supported for MacOS guests; the SSH mapping remains available.
+Enable automatic TCP forwarding from a Linux guest's listener reports.
 
 ```
 voom forward auto enable <name> [flags]

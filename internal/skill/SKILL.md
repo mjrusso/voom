@@ -122,10 +122,13 @@ reconfigure the VM afterward unless the user requested that operation.
 
 ### Reach a guest service from the host
 
-Application forwarding is supported only for Linux guests. Automatic
-forwarding discovers TCP listeners only. For a TCP service, verify
-the image capabilities, enable automatic forwarding if needed, and poll the
-effective forwarding state:
+Manual TCP/UDP forwarding supports Linux and MacOS without guest services.
+Applications must listen on a guest network address or `0.0.0.0`; loopback-only
+listeners need SSH tunnels.
+
+Automatic forwarding requires Linux listener reports and discovers only TCP
+listeners. Check image capabilities, enable it if needed, and poll forwarding
+state:
 
 ```bash
 voom forward auto enable <name> --output json
@@ -138,7 +141,7 @@ Exposing a service beyond loopback requires explicit user intent.
 Enabling starts the watcher without waiting for reconciliation. Poll the
 forward list until the installed row appears or the deadline expires.
 
-For a UDP service, add a manual forward using the gvproxy bundled with Voom:
+For manual mappings on either guest OS:
 
 ```bash
 voom forward add <name> 5353 --protocol udp --host-port 15353 --bind 127.0.0.1 --output json
@@ -217,15 +220,16 @@ Use `voom gui <name>` to reopen a running VM's window. Quit requests shutdown;
 Force Quit terminates the VM. GUI login uses the guest password, which Voom
 does not manage.
 
-All image capabilities must be false. Shares, application forwards, listener
+All image capabilities must be false. Shares, automatic forwarding, listener
 reports, egress (even disabled), USB/PCI, `nixos switch`, and disk growth are
-unsupported. Ordinary networking and SSH work; use SSH for file transfers.
+unsupported. Use SSH for file transfers.
 
 Clone requires a stopped source and copies guest credentials and SSH host keys.
 Create, clone, and disk reset assign fresh Apple identities; restarts preserve
-identity. Reset stops the VM and replaces guest storage and platform files;
-it cannot switch between Linux and MacOS. CPU/memory changes require a stopped
-VM and must meet recorded Apple minimums; creation defaults use baked values.
+identity. Reset stops the VM and replaces guest storage and platform files,
+preserving manual forwards; clones omit them. CPU/memory changes require a
+stopped VM and must meet recorded Apple minimums; creation defaults use baked
+values.
 
 ### Attach a USB device on Linux
 
