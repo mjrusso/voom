@@ -2,45 +2,19 @@
 
 ## Unreleased
 
-> [!IMPORTANT]
->
-> New VM records and imported MacOS image records use schema 2, which older
-> Voom versions cannot read. Existing Linux VMs remain supported and move to
-> schema 2 on reset.
-
-- Add MacOS guest support on Apple Silicon: import baked image bundles, and
-  create, clone, start, stop, restart, remove, and reset VMs. Support guest
-  networking, SSH, remote commands, and persistent Apple platform storage.
-  Manual TCP/UDP forwarding works without guest services. Host and guest
-  require MacOS 27 or later, with a graphical login session on the host. Nix is
-  optional. See the [MacOS guest guide](docs/macos-guests.md) for image
-  requirements and limitations.
-- Add a graphical console for MacOS guests. The app uses the Voom icon and
-  appears as `Voom: <vm name>` in the Dock and menu bar. Closing the window keeps
-  the VM running and removes the app from the Dock and Command-Tab; reopen the
-  window with `voom gui`. Minimizing the window keeps its Dock entry. Quitting
-  requests guest shutdown.
-- Assign fresh Apple identities when creating, cloning, or resetting MacOS VMs;
-  preserve them across restarts. SSH host keys and credentials are copied with
-  the disk.
-- Bundle patched vfkit 0.6.4 and the Apple identity helper in MacOS release
-  archives and Nix packages. A separate vfkit installation is no longer needed.
-  The bundled vfkit is ad-hoc signed with the virtualization entitlement;
-  running it requires neither Xcode nor a Developer ID certificate. Read-only
-  shares for Linux guests are enforced on the host.
-- Make disk reset replace storage and its saved configuration together for both
-  Linux and MacOS. Reject images that cannot support the VM's shares or automatic
-  forwarding before stopping it. MacOS reset also replaces the Apple platform
-  files and can repair missing boot files.
-- Add `voom guest verify` for Linux and MacOS. Check SSH, guest health, mounts,
-  and configured services, including Nix when detected or required by the image.
-  Reject results if the VM runtime or configuration changes during verification.
+- Add support for running MacOS guests, with features including a graphical
+  console, SSH, cloning, reset, and manual TCP/UDP forwarding. A host running
+  MacOS 27 or later, on Apple Silicon, is required. MacOS guests must also be
+  running MacOS 27 or later. For more details, refer to the [MacOS guest
+  guide](docs/macos-guests.md).
+- Bundle vfkit and the Apple identity helper in MacOS release archives and Nix
+  packages; a separate vfkit installation is no longer required on Apple hosts.
+- Enforce read-only directory shares for Linux guests on MacOS hosts.
+- Add `voom guest verify` to check SSH, guest health, mounts, and configured
+  services on Linux and MacOS guests.
 - Check vfkit compatibility in `voom doctor`. Add `voom debug helpers` to show
-  which helper executables Voom selects.
-- Use `disk.raw` for new vfkit VMs. Existing Linux VMs retain `disk.img` until
-  reset; both contain raw disks, and image import accepts either extension.
-- Split detailed guest and integration guides from the README. Include the
-  guides, command reference, and linked local assets in release archives.
+  which executables Voom uses.
+- Include the user guides and command reference in release archives.
 
 ## v1.4.0 - 2026-10-14
 
