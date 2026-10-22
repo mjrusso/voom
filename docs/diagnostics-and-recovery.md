@@ -14,7 +14,7 @@ voom info dev
 voom logs dev
 ```
 
-`doctor` checks [host dependencies](../README.md#host-requirements), writable
+`doctor` checks [host dependencies](installation.md#host-requirements), writable
 directories, port availability, LAN exposure, stale process records, and state
 consistency. It reports unsupported MacOS image capabilities and VM
 declarations. These checks do not change VM state.

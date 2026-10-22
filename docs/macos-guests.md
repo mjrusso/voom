@@ -17,7 +17,7 @@ over SSH.
 Voom includes its patched vfkit 0.6.4 build in MacOS release archives and Nix
 packages; a separate vfkit installation is unnecessary.
 
-[Install Voom](../README.md#installation) before following the setup below.
+[Install Voom](installation.md) before following the setup below.
 
 - [Prepare an image](#prepare-an-image)
 - [Import and run](#import-and-run)

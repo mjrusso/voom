@@ -17,7 +17,7 @@ are in [NOTICE.vfkit](../nix/NOTICE.vfkit) and
 [NOTICE.gvproxy](../nix/NOTICE.gvproxy).
 
 On Linux hosts, Voom uses a separately installed QEMU/KVM for virtualization;
-see [host requirements](../README.md#host-requirements).
+see [host requirements](installation.md#host-requirements).
 
 Full helper license texts and dependency notices are included with Voom's
 distributions:

@@ -28,8 +28,9 @@ for archive in "$dist"/voom_*.tar.gz; do
   test -f "$tmp/THIRD_PARTY_LICENSES/gvisor.dev/gvisor/pkg/LICENSE"
   test -f "$tmp/README.md"
   test -f "$tmp/CHANGELOG.md"
-  for doc in CONTRIBUTING.md assets/voom.png docs/linux-guests.md docs/macos-guests.md \
-    docs/proxy-attachments.md docs/reference.md docs/commands/voom.md nix/GVPROXY.md; do
+  for doc in CONTRIBUTING.md assets/voom.png docs/installation.md \
+    docs/linux-guests.md docs/macos-guests.md docs/proxy-attachments.md \
+    docs/reference.md docs/commands/voom.md nix/GVPROXY.md; do
     test -f "$tmp/$doc"
   done
   test -x "$tmp/voom"

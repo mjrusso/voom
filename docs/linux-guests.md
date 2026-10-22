@@ -23,8 +23,7 @@ host requirements and feature availability.
 
 ## Getting started
 
-[Install Voom](../README.md#installation) and its
-[host dependencies](../README.md#host-requirements) first.
+[Install Voom and its host dependencies](installation.md) first.
 
 For this quickstart, download the **`generic` variant** of the official
 [Debian cloud images](https://cloud.debian.org/images/cloud/trixie/), using
