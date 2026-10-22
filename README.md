@@ -4,8 +4,8 @@
 
 ---
 
-[Installation](#installation) · [Quickstarts](#getting-started) · [Guides and
-reference](#guides-and-reference)
+[Installation](#installation) · [Quickstarts](#getting-started) ·
+[Agent skill](#agent-skill) · [Guides and reference](#guides-and-reference)
 
 ---
 
@@ -40,6 +40,43 @@ On Linux hosts, Voom additionally supports:
   devices from the guest.
 
 MacOS guests are not yet as full-featured as Linux guests.
+
+---
+
+## Installation
+
+Download a prebuilt archive from [GitHub releases](https://github.com/mjrusso/voom/releases)
+or install with Nix:
+
+```sh
+nix profile install github:mjrusso/voom
+```
+
+See the [installation guide](docs/installation.md) for host requirements,
+release setup, and Nix integration.
+
+## Getting started
+
+[Install Voom](docs/installation.md), then choose a guest OS:
+
+- [Run a Linux guest](docs/linux-guests.md#getting-started): download and import
+  a cloud image, start a VM, verify it, and configure shares and forwarding.
+- [Run a MacOS guest](docs/macos-guests.md): prepare an installed image bundle,
+  start a VM, verify it, and use the graphical console.
+
+## Agent skill
+
+Voom ships agent instructions as part of the binary. To print the skill file,
+run `voom skill`.
+
+Installation is not required (just tell your agent to run `voom skill`). You
+can optionally install the skill; for example:
+
+```sh
+mkdir -p ~/.agents/skills/voom
+voom --skill > ~/.agents/skills/voom/SKILL.md
+chmod 0644 ~/.agents/skills/voom/SKILL.md
+```
 
 ## Supported hosts and guests
 
@@ -82,27 +119,6 @@ guest must be configured to write serial output.
 Voom's reserved control share or a guest agent.
 
 ⁴ Manual port forwarding does not require guest services.
-
-## Installation
-
-Download a prebuilt archive from [GitHub releases](https://github.com/mjrusso/voom/releases)
-or install with Nix:
-
-```sh
-nix profile install github:mjrusso/voom
-```
-
-See the [installation guide](docs/installation.md) for host requirements,
-release setup, and Nix integration.
-
-## Getting started
-
-[Install Voom](docs/installation.md), then choose a guest OS:
-
-- [Run a Linux guest](docs/linux-guests.md#getting-started): download and import
-  a cloud image, start a VM, verify it, and configure shares and forwarding.
-- [Run a MacOS guest](docs/macos-guests.md): prepare an installed image bundle,
-  start a VM, verify it, and use the graphical console.
 
 ## Common operations
 
@@ -225,20 +241,6 @@ To rebuild an existing VM from an image, see reset instructions for
 
 Use `voom --help` to list commands and `voom <command> --help` for a
 command's usage and options.
-
-## Agent skill
-
-Voom ships agent instructions as part of the binary. To print the skill file,
-run `voom skill`.
-
-Installation is not required (just tell your agent to run `voom skill`). You
-can optionally install the skill; for example:
-
-```sh
-mkdir -p ~/.agents/skills/voom
-voom --skill > ~/.agents/skills/voom/SKILL.md
-chmod 0644 ~/.agents/skills/voom/SKILL.md
-```
 
 ## Development
 
