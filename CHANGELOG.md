@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.5.0 - 2026-10-22
+
 - Add support for running MacOS guests, with features including a graphical
   console, SSH, cloning, reset, and manual TCP/UDP forwarding. A host running
   MacOS 27 or later, on Apple Silicon, is required. MacOS guests must also be
