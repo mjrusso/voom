@@ -18,6 +18,7 @@ Inspect and modify VM configuration
 ### SEE ALSO
 
 * [voom](voom.md)	 - Magic-free local VMs
+* [voom config allowed-destinations](voom_config_allowed-destinations.md)	 - Show global exceptions to the tailnet block
 * [voom config egress](voom_config_egress.md)	 - Configure an explicit proxy attachment
 * [voom config show](voom_config_show.md)	 - Print the commands to reproduce a VM's configuration
 * [voom config ssh-port](voom_config_ssh-port.md)	 - Set or reallocate the host SSH port for a stopped VM

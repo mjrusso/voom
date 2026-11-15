@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Block direct guest TCP and UDP connections to tailnet addresses. This prevents
+  guests from using the host's Tailscale identity to reach the tailnet.
+  After upgrading, point any `VOOM_GVPROXY` override at the bundled gvproxy;
+  Voom rejects builds without subnet blocking support. Configure any required
+  [IP and port exceptions](docs/reference.md#tailnet-destinations), then restart
+  running VMs to apply the block and exceptions. Run `voom doctor` to check for
+  missing blocks and stale exceptions.
 - Include missing third-party license files in release archives and Nix packages.
 - Fix broken links to license notices and dependency information in the
   bundled license guide.

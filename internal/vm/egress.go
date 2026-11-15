@@ -87,7 +87,7 @@ func (m *Manager) CheckEgressCapabilities(ctx context.Context, vm *state.VMRecor
 		}
 		return gvproxy.CheckProcess(ctx, rt.NetworkSock(), gvproxy.GuestIsolationCapability, gvproxy.GatewayCapability)
 	}
-	_, err := gvproxy.ResolveCompatible(ctx, gvproxy.GuestIsolationCapability, gvproxy.GatewayCapability)
+	_, err := gvproxy.ResolveCompatible(ctx, gvproxy.GatewayCapability)
 	return err
 }
 

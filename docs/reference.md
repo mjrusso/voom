@@ -98,6 +98,50 @@ Voom's gvproxy build blocks guest access to host loopback services through
 [Explicit proxy attachments](proxy-attachments.md) provide a separate, per-VM
 route to a configured host Unix socket for Linux guests.
 
+### Tailnet destinations
+
+Voom blocks direct guest TCP and UDP connections to `100.64.0.0/10` and
+`fd7a:115c:a1e0::/48`, including MagicDNS at `100.100.100.100`.
+gvproxy opens outbound connections from the host. Without this block, guests
+could use the host's Tailscale identity to reach the tailnet. Tailnet names
+still resolve through guest DNS.
+
+Set global exceptions for exact IP and port pairs:
+
+```sh
+voom config allowed-destinations set 100.64.0.10:443 '[fd7a:115c:a1e0::10]:443'
+```
+
+`set` requires at least one destination and replaces the complete list for all
+VMs. Each exception allows both TCP and UDP. Use literal IP addresses and ports
+1–65535; bracket IPv6 addresses and omit zone identifiers. Loopback and
+link-local restrictions still apply.
+
+Show the list with `voom config allowed-destinations`. To remove all exceptions,
+run `voom config allowed-destinations clear`.
+
+For declarative configuration, write `network.json` in Voom's
+[configuration directory](#directories):
+
+```json
+{ "allowedDestinations": ["100.64.0.10:443"] }
+```
+
+A missing file allows no exceptions. Invalid settings prevent VM startup;
+`voom doctor` reports them as fatal errors.
+Home Manager can write the file with `xdg.configFile."voom/network.json"`.
+Edit that configuration in Nix; the CLI refuses to replace symlinks.
+
+VM startup requires a gvproxy build with `blocked-subnets-v1`. Release archives
+and Nix packages include a compatible build. If you set `VOOM_GVPROXY`, update
+it to that build. Restart running VMs to apply the block and allowlist changes.
+`voom doctor` compares each running gvproxy's policy with the current settings
+and warns about missing blocks, stale exceptions, or unavailable policy
+reporting. It checks the subnet blocks even when `network.json` is invalid.
+External egress proxies need their own destination restrictions.
+
+### SSH
+
 `voom ssh` and generated `ssh-config` entries disable SSH host-key
 verification and do not save host keys in `known_hosts`. These connections
 target local, disposable VMs whose keys may change after reset. `guest verify`

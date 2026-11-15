@@ -74,7 +74,7 @@ func configCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.AddCommand(show, sshPort, egressCommand())
+	cmd.AddCommand(show, sshPort, egressCommand(), allowedDestinationsCommand())
 	return cmd
 }
 

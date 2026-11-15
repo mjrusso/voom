@@ -41,7 +41,7 @@ func egressMutationStore(t *testing.T) (*state.Store, egress.Decl) {
 		t.Fatal(err)
 	}
 	executable := filepath.Join(dir, "gvproxy")
-	if err := os.WriteFile(executable, []byte("#!"+sh+"\nprintf '%s\\n' '{\"guest-isolation-v1\":1,\"gateway-forward-v1\":1}'\n"), 0700); err != nil {
+	if err := os.WriteFile(executable, []byte("#!"+sh+"\nprintf '%s\\n' '{\"guest-isolation-v1\":1,\"blocked-subnets-v1\":1,\"gateway-forward-v1\":1}'\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("VOOM_GVPROXY", executable)

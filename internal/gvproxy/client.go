@@ -17,9 +17,6 @@ import (
 	"github.com/mjrusso/voom/internal/forward"
 )
 
-// UDPForwardCapability identifies gvproxy builds with UDP datagram and session fixes.
-const UDPForwardCapability = "udp-forward-v1"
-
 // ErrForwardOutcomeUnknown means a mutation may have completed despite its error.
 var ErrForwardOutcomeUnknown = errors.New("gvproxy forward mutation outcome unknown")
 

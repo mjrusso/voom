@@ -56,7 +56,7 @@ func Run(all bool) []Check {
 		executable, err := vfkit.ResolveCompatible(context.Background(), "gui-lifecycle-v1", vfkit.GUIBrandingCapability, "virtiofs-readonly-v1")
 		add("vfkit", true, err, "compatible: "+executable)
 	}
-	_, gvproxyErr := gvproxy.ResolveCompatible(context.Background(), gvproxy.GuestIsolationCapability)
+	_, gvproxyErr := gvproxy.ResolveCompatible(context.Background())
 	add("gvproxy", true, gvproxyErr, "compatible")
 	add("ssh", true, host.RequireExe("ssh"), "found")
 	add("nix", false, host.RequireExe("nix"), "found")
@@ -121,6 +121,12 @@ func KVMAvailable() error {
 // issues, returning one Check per finding (or a single ok entry when clean).
 func StateDiagnostics(st *state.Store) []Check {
 	out := []Check{}
+	var networkConfig *state.NetworkConfig
+	if config, err := st.LoadNetworkConfig(); err != nil {
+		out = append(out, Check{"network-config", "fatal", false, err.Error() + "; fix network.json before starting VMs"})
+	} else {
+		networkConfig = &config
+	}
 	vmMgr := vm.New(st)
 	index := st.IndexSnapshot()
 	vmSeenIDs := map[string]string{}
@@ -199,6 +205,7 @@ func StateDiagnostics(st *state.Store) []Check {
 				}
 			}
 		}
+		out = append(out, gvproxyDiagnostics(st, vmRec, networkConfig)...)
 		autoStatePath := vmMgr.RuntimeAutoForwardsPath(vmRec)
 		if fileExists(autoStatePath) && !vmMgr.IsRunning(vmRec) {
 			out = append(out, Check{"stale-auto-forward-state-" + name, "warn", false, "runtime auto-forward state remains for stopped VM at " + autoStatePath})

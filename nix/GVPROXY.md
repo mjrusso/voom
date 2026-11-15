@@ -26,7 +26,7 @@ QEMU network sockets; it needs neither a VM image nor a hypervisor.
 The default Nix package installs `voom` and `gvproxy` together. The separate
 `packages.${system}.gvproxy` output and `VOOM_GVPROXY` override remain available
 for development. Voom rejects binaries without its `guest-isolation-v1`
-capability.
+and `blocked-subnets-v1` capabilities.
 
 The patch exposes JSON capability reporting with `-capabilities` and
 `GET /services/gateway-forward/capabilities`. Startup accepts repeated
@@ -69,3 +69,16 @@ requires to install UDP forwards.
 `gvproxy-forward-outcomes.patch` reports rejected expose requests as HTTP 409
 only when no listener was installed. Removal failures and lost responses retain
 an unknown outcome, so Voom keeps reservations until termination is confirmed.
+
+`gvproxy-blocked-subnets.patch` adds repeatable `-block-subnet CIDR` and
+`-allow-destination IP:PORT` flags. YAML uses `stack.blockedSubnets` and
+`stack.allowedDestinations`; flags append to these lists. TCP and UDP
+forwarders check the destination after NAT translation. Exceptions allow one
+IP and port; loopback and link-local restrictions still apply. The build
+reports `blocked-subnets-v1`.
+
+`GET /services/network/policy` reports the subnet blocks and destination
+exceptions installed in the TCP and UDP forwarders. It is available only on
+the host Unix control socket. The capabilities response remains a version map.
+Voom uses the policy report to detect missing blocks and settings that require
+a VM restart.

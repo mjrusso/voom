@@ -12,10 +12,12 @@ import (
 	"github.com/mjrusso/voom/internal/host"
 )
 
-// GatewayCapability and GuestIsolationCapability identify gvproxy APIs required by Voom.
+// Capabilities required by Voom.
 const (
 	GatewayCapability        = "gateway-forward-v1"
 	GuestIsolationCapability = "guest-isolation-v1"
+	BlockedSubnetsCapability = "blocked-subnets-v1"
+	UDPForwardCapability     = "udp-forward-v1"
 )
 
 const gatewayExposePath = "/services/gateway-forward/expose"
@@ -27,7 +29,7 @@ type GatewayRoute struct {
 	ActiveConnections int    `json:"activeConnections,omitempty"`
 }
 
-// ResolveCompatible returns the selected gvproxy executable after checking its required capabilities.
+// ResolveCompatible checks Voom's minimum capabilities and any requested extras.
 func ResolveCompatible(ctx context.Context, required ...string) (string, error) {
 	executable, err := host.ExePath("gvproxy")
 	if err != nil {
@@ -39,7 +41,7 @@ func ResolveCompatible(ctx context.Context, required ...string) (string, error) 
 	return executable, nil
 }
 
-// CheckExecutable verifies capabilities reported by the selected gvproxy binary.
+// CheckExecutable requires Voom's minimum capabilities and any requested extras.
 func CheckExecutable(ctx context.Context, executable string, required ...string) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -47,7 +49,8 @@ func CheckExecutable(ctx context.Context, executable string, required ...string)
 	if err != nil {
 		return fmt.Errorf("gvproxy capability probe failed: %w", err)
 	}
-	return checkCapabilities(data, required...)
+	minimum := []string{GuestIsolationCapability, BlockedSubnetsCapability}
+	return checkCapabilities(data, append(minimum, required...)...)
 }
 
 func checkCapabilities(data []byte, required ...string) error {

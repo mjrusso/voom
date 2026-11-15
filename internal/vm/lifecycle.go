@@ -345,6 +345,10 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	if err := validateImageFeatures(vm, im); err != nil {
 		return nil, err
 	}
+	networkConfig, err := m.store.LoadNetworkConfig()
+	if err != nil {
+		return nil, err
+	}
 	if d := vm.Network.Egress; d != nil {
 		if err := m.store.WithGlobalVM(name, vm.ID, func() error {
 			return m.CheckEgressAssignment(vm, *d)
@@ -358,7 +362,7 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	if err := m.prepareGuestStorage(ctx, vm); err != nil {
 		return nil, err
 	}
-	requiredCapabilities := []string{gvproxy.GuestIsolationCapability}
+	var requiredCapabilities []string
 	for _, f := range vm.Network.Forwards {
 		if f.Protocol == "udp" {
 			requiredCapabilities = append(requiredCapabilities, gvproxy.UDPForwardCapability)
@@ -458,16 +462,7 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		return nil, err
 	}
 	virtiofsShares = append(virtiofsShares, userShares...)
-	gvproxyArgs := []string{"-listen", "unix://" + rt.NetworkSock(), "-ssh-port", "-1"}
-	switch vm.Driver {
-	case "qemu":
-		gvproxyArgs = append(gvproxyArgs, "-listen-qemu", "unix://"+rt.QEMUNetSock())
-	case "vfkit":
-		gvproxyArgs = append(gvproxyArgs, "-listen-vfkit", "unixgram://"+rt.VFKitNetSock())
-	}
-	if vm.Network.Egress.IsEnabled() {
-		gvproxyArgs = append(gvproxyArgs, "-gateway-forward", gvproxy.GatewayArgument(gvproxy.GatewayRoute{Local: egress.Listener, Target: vm.Network.Egress.BackendSocket}))
-	}
+	gvproxyArgs := gvproxyArguments(vm, rt, networkConfig)
 	if err = process.StartRecorded(gvproxyExe, gvproxyArgs, m.store.LogPath(vm, "gvproxy"), rt.GVProxyProcessRecord()); err != nil {
 		return nil, err
 	}

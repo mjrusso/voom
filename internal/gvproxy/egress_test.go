@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -36,11 +37,11 @@ func TestGuestIsolationCapabilityRequiresExactVersion(t *testing.T) {
 
 func TestResolveCompatibleReturnsCheckedExecutable(t *testing.T) {
 	executable := filepath.Join(t.TempDir(), "gvproxy")
-	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf '{\"guest-isolation-v1\":1}'\n"), 0o755); err != nil {
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf '{\"guest-isolation-v1\":1,\"blocked-subnets-v1\":1}'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("VOOM_GVPROXY", executable)
-	got, err := ResolveCompatible(context.Background(), GuestIsolationCapability)
+	got, err := ResolveCompatible(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,6 +91,36 @@ func TestExposeResponseClassification(t *testing.T) {
 		err := ExposeGateway(context.Background(), socket, GatewayRoute{Local: "192.168.127.1:3128", Target: "/tmp/backend.sock"})
 		if err == nil || GatewayRejected(err) != (status != 500) {
 			t.Fatalf("HTTP %d: %v", status, err)
+		}
+	}
+}
+
+func TestExecutableRequiresMinimumCapabilities(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "gvproxy")
+	for _, tc := range []struct {
+		capabilities string
+		extra        []string
+		missing      string
+	}{
+		{`{"guest-isolation-v1":1}`, nil, BlockedSubnetsCapability},
+		{`{"blocked-subnets-v1":1}`, nil, GuestIsolationCapability},
+		{`{"guest-isolation-v1":1,"blocked-subnets-v1":2}`, nil, BlockedSubnetsCapability},
+		{`{"guest-isolation-v1":1,"gateway-forward-v1":1}`, []string{GatewayCapability}, BlockedSubnetsCapability},
+		{`{"guest-isolation-v1":1,"blocked-subnets-v1":1}`, nil, ""},
+		{`{"guest-isolation-v1":1,"blocked-subnets-v1":1}`, []string{GatewayCapability}, GatewayCapability},
+		{`{"guest-isolation-v1":1,"blocked-subnets-v1":1,"gateway-forward-v1":1}`, []string{GatewayCapability}, ""},
+	} {
+		script := "#!/bin/sh\nprintf '%s\\n' '" + tc.capabilities + "'\n"
+		if err := os.WriteFile(executable, []byte(script), 0700); err != nil {
+			t.Fatal(err)
+		}
+		err := CheckExecutable(context.Background(), executable, tc.extra...)
+		if tc.missing == "" {
+			if err != nil {
+				t.Fatalf("%s: %v", tc.capabilities, err)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), tc.missing) {
+			t.Fatalf("%s: %v; want missing %s", tc.capabilities, err, tc.missing)
 		}
 	}
 }

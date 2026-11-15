@@ -222,7 +222,7 @@ func TestForwardLifecycleProcess(t *testing.T) {
 		}))
 		return
 	}
-	caps := map[string]int{gvproxy.GuestIsolationCapability: 1, gvproxy.UDPForwardCapability: 1}
+	caps := map[string]int{gvproxy.GuestIsolationCapability: 1, gvproxy.BlockedSubnetsCapability: 1, gvproxy.UDPForwardCapability: 1}
 	if os.Getenv("VOOM_FORWARD_TEST_NO_UDP") == "1" {
 		delete(caps, gvproxy.UDPForwardCapability)
 	}
