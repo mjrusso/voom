@@ -56,12 +56,12 @@
               --fish <($out/bin/voom completion fish) \
               --zsh <($out/bin/voom completion zsh)
             ln -s ${gvproxy}/bin/gvproxy $out/bin/gvproxy
-            ${pkgs.lib.optionalString pkgs.stdenv.isDarwin "ln -s ${vfkit}/bin/vfkit $out/bin/vfkit"}
+            ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin "ln -s ${vfkit}/bin/vfkit $out/bin/vfkit"}
             ${pkgs.lib.optionalString hasMacOSIdentity "ln -s ${macosIdentity}/bin/voom-macos-identity $out/bin/voom-macos-identity"}
             mkdir -p $out/share/licenses
             go-licenses save ./cmd/voom --save_path=$out/share/licenses/voom/THIRD_PARTY_LICENSES
             ln -s ${gvproxy}/share/licenses/gvproxy $out/share/licenses/gvproxy
-            ${pkgs.lib.optionalString pkgs.stdenv.isDarwin "ln -s ${vfkit}/share/licenses/vfkit $out/share/licenses/vfkit"}
+            ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin "ln -s ${vfkit}/share/licenses/vfkit $out/share/licenses/vfkit"}
           '';
         };
         ciPackages = with pkgs; [
@@ -80,14 +80,14 @@
           inherit gvproxy voom;
           gvproxy-source = gvproxySource;
           default = voom;
-        } // pkgs.lib.optionalAttrs pkgs.stdenv.isDarwin { inherit vfkit; };
+        } // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin { inherit vfkit; };
         apps.voom = flake-utils.lib.mkApp { drv = voom; };
         apps.default = self.apps.${system}.voom;
         devShells.ci = pkgs.mkShell { packages = ciPackages; };
         devShells.default = pkgs.mkShell {
           packages = ciPackages ++ [ pkgs.gopls pkgs.gotools ]
-            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.inotify-tools pkgs.libnotify ]
-            ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.terminal-notifier ];
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.inotify-tools pkgs.libnotify ]
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.terminal-notifier ];
         };
         checks.voom = voom;
         checks.voom-completions = pkgs.callPackage ./nix/completion-test.nix { inherit voom; };
