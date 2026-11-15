@@ -272,7 +272,9 @@ Cache holds disposable logs: `serial.log`, `qemu.log` or `vfkit.log`,
 `gvproxy.log`, `auto-forward.log`, `share-mount.log`, `runtime-watch.log`, and
 the global `events.jsonl` event stream. The stream retains one rotated
 generation at `events.jsonl.1` and coordinates writers through `events.lock`.
-Use `voom logs <name>` to read per-VM logs.
+Helper and serial logs retain one previous run as `<name>.log.1` when the VM
+starts. Daemons sharing a log and restarted watchers append to the current run.
+Use `voom logs <name>` to read current per-VM logs.
 
 ## Events
 

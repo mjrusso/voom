@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Rotate helper and serial logs once per VM start, retaining the previous run as
+  `<name>.log.1`. Daemons sharing a log and restarted watchers append to the
+  current run's log.
 - Block direct guest TCP and UDP connections to tailnet addresses. This prevents
   guests from using the host's Tailscale identity to reach the tailnet.
   After upgrading, point any `VOOM_GVPROXY` override at the bundled gvproxy;

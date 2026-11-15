@@ -32,7 +32,7 @@ func startRecordedExe(exe string, args []string, logPath, recordPath string) err
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return err
 	}
-	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_TRUNC|os.O_APPEND|os.O_WRONLY, 0o644)
+	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
@@ -55,6 +55,14 @@ func startRecordedExe(exe string, args []string, logPath, recordPath string) err
 	}
 	go func() { _ = cmd.Wait() }()
 	_ = log.Close()
+	return nil
+}
+
+// RotateLog retains the previous run before the log owner starts its writers.
+func RotateLog(path string) error {
+	if err := os.Rename(path, path+".1"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("rotate log %s: %w", path, err)
+	}
 	return nil
 }
 

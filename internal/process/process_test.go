@@ -66,7 +66,7 @@ func TestStartRecordedAppendsAfterConcurrentLogWriter(t *testing.T) {
 	t.Cleanup(func() { _ = StopRecorded(recordPath, "auto-forward", time.Second) })
 	if err := WaitFor(func() bool {
 		b, _ := os.ReadFile(path)
-		return string(b) == "first"
+		return string(b) == "oldfirst"
 	}, 3*time.Second); err != nil {
 		t.Fatalf("detached process did not write first message: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestStartRecordedAppendsAfterConcurrentLogWriter(t *testing.T) {
 	}
 	if err := WaitFor(func() bool {
 		b, _ := os.ReadFile(path)
-		return string(b) == "firstexternalsecond"
+		return string(b) == "oldfirstexternalsecond"
 	}, 3*time.Second); err != nil {
 		b, _ := os.ReadFile(path)
 		t.Fatalf("log = %q", b)

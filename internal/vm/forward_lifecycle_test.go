@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/process"
+	"github.com/mjrusso/voom/internal/share"
 	"github.com/mjrusso/voom/internal/state"
 )
 
@@ -146,7 +148,7 @@ func installForwardLifecycleExecutables(t *testing.T, dir, arch string) {
 	}
 	t.Setenv("VOOM_FORWARD_TEST_PROCESS", "1")
 	t.Setenv("VOOM_FORWARD_TEST_HELPER", exe)
-	for name, role := range map[string]string{"gvproxy": "gvproxy", qemu.ExecutableName(arch): "qemu", "vfkit": "vfkit", "qemu-img": "qemu-img"} {
+	for name, role := range map[string]string{"gvproxy": "gvproxy", qemu.ExecutableName(arch): "qemu", "vfkit": "vfkit", "qemu-img": "qemu-img", "virtiofsd": "virtiofsd"} {
 		path := filepath.Join(dir, name)
 		script := "#!/usr/bin/env bash\nexec -a " + name + " \"$VOOM_FORWARD_TEST_HELPER\" -test.run '^TestForwardLifecycleProcess$' -- " + role + " \"$@\"\n"
 		if err := os.WriteFile(path, []byte(script), 0755); err != nil {
@@ -193,6 +195,17 @@ func TestForwardLifecycleProcess(t *testing.T) {
 		return
 	}
 	if role == "qemu-img" {
+		return
+	}
+	if role == "virtiofsd" {
+		path := option("--socket-path")
+		_, _ = fmt.Fprintln(os.Stdout, filepath.Base(path))
+		listener, err := net.Listen("unix", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = listener.Close() }()
+		_, _ = listener.Accept()
 		return
 	}
 	if role == "qemu" {
@@ -396,6 +409,79 @@ func TestManualForwardUncertainRemovalKeepsDeclaration(t *testing.T) {
 	}
 	if err := m.RemoveForward(ctx, rec.Name, port, "127.0.0.1", "udp"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestStartRetainsPreviousRuntimeLogs(t *testing.T) {
+	st, m, rec := newForwardLifecycleVM(t)
+	ctx := context.Background()
+	t.Cleanup(func() { _, _ = m.Stop(ctx, rec.Name) })
+	if _, err := m.Start(ctx, io.Discard, rec.Name); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Stop(ctx, rec.Name); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"serial", rec.Driver, "gvproxy", "share-mount", "auto-forward", "runtime-watch"} {
+		if err := os.WriteFile(st.LogPath(rec, name), []byte("previous "+name), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := m.Start(ctx, io.Discard, rec.Name); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"serial", rec.Driver, "gvproxy", "share-mount", "auto-forward", "runtime-watch"} {
+		previous, err := os.ReadFile(st.LogPath(rec, name) + ".1")
+		if err != nil || string(previous) != "previous "+name {
+			t.Fatalf("previous %s log: %q %v", name, previous, err)
+		}
+	}
+}
+
+func TestStartRotatesSharedLogOnce(t *testing.T) {
+	st, m, rec := newForwardLifecycleVM(t)
+	if rec.Driver != "qemu" {
+		t.Skip("virtiofsd sharing uses QEMU")
+	}
+	im, err := st.LoadImageByID(rec.Image.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	im.Capabilities.ControlShare = true
+	im.Capabilities.GuestShareMount = true
+	if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(im.ID), "image.json"), im); err != nil {
+		t.Fatal(err)
+	}
+	for _, tag := range []string{"one", "two"} {
+		rec.Shares = append(rec.Shares, share.Decl{Tag: tag, HostPath: t.TempDir(), GuestPath: "/mnt/" + tag})
+	}
+	if err := st.SaveVM(rec); err != nil {
+		t.Fatal(err)
+	}
+	path := st.LogPath(rec, "share-mount")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("previous run"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	t.Cleanup(func() { _, _ = m.Stop(ctx, rec.Name) })
+	if _, err := m.Start(ctx, io.Discard, rec.Name); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := os.ReadFile(path + ".1")
+	if err != nil || string(previous) != "previous run" {
+		t.Errorf("previous shared log: %q %v", previous, err)
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tag := range []string{state.ControlShareTag, "one", "two"} {
+		if !strings.Contains(string(current), "virtiofs-"+tag+".sock") {
+			t.Errorf("current shared log omits %s: %q", tag, current)
+		}
 	}
 }
 

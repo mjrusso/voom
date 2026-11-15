@@ -422,6 +422,12 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 	if err := os.MkdirAll(cache, 0o755); err != nil {
 		return nil, err
 	}
+	// All virtiofsd instances share share-mount.log; rotate before any writer starts.
+	for _, name := range []string{"serial", vm.Driver, "gvproxy", "share-mount", "auto-forward", "runtime-watch"} {
+		if err := process.RotateLog(m.store.LogPath(vm, name)); err != nil {
+			return nil, err
+		}
+	}
 	driverExe, err = m.prepareGUIApp(ctx, vm, driverExe)
 	if err != nil {
 		return nil, err
