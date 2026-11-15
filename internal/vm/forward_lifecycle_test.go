@@ -359,23 +359,21 @@ func TestManualForwardRecoversUncertainMutation(t *testing.T) {
 				}
 				assertVMStopEvents(t, recorder, rec.ID, 0)
 			} else {
-				if m.IsRunning(rec) || process.HasRecord(st.Runtime(rec).GVProxyProcessRecord()) {
-					t.Fatalf("uncertain mutation left runtime alive: %v", err)
+				if !m.IsRunning(rec) || !process.HasRecord(st.Runtime(rec).GVProxyProcessRecord()) {
+					t.Fatalf("uncertain mutation stopped runtime: %v", err)
 				}
-				if !strings.Contains(err.Error(), "VM stopped") {
+				if !strings.Contains(err.Error(), "forwarding change could not be confirmed") {
 					t.Fatalf("recovery error: %v", err)
 				}
-				assertVMStopEvents(t, recorder, rec.ID, 1)
+				assertVMStopEvents(t, recorder, rec.ID, 0)
 			}
-			persisted, err := st.LoadVM(rec.Name)
-			if err != nil || len(persisted.Network.Forwards) != 0 {
-				t.Fatalf("confirmed rejection/termination left declaration: %#v %v", persisted, err)
+			persisted, loadErr := st.LoadVM(rec.Name)
+			want := 1
+			if tc.failure == "reject" || tc.failure == "conflict" {
+				want = 0
 			}
-			if err := waitFor(ctx, func() bool {
-				available, _ := forward.ProtocolPortAvailable(tc.protocol, "127.0.0.1", port)
-				return available
-			}, time.Second); err != nil {
-				t.Fatal("recovery left host listener bound", err)
+			if loadErr != nil || len(persisted.Network.Forwards) != want {
+				t.Fatalf("retained declarations: %#v %v", persisted, loadErr)
 			}
 		})
 	}
@@ -399,13 +397,16 @@ func TestManualForwardUncertainRemovalKeepsDeclaration(t *testing.T) {
 	if err := m.RemoveForward(ctx, rec.Name, port, "127.0.0.1", "udp"); err == nil || !strings.Contains(err.Error(), "could not remove") {
 		t.Fatalf("uncertain removal: %v", err)
 	}
-	if m.IsRunning(rec) {
-		t.Fatal("uncertain removal left runtime alive")
+	if !m.IsRunning(rec) {
+		t.Fatal("uncertain removal stopped runtime")
 	}
-	assertVMStopEvents(t, recorder, rec.ID, 1)
+	assertVMStopEvents(t, recorder, rec.ID, 0)
 	persisted, err := st.LoadVM(rec.Name)
 	if err != nil || len(persisted.Network.Forwards) != 1 {
 		t.Fatalf("lost removal declaration: %#v %v", persisted, err)
+	}
+	if _, err := m.Stop(ctx, rec.Name); err != nil {
+		t.Fatal(err)
 	}
 	if err := m.RemoveForward(ctx, rec.Name, port, "127.0.0.1", "udp"); err != nil {
 		t.Fatal(err)
@@ -414,6 +415,8 @@ func TestManualForwardUncertainRemovalKeepsDeclaration(t *testing.T) {
 
 func TestStartRetainsPreviousRuntimeLogs(t *testing.T) {
 	st, m, rec := newForwardLifecycleVM(t)
+	recorder := &recordingEmitter{}
+	m.events = recorder
 	ctx := context.Background()
 	t.Cleanup(func() { _, _ = m.Stop(ctx, rec.Name) })
 	if _, err := m.Start(ctx, io.Discard, rec.Name); err != nil {
@@ -421,6 +424,12 @@ func TestStartRetainsPreviousRuntimeLogs(t *testing.T) {
 	}
 	if _, err := m.Stop(ctx, rec.Name); err != nil {
 		t.Fatal(err)
+	}
+	assertVMStopEvents(t, recorder, rec.ID, 1)
+	for _, event := range recorder.events {
+		if event.Type == "vm" && event.Action == "stop" && event.Actor.Attributes["reason"] != "requested" {
+			t.Fatalf("explicit stop mislabeled: %#v", event)
+		}
 	}
 	for _, name := range []string{"serial", rec.Driver, "gvproxy", "share-mount", "auto-forward", "runtime-watch"} {
 		if err := os.WriteFile(st.LogPath(rec, name), []byte("previous "+name), 0600); err != nil {
@@ -507,7 +516,7 @@ func TestUnconfirmedManualForwardRetainsReservationAcrossCommands(t *testing.T) 
 				t.Fatal(err)
 			}
 			port := freeLoopbackPort(t)
-			if _, err := m.AddForward(ctx, rec.Name, 5353, port, "127.0.0.1", false, protocol); err == nil || !strings.Contains(err.Error(), "reservation retained") {
+			if _, err := m.AddForward(ctx, rec.Name, 5353, port, "127.0.0.1", false, protocol); err == nil || !strings.Contains(err.Error(), "affected ports reserved") {
 				t.Fatalf("unknown installation: %v", err)
 			}
 			m = New(st)
@@ -621,11 +630,14 @@ func TestInterruptedManualForwardRetainsReservation(t *testing.T) {
 		t.Fatalf("interrupted command lost declaration: %#v %v", persisted, err)
 	}
 	m = New(st)
-	if err := m.RemoveForward(ctx, rec.Name, port, "127.0.0.1", "udp"); err == nil || !strings.Contains(err.Error(), "VM stopped") {
+	if err := m.RemoveForward(ctx, rec.Name, port, "127.0.0.1", "udp"); err == nil || !strings.Contains(err.Error(), "forwarding change could not be confirmed") {
 		t.Fatalf("interrupted command recovery: %v", err)
 	}
-	if m.IsRunning(rec) {
-		t.Fatal("recovery left VM running")
+	if !m.IsRunning(rec) {
+		t.Fatal("recovery stopped VM")
+	}
+	if _, err := m.Stop(ctx, rec.Name); err != nil {
+		t.Fatal(err)
 	}
 	if err := m.RemoveForward(ctx, rec.Name, port, "127.0.0.1", "udp"); err != nil {
 		t.Fatal(err)

@@ -113,6 +113,6 @@ func (m *Manager) cleanupExitedRuntime(ctx context.Context, id, fingerprint stri
 	if observed.State != process.RecordExited {
 		return nil
 	}
-	_, err = m.stopLocked(ctx, vm)
+	_, err = m.cleanupConfirmedExitLocked(ctx, vm)
 	return err
 }

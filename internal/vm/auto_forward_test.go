@@ -30,6 +30,8 @@ type fakeAutoForwardGVProxy struct {
 	unexposeStatus       int
 	loseExposeResponse   bool
 	loseUnexposeResponse bool
+	timeoutAction        string
+	reportOutcomes       bool
 }
 
 func (f *fakeAutoForwardGVProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -59,8 +61,26 @@ func (f *fakeAutoForwardGVProxy) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		}
 		delete(f.installed, request["local"])
 		loseResponse = f.loseUnexposeResponse
+	case "/services/forwarder/outcome":
+		if !f.reportOutcomes {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": http.StatusNoContent})
+		return
+	case "/services/forwarder/all":
+		var rows []map[string]string
+		for local, remote := range f.installed {
+			rows = append(rows, map[string]string{"protocol": "tcp", "local": local, "remote": remote})
+		}
+		_ = json.NewEncoder(w).Encode(rows)
+		return
 	default:
 		http.NotFound(w, r)
+		return
+	}
+	if r.URL.Path == "/services/forwarder/"+f.timeoutAction {
+		<-r.Context().Done()
 		return
 	}
 	if loseResponse {
@@ -428,7 +448,7 @@ func TestReconcileRetainsRowWhenRemovalFails(t *testing.T) {
 	if len(rows) != 1 || rows[0].HostPort != row.HostPort || !rows[0].Installed() || rows[0].Status != "active" || !manager.forwardMutationPending(vm) {
 		t.Fatalf("rows = %#v", rows)
 	}
-	if len(recorder.events) != 0 {
+	if len(recorder.events) != 1 || recorder.events[0].Action != "recovery" {
 		t.Fatalf("events = %#v", recorder.events)
 	}
 }
@@ -614,14 +634,14 @@ func TestDisableAutoForwardRetainsRowsWhenRemovalFails(t *testing.T) {
 	gateway := fakeNamedVMProcess(t, "gvproxy")
 	writeProcessRecord(t, manager.store.Runtime(vm).GVProxyProcessRecord(), gateway)
 	outcome, retryErr := manager.watchAutoForwardsOnce(vm.ID)
-	if !errors.Is(retryErr, errForwardRecoveryRequired) || outcome != autoForwardWatchDone {
+	if !errors.Is(retryErr, errForwardRecoveryRequired) || outcome != autoForwardWatchContinue {
 		t.Fatalf("retry outcome = %d, error = %v", outcome, retryErr)
 	}
 	rows, readErr = manager.ReadRuntimeAutoForwards(vm)
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
-	if len(rows) != 0 {
+	if len(rows) != 1 || !manager.IsRunning(vm) {
 		t.Fatalf("rows after retry = %#v", rows)
 	}
 }
@@ -842,7 +862,7 @@ func TestUncertainAutoForwardRetainsReservation(t *testing.T) {
 	proxy.loseExposeResponse = true
 	port := freeLoopbackPort(t)
 	writeAutoForwardReport(t, st, vm, GuestPortsReport{SchemaVersion: 1, GeneratedAt: time.Now(), Listeners: []GuestListener{{Proto: "tcp", Addr: "0.0.0.0", Port: port}}})
-	if _, err := manager.ReconcileAutoForwards(context.Background(), vm.Name); err == nil || !strings.Contains(err.Error(), "termination is unconfirmed") {
+	if _, err := manager.ReconcileAutoForwards(context.Background(), vm.Name); err == nil || !strings.Contains(err.Error(), "forwarding change could not be confirmed") {
 		t.Fatalf("lost response: %v", err)
 	}
 	rows, err := manager.ReadRuntimeAutoForwards(vm)

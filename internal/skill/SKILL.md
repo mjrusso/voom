@@ -161,14 +161,13 @@ After a forwarding error, inspect `voom info <name> --output json` and
 `voom forward list <name> --output json` before retrying. Read `status` and
 `reason`; a saved declaration or reserved port does not prove installation.
 
-For an unknown mutation outcome, Voom tries to stop gvproxy. Confirmed exit
-stops the VM and clears runtime reservations; saved forwarding configuration
-remains. If exit cannot be confirmed, affected ports stay reserved, possibly
-as `reservation` rows with `uncertain` status. Report these; do not treat them
-as boot delay or delete runtime records to free ports.
-
-Rejected forwards or failures before installation can leave the VM running.
-Check observed state; restart an existing VM only when authorized.
+If a manual or automatic forwarding request fails while the VM is running, Voom
+checks whether it completed without sending it again. Failed recovery keeps the
+guest and gvproxy running, reserves affected ports, and blocks further changes.
+Ports may appear as `reservation` rows with `uncertain` status. Report uncertainty;
+do not treat it as boot delay or delete runtime records to free ports. With the
+user's authorization, stop and restart the VM to clear unresolved changes.
+Private egress recovery and failed-startup cleanup can still stop the VM.
 
 ### Configure an explicit proxy attachment
 

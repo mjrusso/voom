@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-// ReadMutationReservations loads endpoints retained until confirmed backend termination.
+// ReadMutationReservations loads endpoints retained while a mutation is unresolved.
 func ReadMutationReservations(path string) ([]Decl, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {

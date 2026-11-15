@@ -1,0 +1,198 @@
+diff --git a/pkg/services/forwarder/ports.go b/pkg/services/forwarder/ports.go
+--- a/pkg/services/forwarder/ports.go
++++ b/pkg/services/forwarder/ports.go
+@@ -349,7 +349,7 @@
+ 		}
+ 		w.WriteHeader(http.StatusOK)
+ 	})
+-	return mux
++	return trackMutationOutcomes(mux)
+ }
+ 
+ // if the request doesn't have an IP in the remote field, use the IP from the incoming http request.
+diff --git a/pkg/services/forwarder/mutation_outcomes.go b/pkg/services/forwarder/mutation_outcomes.go
+--- /dev/null
++++ b/pkg/services/forwarder/mutation_outcomes.go
+@@ -0,0 +1,103 @@
++// Added by the Voom project; see https://github.com/mjrusso/voom.
++package forwarder
++
++import (
++	"encoding/json"
++	"net/http"
++	"sync"
++)
++
++type mutationOutcome struct {
++	Status int    `json:"status"`
++	Body   string `json:"body"`
++}
++
++type outcomeWriter struct {
++	http.ResponseWriter
++	outcome mutationOutcome
++}
++
++func (w *outcomeWriter) WriteHeader(status int) {
++	if w.outcome.Status != 0 {
++		return
++	}
++	w.outcome.Status = status
++	w.ResponseWriter.WriteHeader(status)
++}
++
++func (w *outcomeWriter) Write(body []byte) (int, error) {
++	if w.outcome.Status == 0 {
++		w.WriteHeader(http.StatusOK)
++	}
++	remaining := 4096 - len(w.outcome.Body)
++	w.outcome.Body += string(body[:min(len(body), remaining)])
++	return w.ResponseWriter.Write(body)
++}
++
++// An outcome is published only after the mutation handler returns.
++// A forwarding-table snapshot can be taken while an expose is still pending.
++// Missing or evicted IDs never establish completion. Only completed entries
++// can be evicted.
++func trackMutationOutcomes(next http.Handler) http.Handler {
++	var mu sync.Mutex
++	outcomes := make(map[string]*mutationOutcome)
++	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Path == "/outcome" {
++			if r.Method != http.MethodGet {
++				http.Error(w, "get only", http.StatusBadRequest)
++				return
++			}
++			mu.Lock()
++			result, found := outcomes[r.URL.Query().Get("id")]
++			mu.Unlock()
++			if !found {
++				http.NotFound(w, r)
++				return
++			}
++			if result == nil {
++				w.WriteHeader(http.StatusAccepted)
++				return
++			}
++			_ = json.NewEncoder(w).Encode(result)
++			return
++		}
++		id := r.Header.Get("X-Voom-Forward-ID")
++		if id == "" || r.Method != http.MethodPost || (r.URL.Path != "/expose" && r.URL.Path != "/unexpose") {
++			next.ServeHTTP(w, r)
++			return
++		}
++		if len(id) > 64 {
++			http.Error(w, "invalid mutation ID", http.StatusBadRequest)
++			return
++		}
++		mu.Lock()
++		if _, found := outcomes[id]; found {
++			mu.Unlock()
++			http.Error(w, "mutation ID already used", http.StatusConflict)
++			return
++		}
++		if len(outcomes) >= 256 {
++			for old, result := range outcomes {
++				if result != nil {
++					delete(outcomes, old)
++					break
++				}
++			}
++		}
++		if len(outcomes) >= 256 {
++			mu.Unlock()
++			http.Error(w, "too many pending mutations", http.StatusServiceUnavailable)
++			return
++		}
++		outcomes[id] = nil
++		mu.Unlock()
++		capture := &outcomeWriter{ResponseWriter: w}
++		next.ServeHTTP(capture, r)
++		if capture.outcome.Status == 0 {
++			capture.outcome.Status = http.StatusOK
++		}
++		mu.Lock()
++		outcomes[id] = &capture.outcome
++		mu.Unlock()
++	})
++}
+diff --git a/pkg/services/forwarder/mutation_outcomes_test.go b/pkg/services/forwarder/mutation_outcomes_test.go
+--- /dev/null
++++ b/pkg/services/forwarder/mutation_outcomes_test.go
+@@ -0,0 +1,75 @@
++// Added by the Voom project; see https://github.com/mjrusso/voom.
++package forwarder
++
++import (
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++)
++
++func TestMutationOutcomeFencesDelayedHandler(t *testing.T) {
++	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
++	h := trackMutationOutcomes(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		close(entered)
++		<-release
++		http.Error(w, "failed to bind", http.StatusConflict)
++	}))
++	request := httptest.NewRequest(http.MethodPost, "/expose", nil)
++	request.Header.Set("X-Voom-Forward-ID", "delayed")
++	go func() { defer close(done); h.ServeHTTP(httptest.NewRecorder(), request) }()
++	<-entered
++	query := func(id string) *httptest.ResponseRecorder {
++		response := httptest.NewRecorder()
++		h.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/outcome?id="+id, nil))
++		return response
++	}
++	if response := query("delayed"); response.Code != http.StatusAccepted {
++		t.Fatal(response)
++	}
++	if response := query("missing"); response.Code != http.StatusNotFound {
++		t.Fatal(response)
++	}
++	duplicate := httptest.NewRecorder()
++	h.ServeHTTP(duplicate, request.Clone(request.Context()))
++	if duplicate.Code != http.StatusConflict {
++		t.Fatal(duplicate)
++	}
++	close(release)
++	<-done
++	response := query("delayed")
++	var outcome mutationOutcome
++	if err := json.Unmarshal(response.Body.Bytes(), &outcome); err != nil {
++		t.Fatal(err)
++	}
++	if response.Code != http.StatusOK || outcome.Status != http.StatusConflict || outcome.Body != "failed to bind\n" {
++		t.Fatalf("outcome: %+v", outcome)
++	}
++}
++
++func TestMutationOutcomeCacheIsBounded(t *testing.T) {
++	h := trackMutationOutcomes(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
++	for i := range 1024 {
++		id := fmt.Sprint(i)
++		request := httptest.NewRequest(http.MethodPost, "/unexpose", nil)
++		request.Header.Set("X-Voom-Forward-ID", id)
++		h.ServeHTTP(httptest.NewRecorder(), request)
++		response := httptest.NewRecorder()
++		h.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/outcome?id="+id, nil))
++		if response.Code != http.StatusOK {
++			t.Fatal(response)
++		}
++	}
++	retained := 0
++	for i := range 1024 {
++		response := httptest.NewRecorder()
++		h.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/outcome?id="+fmt.Sprint(i), nil))
++		if response.Code == http.StatusOK {
++			retained++
++		}
++	}
++	if retained > 256 {
++		t.Fatalf("retained %d completed outcomes", retained)
++	}
++}

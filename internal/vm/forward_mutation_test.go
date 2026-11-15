@@ -80,8 +80,8 @@ func TestForwardCommitFailureRequiresRecoveryWithoutUnknownBackendOutcome(t *tes
 	if _, err := m.ReconcileAutoForwards(context.Background(), rec.Name); !errors.Is(err, errForwardRecoveryRequired) || errors.Is(err, gvproxy.ErrForwardOutcomeUnknown) {
 		t.Fatalf("live recovery: %v", err)
 	}
-	if m.IsRunning(rec) || m.forwardMutationPending(rec) || process.HasRecord(st.Runtime(rec).GVProxyProcessRecord()) {
-		t.Fatal("live recovery left runtime or journal")
+	if !m.IsRunning(rec) || !m.forwardMutationPending(rec) || !process.HasRecord(st.Runtime(rec).GVProxyProcessRecord()) {
+		t.Fatal("live recovery stopped runtime or released journal")
 	}
 }
 

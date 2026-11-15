@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Keep running VMs alive when a manual or automatic port-forward change cannot
+  be confirmed. Affected ports remain reserved and further forwarding changes
+  are blocked until restart. Private egress recovery and failed-startup cleanup
+  can still stop the VM.
+- Record forwarding recovery errors in events and helper logs. Record the reason,
+  operation, endpoint, and error before stopping a VM for private egress recovery.
 - Rotate helper and serial logs once per VM start, retaining the previous run as
   `<name>.log.1`. Daemons sharing a log and restarted watchers append to the
   current run's log.

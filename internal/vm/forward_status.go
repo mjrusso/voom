@@ -15,7 +15,7 @@ type forwardObservation struct {
 func (o forwardObservation) status(f forward.Decl, guestTargetIP string) (string, string) {
 	switch {
 	case o.uncertain:
-		return "uncertain", "forward mutation requires confirmed gvproxy termination"
+		return "uncertain", "forwarding change could not be confirmed; affected ports remain reserved. Stop and start the VM to clear this state"
 	case !o.running:
 		return "stopped", ""
 	case o.err != nil:

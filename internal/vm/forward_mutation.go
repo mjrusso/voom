@@ -9,6 +9,7 @@ import (
 
 	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/gvproxy"
+	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 )
 
@@ -19,7 +20,7 @@ func (m *Manager) forwardMutationPending(vm *state.VMRecord) bool {
 
 // The caller must hold the VM lock.
 func (m *Manager) recoverPendingForwardMutation(vm *state.VMRecord) error {
-	_, err := m.recoverLiveForwardMutation(vm, m.pendingForwardMutationError(vm))
+	_, err := m.recoverAndReportForwardMutation(vm, m.pendingForwardMutationError(vm))
 	return err
 }
 
@@ -37,7 +38,7 @@ const (
 	forwardSkipRejected
 )
 
-var errForwardRecoveryRequired = errors.New("forward mutation requires confirmed gvproxy termination")
+var errForwardRecoveryRequired = errors.New("forward mutation requires recovery")
 
 func (m *Manager) pendingForwardMutationError(vm *state.VMRecord) error {
 	if m.forwardMutationPending(vm) {
@@ -57,6 +58,18 @@ type forwardOutcome struct {
 	err       error
 }
 
+type forwardMutationFailure struct {
+	operation forwardOperation
+	err       error
+}
+
+func (e *forwardMutationFailure) Error() string {
+	return fmt.Sprintf("%s %s forward %s: %v", e.operation.action, e.operation.endpoint.Protocol,
+		forward.Address(e.operation.endpoint.Bind, e.operation.endpoint.HostPort), e.err)
+}
+
+func (e *forwardMutationFailure) Unwrap() error { return e.err }
+
 var errForwardPortReserved = errors.New("host port is reserved by SSH or another forward")
 
 type forwardMutation struct {
@@ -65,14 +78,38 @@ type forwardMutation struct {
 	commit     func([]forwardOutcome) error
 }
 
-// The caller must hold the VM lock. Only confirmed backend termination allows
-// live callers to roll back declarations after a mutation requires recovery.
-func (m *Manager) recoverLiveForwardMutation(vm *state.VMRecord, err error) (bool, error) {
+type forwardRecoveryFailure struct {
+	outcome string
+	err     error
+}
+
+func (e *forwardRecoveryFailure) Error() string { return e.err.Error() }
+func (e *forwardRecoveryFailure) Unwrap() error { return e.err }
+
+func (m *Manager) recoverAndReportForwardMutation(vm *state.VMRecord, err error) (bool, error) {
+	releaseSafe, err := m.recoverForwardMutation(vm, err)
+	var failure *forwardRecoveryFailure
+	if errors.As(err, &failure) {
+		m.recordForwardRecovery(vm, failure.outcome, err)
+	}
+	return releaseSafe, err
+}
+
+// The caller must hold the VM lock. Only confirmed driver exit permits helper
+// teardown; failed identity inspection does not prove exit. A snapshot cannot
+// fence a delayed expose, so unresolved mutations must retain reservations.
+func (m *Manager) recoverForwardMutation(vm *state.VMRecord, err error) (bool, error) {
 	if !errors.Is(err, errForwardRecoveryRequired) {
 		return true, err
 	}
-	stop, recoveryErr := m.recoverForwardMutation(vm, err)
-	return stop.gatewayTerminationConfirmed, recoveryErr
+	observed, inspectionErr := process.ObserveRecord(m.store.Runtime(vm).VMProcessRecord(), state.VMProcessKind(vm.Driver), "")
+	if inspectionErr != nil || observed.State != process.RecordExited {
+		return false, &forwardRecoveryFailure{outcome: "degraded", err: fmt.Errorf("forwarding change could not be confirmed; affected ports reserved: %w", errors.Join(err, inspectionErr))}
+	}
+	recovery, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	stop, cleanupErr := m.cleanupConfirmedExitLocked(recovery, vm)
+	return stop.gatewayTerminationConfirmed, &forwardRecoveryFailure{outcome: "cleanup-after-exit", err: errors.Join(err, cleanupErr)}
 }
 
 func (m *Manager) executeForwardMutation(vm *state.VMRecord, mutation forwardMutation) error {
@@ -108,7 +145,7 @@ func (m *Manager) executeForwardMutation(vm *state.VMRecord, mutation forwardMut
 			continue
 		}
 		if errors.Is(err, gvproxy.ErrForwardOutcomeUnknown) || mutation.rejection == forwardRejectBatch {
-			err = fmt.Errorf("%s %s forward %s: %w", operation.action, operation.endpoint.Protocol, local, err)
+			err = &forwardMutationFailure{operation: operation, err: err}
 			break
 		}
 		outcome.err = err
@@ -196,20 +233,4 @@ func (m *Manager) reserveForwardMutation(vm *state.VMRecord, mutation forwardMut
 		return state.WriteJSONAtomic(m.store.Runtime(vm).ForwardMutation(), journal)
 	})
 	return outcomes, err
-}
-
-// The caller must hold the VM lock. A delayed expose can finish after unexpose,
-// so only confirmed backend termination permits releasing its reservation.
-func (m *Manager) recoverForwardMutation(vm *state.VMRecord, cause error) (runtimeStopResult, error) {
-	confirmed, err := m.stopGVProxy(vm)
-	if !confirmed {
-		return runtimeStopResult{}, fmt.Errorf("forward reservation retained because gvproxy termination is unconfirmed: %w", errors.Join(cause, err))
-	}
-	recovery, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	stop, stopErr := m.stopLocked(recovery, vm)
-	if stopErr != nil {
-		return stop, fmt.Errorf("gvproxy stopped during forward mutation recovery; VM cleanup failed: %w", errors.Join(cause, stopErr))
-	}
-	return stop, fmt.Errorf("VM stopped during forward mutation recovery: %w", cause)
 }

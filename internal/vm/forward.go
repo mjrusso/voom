@@ -83,7 +83,7 @@ func (m *Manager) AddForward(ctx context.Context, name string, guestPort, hostPo
 		err := m.executeForwardMutation(vm, forwardMutation{
 			operations: []forwardOperation{{endpoint: f, guestTargetIP: m.GuestTargetIP(vm)}},
 		})
-		releaseSafe, err := m.recoverLiveForwardMutation(vm, err)
+		releaseSafe, err := m.recoverAndReportForwardMutation(vm, err)
 		if err != nil {
 			if releaseSafe {
 				vm.Network.Forwards = vm.Network.Forwards[:len(vm.Network.Forwards)-1]
@@ -146,7 +146,7 @@ func (m *Manager) RemoveForward(ctx context.Context, name string, port int, bind
 			operations: []forwardOperation{{action: forwardUnexpose, endpoint: removed}},
 			commit:     func([]forwardOutcome) error { return commit() },
 		})
-		_, err = m.recoverLiveForwardMutation(vm, err)
+		_, err = m.recoverAndReportForwardMutation(vm, err)
 		if err != nil {
 			return fmt.Errorf("could not remove %s forward: %w", protocol, err)
 		}

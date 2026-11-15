@@ -110,6 +110,37 @@ a recent guest listener report and a running watcher. See
 and [proxy attachment recovery](proxy-attachments.md#observation-and-recovery) for integration-specific
 requirements and recovery.
 
+### Forwarding reports uncertain state
+
+If a manual or automatic port-forward request times out or loses its response
+while the VM is running, Voom checks whether the original request completed
+without resending it. After a reported success, it checks the forwarding table.
+
+If Voom still cannot confirm the change, it leaves the VM and gvproxy running,
+keeps the recovery journal, reserves the affected ports, and blocks further
+forwarding changes. Voom logs recovery errors in `auto-forward.log`;
+`voom forward list` shows `uncertain` rows. Existing guest networking can
+continue, but an uncertain forward may be present or absent.
+
+Run `voom stop dev` and `voom start dev` when you are ready to clear the unresolved
+change. Do not delete the recovery journal to release ports. The same recovery
+steps apply when the CLI or watcher exits during a change, or when an unresolved
+request was sent to a gvproxy build that cannot report whether it completed.
+
+During forwarding recovery, Voom stops helper processes only after confirming
+that the VM process has exited. If its process record is missing, unreadable, or
+invalid, Voom keeps the helper processes and port reservations. Run
+`voom stop dev` and check for cleanup errors before restarting the VM.
+
+After cleanup, a `vm stop` event with `reason=driver exited` confirms that Voom
+observed the VM exit.
+
+Private egress recovery and failed-startup cleanup can still stop the VM. Private
+egress recovery stops the VM if the result of installing a gateway listener is
+unknown, or if removing it fails, to prevent unintended guest egress. Before
+that stop, a `vm stop-requested` event and `auto-forward.log` record the reason,
+operation, endpoint, and error.
+
 ### Reset reports an error
 
 A cleanup error can occur after replacement storage has already been

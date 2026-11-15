@@ -524,12 +524,12 @@ func (m *Manager) Stop(ctx context.Context, name string) (bool, error) {
 		return false, err
 	}
 	defer unlock()
-	stop, err := m.stopLocked(ctx, vm)
+	stop, err := m.stopLocked(ctx, vm, "requested")
 	return stop.changed, err
 }
 
 // The caller must hold the VM lock.
-func (m *Manager) stopLocked(ctx context.Context, vm *state.VMRecord) (runtimeStopResult, error) {
+func (m *Manager) stopLocked(ctx context.Context, vm *state.VMRecord, reason string) (runtimeStopResult, error) {
 	stop, err := m.stopRuntime(ctx, vm)
 	if err != nil {
 		return stop, err
@@ -540,9 +540,20 @@ func (m *Manager) stopLocked(ctx context.Context, vm *state.VMRecord) (runtimeSt
 		}
 	}
 	if stop.changed {
-		m.emitVM("stop", vm, nil)
+		m.emitVM("stop", vm, map[string]string{"reason": reason})
 	}
 	return stop, nil
+}
+
+// The caller must hold the VM lock and have confirmed driver exit. Preserve
+// the driver record until gateway termination is confirmed; later recovery
+// needs that record to distinguish exit from an unknown identity.
+func (m *Manager) cleanupConfirmedExitLocked(ctx context.Context, vm *state.VMRecord) (runtimeStopResult, error) {
+	confirmed, err := m.stopGVProxy(vm)
+	if !confirmed {
+		return runtimeStopResult{}, err
+	}
+	return m.stopLocked(ctx, vm, "driver exited")
 }
 
 type runtimeStopResult struct {

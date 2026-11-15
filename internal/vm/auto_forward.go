@@ -72,7 +72,7 @@ func (m *Manager) UpdateAutoForward(ctx context.Context, name string, update Aut
 	if m.IsRunning(vm) {
 		if vm.Network.AutoForward {
 			_, removeErr := m.removeMismatchedAutoForwardsLocked(vm)
-			_, removeErr = m.recoverLiveForwardMutation(vm, removeErr)
+			_, removeErr = m.recoverAndReportForwardMutation(vm, removeErr)
 			if !m.IsRunning(vm) {
 				return vm, removeErr
 			}
@@ -82,7 +82,7 @@ func (m *Manager) UpdateAutoForward(ctx context.Context, name string, update Aut
 			}
 		} else {
 			cleanupErr := m.cleanupAutoForwardsLocked(vm)
-			if _, err := m.recoverLiveForwardMutation(vm, cleanupErr); err != nil {
+			if _, err := m.recoverAndReportForwardMutation(vm, cleanupErr); err != nil {
 				return vm, err
 			}
 			if err := m.StopAutoForwardWatcher(vm); err != nil {
@@ -175,7 +175,12 @@ func (m *Manager) logAutoForwardWatchResult(vm *state.VMRecord, outcome autoForw
 	if iterationErr != nil {
 		msg := iterationErr.Error()
 		if msg != lastErr {
-			m.appendAutoForwardLog(vm, "error", msg)
+			var failure *forwardRecoveryFailure
+			if errors.As(iterationErr, &failure) {
+				m.recordForwardRecovery(vm, failure.outcome, iterationErr)
+			} else {
+				m.appendAutoForwardLog(vm, "error", msg)
+			}
 		}
 		return msg
 	}
@@ -224,7 +229,7 @@ func (m *Manager) watchAutoForwardsLocked(vm *state.VMRecord) (autoForwardWatchO
 }
 
 func (m *Manager) autoForwardWatchAfterMutation(vm *state.VMRecord, err error) (autoForwardWatchOutcome, error) {
-	_, err = m.recoverLiveForwardMutation(vm, err)
+	_, err = m.recoverForwardMutation(vm, err)
 	if !m.IsRunning(vm) && !m.forwardMutationPending(vm) {
 		return autoForwardWatchDone, err
 	}
@@ -298,7 +303,7 @@ func (m *Manager) ReconcileAutoForwards(ctx context.Context, name string) ([]Run
 	}
 	rows, err := m.reconcileAutoForwardsLocked(vm)
 	if errors.Is(err, errForwardRecoveryRequired) {
-		_, err = m.recoverLiveForwardMutation(vm, err)
+		_, err = m.recoverAndReportForwardMutation(vm, err)
 		var readErr error
 		rows, readErr = m.ReadRuntimeAutoForwards(vm)
 		err = errors.Join(err, readErr)

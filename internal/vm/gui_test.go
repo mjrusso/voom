@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 )
@@ -70,8 +71,17 @@ func TestRuntimeWatcherCleansOnlyTheExitedDriverGeneration(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := New(st).WatchRuntime(ctx, vm.ID, fingerprint); err != nil {
+			recorder := &recordingEmitter{}
+			if err := New(st, WithEventEmitter(recorder)).WatchRuntime(ctx, vm.ID, fingerprint); err != nil {
 				t.Fatal(err)
+			}
+			if replacement {
+				assertVMStopEvents(t, recorder, vm.ID, 0)
+			} else {
+				assertVMStopEvents(t, recorder, vm.ID, 1)
+				if recorder.events[0].Actor.Attributes["reason"] != "driver exited" {
+					t.Fatalf("driver exit mislabeled: %#v", recorder.events)
+				}
 			}
 			_, alive := process.ValidRecord(rt.GVProxyProcessRecord(), "gvproxy")
 			if alive != replacement {
@@ -84,6 +94,90 @@ func TestRuntimeWatcherCleansOnlyTheExitedDriverGeneration(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestRuntimeWatcherPreservesExitForForwardRecovery(t *testing.T) {
+	st, vm, _ := macosResetFixture(t)
+	recorder := &recordingEmitter{}
+	m := New(st, WithEventEmitter(recorder))
+	rt := st.Runtime(vm)
+	driver := fakeNamedVMProcess(t, "vfkit")
+	writeProcessRecord(t, rt.VMProcessRecord(), driver)
+	fingerprint, err := process.RecordFingerprint(rt.VMProcessRecord())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway := fakeNamedVMProcess(t, "gvproxy")
+	writeProcessRecord(t, rt.GVProxyProcessRecord(), gateway)
+	gatewayRecord, err := os.ReadFile(rt.GVProxyProcessRecord())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rt.GVProxyProcessRecord(), []byte("invalid identity"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	control, err := net.Listen("unix", rt.VFKitRestSock())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = control.Close() }()
+	port := freeLoopbackPort(t)
+	endpoint := forward.Decl{Protocol: "tcp", Bind: "127.0.0.1", HostPort: port, GuestPort: 8080}
+	if err := state.WriteJSONAtomic(rt.ForwardMutation(), []forward.Decl{endpoint}); err != nil {
+		t.Fatal(err)
+	}
+	if err := driver.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := driver.Process.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for range 2 {
+		if err := m.WatchRuntime(ctx, vm.ID, fingerprint); err == nil {
+			t.Fatal("unconfirmed gateway termination reported success")
+		}
+		if got, err := process.RecordFingerprint(rt.VMProcessRecord()); err != nil || got != fingerprint {
+			t.Errorf("watcher lost driver exit evidence: %q %v", got, err)
+		}
+		if !socketExists(rt.VFKitRestSock()) {
+			t.Error("watcher removed driver socket before gateway termination was confirmed")
+		}
+		if !m.forwardMutationPending(vm) {
+			t.Error("watcher released pending mutation")
+		}
+		if reserved, err := st.PortReserved(endpoint.Protocol, endpoint.Bind, port); err != nil || !reserved {
+			t.Errorf("reservation: %t %v", reserved, err)
+		}
+		assertVMStopEvents(t, recorder, vm.ID, 0)
+	}
+	if err := os.WriteFile(rt.GVProxyProcessRecord(), gatewayRecord, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.AddForward(ctx, vm.Name, endpoint.GuestPort, port, endpoint.Bind, false, endpoint.Protocol); !errors.Is(err, errForwardRecoveryRequired) {
+		t.Errorf("pending recovery error: %v", err)
+	}
+	if m.forwardMutationPending(vm) {
+		t.Error("forwarding command could not finish cleanup after gateway recovery")
+	}
+	for _, path := range []string{rt.VMProcessRecord(), rt.VFKitRestSock(), rt.GVProxyProcessRecord()} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("cleanup retained %s: %v", path, err)
+		}
+	}
+	if reserved, err := st.PortReserved(endpoint.Protocol, endpoint.Bind, port); err != nil || reserved {
+		t.Errorf("completed cleanup retained reservation: %t %v", reserved, err)
+	}
+	assertVMStopEvents(t, recorder, vm.ID, 1)
+	for _, event := range recorder.events {
+		if event.Type == "vm" && event.Action == "stop" && event.Actor.Attributes["reason"] != "driver exited" {
+			t.Errorf("stop reason: %#v", event)
+		}
+	}
+	if _, err := m.AddForward(ctx, vm.Name, endpoint.GuestPort, port, endpoint.Bind, false, endpoint.Protocol); err != nil {
+		t.Fatalf("forwarding command after cleanup: %v", err)
 	}
 }
 

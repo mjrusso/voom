@@ -50,11 +50,12 @@ accept worker, pending backend dials, and relays to terminate. Removed addresses
 remain reserved against the ordinary TCP forwarding fallback for the lifetime
 of the process.
 
-An HTTP request timeout does not establish whether a mutation executed. Voom
-terminates the process when an expose outcome is unknown, rather than assuming
-a later unexpose fences a delayed request. The versioned API's 400, 408, and 409
-responses reject exposure before mutation; these failures do not require VM
-shutdown. Other errors, including unexpected server errors, remain uncertain.
+An HTTP request timeout does not establish whether a mutation executed. For
+private gateway attachments, Voom stops the VM and gvproxy if an expose request's
+result is unknown, or if unexpose fails. A later unexpose cannot fence a delayed
+request. The versioned API's 400, 408, and 409 responses reject exposure
+before mutation; these failures do not require VM shutdown. Other errors,
+including unexpected server errors, leave the result unknown.
 
 Remove the patch when an upstream release provides startup configuration,
 host-only live control and observation, idempotent listeners, cancellation of
@@ -67,8 +68,8 @@ after removal. The capability reports include `udp-forward-v1`, which Voom
 requires to install UDP forwards.
 
 `gvproxy-forward-outcomes.patch` reports rejected expose requests as HTTP 409
-only when no listener was installed. Removal failures and lost responses retain
-an unknown outcome, so Voom keeps reservations until termination is confirmed.
+only when no listener was installed. Voom keeps affected ports reserved while it
+cannot confirm whether a listener was installed or removed.
 
 `gvproxy-blocked-subnets.patch` adds repeatable `-block-subnet CIDR` and
 `-allow-destination IP:PORT` flags. YAML uses `stack.blockedSubnets` and
@@ -82,3 +83,25 @@ exceptions installed in the TCP and UDP forwarders. It is available only on
 the host Unix control socket. The capabilities response remains a version map.
 Voom uses the policy report to detect missing blocks and settings that require
 a VM restart.
+
+`gvproxy-mutation-outcomes.patch` tracks host forwarder requests carrying an
+`X-Voom-Forward-ID` header. `GET /services/forwarder/outcome?id=...` returns 202
+while that handler is pending, 200 with its original HTTP status and body after
+completion, or 404 for an unknown or evicted ID. The process retains up to 256
+outcomes and only evicts completed entries. While an ID remains cached, reusing
+it is rejected without repeating the mutation. This host-only endpoint reports
+when the original handler has finished. A forward table snapshot alone cannot
+rule out a delayed expose. After an uncertain response, Voom queries the outcome
+up to three times without resending the mutation and verifies the table after
+reported success.
+
+For manual or automatic port-forward changes on a running VM, failed recovery
+leaves the guest and gvproxy running. Voom keeps the recovery journal, reserves
+the affected ports, and blocks further forwarding changes until the VM is stopped
+and started. Private gateway recovery follows the shutdown behavior described
+above; failed-startup cleanup can also stop the VM.
+
+Commands log each recovery attempt. The automatic forwarding watcher logs an
+error when it first occurs or changes, including errors checking whether the VM
+process has exited. After driver exit, cleanup waits for MacOS storage locks to
+be released before emitting a `vm stop` event with `reason=driver exited`.

@@ -4,6 +4,7 @@ package gvproxy
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,8 +54,7 @@ func Expose(sock, protocol, local, remote string) error {
 			return fmt.Errorf("UDP forwarding unavailable: %w", err)
 		}
 	}
-	_, err = request(context.Background(), sock, http.MethodPost, "/services/forwarder/expose", map[string]string{"protocol": protocol, "local": local, "remote": remote})
-	return forwardMutationError(err)
+	return mutateForward(sock, "expose", Forward{Protocol: protocol, Local: local, Remote: remote})
 }
 
 // Unexpose removes a previously registered host-to-guest TCP or UDP forwarder.
@@ -68,8 +68,76 @@ func Unexpose(sock, protocol, local string) error {
 			return fmt.Errorf("UDP forwarding unavailable: %w", err)
 		}
 	}
-	_, err = request(context.Background(), sock, http.MethodPost, "/services/forwarder/unexpose", map[string]string{"protocol": protocol, "local": local})
-	return forwardMutationError(err)
+	return mutateForward(sock, "unexpose", Forward{Protocol: protocol, Local: local})
+}
+
+func mutateForward(sock, action string, endpoint Forward) error {
+	id := rand.Text()
+	path := "/services/forwarder/" + action
+	_, err := requestWithID(context.Background(), sock, http.MethodPost, path, endpoint, id)
+	err = forwardMutationError(err)
+	if err == nil {
+		return nil
+	}
+	// Cancellation does not fence the server. Query the original handler's
+	// outcome before trusting /all; a snapshot alone can precede a late expose.
+	for attempt := 0; errors.Is(err, ErrForwardOutcomeUnknown) && attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		data, queryErr := request(ctx, sock, http.MethodGet, "/services/forwarder/outcome?id="+id, nil)
+		cancel()
+		if queryErr != nil {
+			continue
+		}
+		var outcome struct {
+			Status int    `json:"status"`
+			Body   string `json:"body"`
+		}
+		if json.Unmarshal(data, &outcome) != nil || outcome.Status == 0 {
+			continue
+		}
+		if outcome.Status >= 200 && outcome.Status < 300 {
+			if verifyErr := forwardMatches(sock, action, endpoint); verifyErr != nil {
+				return errors.Join(err, verifyErr)
+			}
+			return nil
+		}
+		err = forwardMutationError(&HTTPError{Path: path, Status: outcome.Status, Body: strings.TrimSpace(outcome.Body)})
+		break
+	}
+	var response *HTTPError
+	if action == "expose" && errors.As(err, &response) && response.Status == http.StatusConflict {
+		// A conflict can also mean a failed bind; only an exact target match
+		// establishes that exposure is already satisfied.
+		if forwardMatches(sock, action, endpoint) == nil {
+			return nil
+		}
+	}
+	return err
+}
+
+func forwardMatches(sock, action string, endpoint Forward) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	installed, err := Forwards(ctx, sock)
+	if err != nil {
+		return err
+	}
+	if action == "expose" {
+		if _, found := installed[endpoint]; found {
+			return nil
+		}
+	} else {
+		for row := range installed {
+			if row.Protocol == endpoint.Protocol && row.Local == endpoint.Local {
+				return errors.New("forward is still installed")
+			}
+		}
+		return nil
+	}
+	return errors.New("expected forward is absent from gvproxy")
 }
 
 func forwardMutationError(err error) error {
@@ -121,6 +189,10 @@ func (e *HTTPError) Error() string {
 }
 
 func request(ctx context.Context, sock, method, path string, body any) ([]byte, error) {
+	return requestWithID(ctx, sock, method, path, body, "")
+}
+
+func requestWithID(ctx context.Context, sock, method, path string, body any, id string) ([]byte, error) {
 	var payload []byte
 	var err error
 	if body != nil {
@@ -135,6 +207,9 @@ func request(ctx context.Context, sock, method, path string, body any) ([]byte, 
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if id != "" {
+		req.Header.Set("X-Voom-Forward-ID", id)
 	}
 	res, err := clientForSocket(sock).Do(req)
 	if err != nil {

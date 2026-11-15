@@ -281,6 +281,12 @@ func (m *Manager) finishEgressResult(action string, vm *state.VMRecord, result *
 	m.events.Emit(events.Event{Type: "egress", Action: action, Actor: events.Actor{ID: vm.ID, Attributes: map[string]string{"name": vm.Name, "changed": strconv.FormatBool(result.Changed), "runtimeChanged": strconv.FormatBool(result.RuntimeChanged), "outcome": outcome, "enabled": strconv.FormatBool(enabled)}}})
 }
 
+func (m *Manager) recordEgressRecoveryStop(vm *state.VMRecord, operation, endpoint string, cause error) {
+	attributes := map[string]string{"reason": "egress recovery", "operation": operation, "endpoint": endpoint, "error": cause.Error()}
+	m.emitVM("stop-requested", vm, attributes)
+	m.appendAutoForwardLog(vm, "error", fmt.Sprintf("VM stop requested for egress recovery: %s %s: %v", operation, endpoint, cause))
+}
+
 func (m *Manager) enableLiveEgress(ctx context.Context, vm *state.VMRecord, nextDecl *egress.Decl, validatedCA []byte, result EgressResult) (EgressResult, error) {
 	rt := m.store.Runtime(vm)
 	routes, err := gvproxy.GatewayRoutes(ctx, rt.NetworkSock())
@@ -304,6 +310,7 @@ func (m *Manager) enableLiveEgress(ctx context.Context, vm *state.VMRecord, next
 			}
 			result.RuntimeChanged = true
 			// An uncertain expose can finish after unexpose; stopping gvproxy fences the request.
+			m.recordEgressRecoveryStop(vm, "expose", egress.Listener, err)
 			recovery, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			stop, stopErr := m.stopRuntime(recovery, vm)
@@ -351,6 +358,7 @@ func (m *Manager) removeLiveEgress(ctx context.Context, vm *state.VMRecord) (boo
 	}
 	err := gvproxy.UnexposeGateway(ctx, rt.NetworkSock(), egress.Listener)
 	if err != nil {
+		m.recordEgressRecoveryStop(vm, "unexpose", egress.Listener, err)
 		recovery, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		stop, stopErr := m.stopRuntime(recovery, vm)

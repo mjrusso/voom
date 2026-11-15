@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -191,5 +192,123 @@ func TestForwardMutationOutcomes(t *testing.T) {
 	}))
 	if err := Expose(sock, "udp", "127.0.0.1:15353", "192.168.127.3:5353"); err == nil || errors.Is(err, ErrForwardOutcomeUnknown) {
 		t.Fatalf("capability rejection: %v", err)
+	}
+}
+
+func TestMutationRecoversCompletedOutcome(t *testing.T) {
+	for _, action := range []string{"expose", "unexpose"} {
+		for _, failure := range []string{"lost", "timeout"} {
+			t.Run(action+"-"+failure, func(t *testing.T) {
+				endpoint := Forward{Protocol: "tcp", Local: "127.0.0.1:2222", Remote: "192.168.127.3:22"}
+				var mutationID string
+				completed := make(chan struct{})
+				release := make(chan struct{})
+				var releaseOnce sync.Once
+				defer releaseOnce.Do(func() { close(release) })
+				sock := newFakeGVProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case "/services/forwarder/" + action:
+						mutationID = r.Header.Get("X-Voom-Forward-ID")
+						if failure == "timeout" {
+							<-release
+						}
+						close(completed)
+						conn, _, err := w.(http.Hijacker).Hijack()
+						if err == nil {
+							_ = conn.Close()
+						}
+					case "/services/forwarder/outcome":
+						select {
+						case <-completed:
+							if mutationID == "" || r.URL.Query().Get("id") != mutationID {
+								t.Error("outcome queried a different mutation")
+							}
+							_, _ = w.Write([]byte(`{"status":200}`))
+						default:
+							w.WriteHeader(http.StatusAccepted)
+							releaseOnce.Do(func() { close(release) })
+						}
+					case "/services/forwarder/all":
+						var rows []Forward
+						if action == "expose" {
+							rows = append(rows, endpoint)
+						}
+						_ = json.NewEncoder(w).Encode(rows)
+					default:
+						http.NotFound(w, r)
+					}
+				}))
+				clientForSocket(sock).Timeout = 20 * time.Millisecond
+				if err := mutateForward(sock, action, endpoint); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
+
+func TestPendingMutationRetainsUncertainty(t *testing.T) {
+	sock := newFakeGVProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/services/forwarder/expose":
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+		case "/services/forwarder/outcome":
+			w.WriteHeader(http.StatusAccepted)
+		case "/services/forwarder/all":
+			_ = json.NewEncoder(w).Encode([]Forward{{Protocol: "tcp", Local: "127.0.0.1:2222", Remote: "192.168.127.3:22"}})
+		}
+	}))
+	if err := Expose(sock, "tcp", "127.0.0.1:2222", "192.168.127.3:22"); !errors.Is(err, ErrForwardOutcomeUnknown) {
+		t.Fatal(err)
+	}
+}
+
+func TestExposeConflictRequiresMatchingTarget(t *testing.T) {
+	for _, matches := range []bool{true, false} {
+		sock := newFakeGVProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/services/forwarder/expose" {
+				http.Error(w, "proxy already running", http.StatusConflict)
+				return
+			}
+			remote := "192.168.127.3:22"
+			if !matches {
+				remote = "192.168.127.3:23"
+			}
+			_ = json.NewEncoder(w).Encode([]Forward{{Protocol: "tcp", Local: "127.0.0.1:2222", Remote: remote}})
+		}))
+		err := Expose(sock, "tcp", "127.0.0.1:2222", "192.168.127.3:22")
+		if (err == nil) != matches || errors.Is(err, ErrForwardOutcomeUnknown) {
+			t.Fatalf("matches=%t: %v", matches, err)
+		}
+	}
+}
+
+func TestCompletedOutcomeStillRequiresConfirmedState(t *testing.T) {
+	for _, action := range []string{"expose", "unexpose"} {
+		t.Run(action, func(t *testing.T) {
+			sock := newFakeGVProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/services/forwarder/" + action:
+					conn, _, err := w.(http.Hijacker).Hijack()
+					if err == nil {
+						_ = conn.Close()
+					}
+				case "/services/forwarder/outcome":
+					_, _ = w.Write([]byte(`{"status":200}`))
+				case "/services/forwarder/all":
+					rows := []Forward{}
+					if action == "unexpose" {
+						rows = append(rows, Forward{Protocol: "tcp", Local: "127.0.0.1:2222"})
+					}
+					_ = json.NewEncoder(w).Encode(rows)
+				}
+			}))
+			if err := mutateForward(sock, action, Forward{Protocol: "tcp", Local: "127.0.0.1:2222", Remote: "192.168.127.3:22"}); !errors.Is(err, ErrForwardOutcomeUnknown) {
+				t.Fatalf("unconfirmed state: %v", err)
+			}
+		})
 	}
 }

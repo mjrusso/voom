@@ -1,11 +1,26 @@
 package vm
 
 import (
+	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/mjrusso/voom/internal/events"
+	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/state"
 )
+
+func (m *Manager) recordForwardRecovery(vm *state.VMRecord, outcome string, cause error) {
+	attributes := map[string]string{"vm": vm.Name, "outcome": outcome, "error": cause.Error()}
+	var failure *forwardMutationFailure
+	if errors.As(cause, &failure) {
+		attributes["operation"] = failure.operation.action.String()
+		attributes["endpoint"] = forward.Address(failure.operation.endpoint.Bind, failure.operation.endpoint.HostPort)
+		attributes["protocol"] = failure.operation.endpoint.Protocol
+	}
+	m.events.Emit(events.Event{Type: "forward", Action: "recovery", Actor: events.Actor{ID: vm.ID, Attributes: attributes}})
+	m.appendAutoForwardLog(vm, "error", fmt.Sprintf("forward recovery %s: %v", outcome, cause))
+}
 
 func (m *Manager) emitVM(action string, vm *state.VMRecord, attributes map[string]string) {
 	if attributes == nil {

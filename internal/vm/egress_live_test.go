@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -249,6 +250,21 @@ func TestEgressLiveReconciliation(t *testing.T) {
 	if manager.IsRunning(record) {
 		t.Fatal("uncertain expose did not stop the VM")
 	}
+	foundReason := false
+	for _, event := range recorder.events {
+		if event.Type == "vm" && event.Action == "stop-requested" {
+			attributes := event.Actor.Attributes
+			foundReason = attributes["reason"] == "egress recovery" && attributes["operation"] == "expose" && attributes["endpoint"] == egress.Listener && attributes["error"] != ""
+		}
+	}
+	if !foundReason {
+		t.Fatal("egress recovery stop omitted reason and mutation context")
+	}
+	log, logErr := os.ReadFile(st.LogPath(record, "auto-forward"))
+	if logErr != nil || !strings.Contains(string(log), "VM stop requested for egress recovery: expose") {
+		t.Fatalf("stop reason log: %q %v", log, logErr)
+	}
+
 	if _, err := os.Stat(rt.EgressManifest()); !os.IsNotExist(err) {
 		t.Fatal("failed enable left manifest")
 	}
