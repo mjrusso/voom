@@ -153,8 +153,8 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.
 		return nil, err
 	}
 	defer unlock()
-	if m.IsRunning(src) {
-		return nil, fmt.Errorf("VM %q is running; stop it before cloning", srcName)
+	if err := m.requireStopped(src, "cloning"); err != nil {
+		return nil, err
 	}
 	if err := ValidateGuestDeclarations(src); err != nil {
 		return nil, err
@@ -259,8 +259,8 @@ func (m *Manager) GrowDisk(ctx context.Context, name, amount string) error {
 	if vm.MacOS != nil {
 		return errors.New("MacOS disk growth is not supported")
 	}
-	if m.IsRunning(vm) {
-		return fmt.Errorf("VM %q is running; stop it before growing its disk", name)
+	if err := m.requireStopped(vm, "growing its disk"); err != nil {
+		return err
 	}
 	bytes, err := state.ParseSize(amount)
 	if err != nil {
@@ -713,8 +713,8 @@ func hasRuntimeState(vm *state.VMRecord, rt state.RuntimeLayout) bool {
 
 // IsRunning reports whether the VM's driver process is alive.
 func (m *Manager) IsRunning(vm *state.VMRecord) bool {
-	_, ok := process.ValidRecord(m.store.Runtime(vm).VMProcessRecord(), state.VMProcessKind(vm.Driver))
-	return ok
+	observed, _ := m.ObserveRuntime(vm)
+	return observed == RuntimeRunning
 }
 
 // Status returns "running" or "stopped" based on the supplied flag.

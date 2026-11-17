@@ -265,8 +265,11 @@ func (m *Manager) applyUSBTransition(ctx context.Context, vm *state.VMRecord, tr
 		return err
 	}
 	defer unlock()
-	running := m.IsRunning(vm)
-	if !running {
+	observed, err := m.ObserveRuntime(vm)
+	if err != nil {
+		return err
+	}
+	if observed == RuntimeStopped {
 		if m.usbRuntimeMayBeActive(vm) {
 			return fmt.Errorf("cannot change USB assignments for VM %q while its runtime state is unconfirmed", vm.Name)
 		}

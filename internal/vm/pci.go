@@ -50,8 +50,8 @@ func (m *Manager) AddPCIDevice(ctx context.Context, vmName, deviceName, selector
 	if err := pciSupported(vm); err != nil {
 		return pci.Decl{}, err
 	}
-	if m.IsRunning(vm) {
-		return pci.Decl{}, fmt.Errorf("VM %q is running; stop it before changing PCI assignments", vm.Name)
+	if err := m.requireStopped(vm, "changing PCI assignments"); err != nil {
+		return pci.Decl{}, err
 	}
 	inspection := pci.Inspect(sel)
 	if inspection.Err != nil {
@@ -70,8 +70,8 @@ func (m *Manager) RemovePCIDevice(ctx context.Context, vmName, deviceName string
 		return err
 	}
 	defer unlock()
-	if m.IsRunning(vm) {
-		return fmt.Errorf("VM %q is running; stop it before changing PCI assignments", vm.Name)
+	if err := m.requireStopped(vm, "changing PCI assignments"); err != nil {
+		return err
 	}
 	index := slices.IndexFunc(vm.PCIDevices, func(d pci.Decl) bool { return d.Name == deviceName })
 	if index < 0 {

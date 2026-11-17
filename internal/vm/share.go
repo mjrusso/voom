@@ -36,8 +36,8 @@ func (m *Manager) AddShare(ctx context.Context, name, tag, hostPath, guestPath s
 	if err := requireShareMount(im); err != nil {
 		return share.Decl{}, err
 	}
-	if m.IsRunning(vm) {
-		return share.Decl{}, fmt.Errorf("VM %q is running; stop or restart the VM before changing shares", vm.Name)
+	if err := m.requireStopped(vm, "changing shares"); err != nil {
+		return share.Decl{}, err
 	}
 	for _, sh := range vm.Shares {
 		if sh.Tag == tag {
@@ -57,8 +57,8 @@ func (m *Manager) RemoveShare(ctx context.Context, name, tag string) error {
 		return err
 	}
 	defer unlock()
-	if m.IsRunning(vm) {
-		return fmt.Errorf("VM %q is running; stop or restart the VM before changing shares", vm.Name)
+	if err := m.requireStopped(vm, "changing shares"); err != nil {
+		return err
 	}
 	next := vm.Shares[:0]
 	found := false

@@ -20,6 +20,10 @@ func (m *Manager) forwardMutationPending(vm *state.VMRecord) bool {
 
 // The caller must hold the VM lock.
 func (m *Manager) recoverPendingForwardMutation(vm *state.VMRecord) error {
+	if !m.forwardMutationPending(vm) {
+		_, err := m.ObserveRuntime(vm)
+		return err
+	}
 	_, err := m.recoverAndReportForwardMutation(vm, m.pendingForwardMutationError(vm))
 	return err
 }

@@ -18,8 +18,8 @@ func (m *Manager) SetCPUs(ctx context.Context, name string, cpus int) (*state.VM
 		return nil, false, err
 	}
 	defer unlock()
-	if m.IsRunning(vm) {
-		return nil, false, fmt.Errorf("VM %q is running; stop it before changing CPU allocation", name)
+	if err := m.requireStopped(vm, "changing CPU allocation"); err != nil {
+		return nil, false, err
 	}
 	if vm.Resources.CPUs == cpus {
 		return vm, false, nil
@@ -42,8 +42,8 @@ func (m *Manager) SetMemory(ctx context.Context, name string, memoryMiB int) (*s
 		return nil, false, err
 	}
 	defer unlock()
-	if m.IsRunning(vm) {
-		return nil, false, fmt.Errorf("VM %q is running; stop it before changing memory allocation", name)
+	if err := m.requireStopped(vm, "changing memory allocation"); err != nil {
+		return nil, false, err
 	}
 	if vm.Resources.MemoryMiB == memoryMiB {
 		return vm, false, nil
@@ -70,8 +70,8 @@ func (m *Manager) SetSSHPort(ctx context.Context, name string, port int) (*state
 	if err := m.recoverPendingForwardMutation(vm); err != nil {
 		return nil, false, err
 	}
-	if m.IsRunning(vm) {
-		return nil, false, fmt.Errorf("VM %q is running; stop it before changing the SSH port", name)
+	if err := m.requireStopped(vm, "changing the SSH port"); err != nil {
+		return nil, false, err
 	}
 	if vm.Network.SSHPort == port {
 		return vm, false, nil
