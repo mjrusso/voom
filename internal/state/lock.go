@@ -14,26 +14,38 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func (s *Store) lockGlobal() (func(), error) {
-	return flock(filepath.Join(s.paths.State, "locks", "state.lock"))
-}
-
 // WithGlobal runs fn with the current index under the store-wide lock.
 func (s *Store) WithGlobal(fn func() error) error {
-	unlock, err := s.lockGlobal()
+	return s.WithGlobalContext(context.Background(), fn)
+}
+
+// WithGlobalContext acquires the store-wide lock with ctx and runs fn with the current index.
+func (s *Store) WithGlobalContext(ctx context.Context, fn func() error) error {
+	return s.withGlobalLock(ctx, func() error {
+		if err := s.reloadIndex(); err != nil {
+			return err
+		}
+		return fn()
+	})
+}
+
+func (s *Store) withGlobalLock(ctx context.Context, fn func() error) error {
+	unlock, err := flockContext(ctx, filepath.Join(s.paths.State, "locks", "state.lock"))
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	if err := s.reloadIndex(); err != nil {
-		return err
-	}
 	return fn()
 }
 
 // WithGlobalVM runs fn only if name still identifies the VM whose lock the caller holds.
 func (s *Store) WithGlobalVM(name, id string, fn func() error) error {
-	return s.WithGlobal(func() error {
+	return s.WithGlobalVMContext(context.Background(), name, id, fn)
+}
+
+// WithGlobalVMContext acquires the global lock with ctx and verifies the VM's identity before running fn.
+func (s *Store) WithGlobalVMContext(ctx context.Context, name, id string, fn func() error) error {
+	return s.WithGlobalContext(ctx, func() error {
 		s.mu.Lock()
 		current := s.index.VMs[name]
 		s.mu.Unlock()
@@ -156,7 +168,6 @@ func flockContext(ctx context.Context, path string) (func(), error) {
 	}
 }
 
-func flock(path string) (func(), error) { return flockMode(path, unix.LOCK_EX) }
 func flockMode(path string, mode int) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err

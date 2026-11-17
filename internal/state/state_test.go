@@ -427,7 +427,7 @@ func TestWithGlobalRefreshesIndexAfterWaiting(t *testing.T) {
 	storeA, dir := newTestStore(t, WithHostPortAvailable(func(string, int) (bool, string) {
 		return true, ""
 	}))
-	unlockA, err := storeA.lockGlobal()
+	unlockA, err := flockContext(context.Background(), filepath.Join(storeA.paths.State, "locks", "state.lock"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,9 +476,7 @@ func TestWithGlobalRefreshesIndexAfterWaiting(t *testing.T) {
 	if err := storeA.SaveVM(vm); err != nil {
 		t.Fatal(err)
 	}
-	idx := storeA.IndexSnapshot()
-	idx.VMs[vm.Name] = vm.ID
-	if err := storeA.SetIndexSnapshot(idx); err != nil {
+	if err := storeA.RegisterVMLocked(vm.Name, vm.ID); err != nil {
 		t.Fatal(err)
 	}
 

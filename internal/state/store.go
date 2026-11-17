@@ -3,6 +3,7 @@
 package state
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -47,7 +48,15 @@ func Open(opts ...Option) (*Store, error) {
 	}
 	err := st.reloadIndex()
 	if os.IsNotExist(err) {
-		return st, st.SaveIndex()
+		err = st.withGlobalLock(context.Background(), func() error {
+			err := st.reloadIndex()
+			if !os.IsNotExist(err) {
+				return err
+			}
+			st.mu.Lock()
+			defer st.mu.Unlock()
+			return st.saveIndexLocked()
+		})
 	}
 	if err != nil {
 		return nil, err
@@ -115,13 +124,7 @@ func (s *Store) snapshotLocked() Index {
 	return out
 }
 
-// SaveIndex atomically writes the current index to state.json on disk.
-func (s *Store) SaveIndex() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.saveIndexLocked()
-}
-
+// The caller must hold mu and the global lock.
 func (s *Store) saveIndexLocked() error {
 	if s.index.SchemaVersion == 0 {
 		s.index.SchemaVersion = SchemaVersion
@@ -131,25 +134,27 @@ func (s *Store) saveIndexLocked() error {
 
 // SetIndexSnapshot replaces the in-memory index with a deep copy of next and persists it.
 func (s *Store) SetIndexSnapshot(next Index) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	previous := s.index
-	s.index = Index{
-		SchemaVersion: next.SchemaVersion,
-		VMs:           map[string]string{},
-		Images:        map[string]string{},
-	}
-	for k, v := range next.VMs {
-		s.index.VMs[k] = v
-	}
-	for k, v := range next.Images {
-		s.index.Images[k] = v
-	}
-	err := s.saveIndexLocked()
-	if !atomicfile.Published(err) {
-		s.index = previous
-	}
-	return err
+	return s.WithGlobal(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		previous := s.index
+		s.index = Index{
+			SchemaVersion: next.SchemaVersion,
+			VMs:           map[string]string{},
+			Images:        map[string]string{},
+		}
+		for k, v := range next.VMs {
+			s.index.VMs[k] = v
+		}
+		for k, v := range next.Images {
+			s.index.Images[k] = v
+		}
+		err := s.saveIndexLocked()
+		if !atomicfile.Published(err) {
+			s.index = previous
+		}
+		return err
+	})
 }
 
 // NewID returns a random 128-bit identifier as an uppercase hex string.
