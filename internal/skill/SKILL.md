@@ -157,9 +157,9 @@ voom forward remove <name> 15353 --protocol udp --bind 127.0.0.1 --output json
 
 ### Handle a forwarding failure
 
-After a forwarding error, inspect `voom info <name> --output json` and
-`voom forward list <name> --output json` before retrying. Read `status` and
-`reason`; a saved declaration or reserved port does not prove installation.
+`list` flags forwarding warnings; `info`/`inspect` and `doctor` explain them.
+Check `voom forward list <name> --output json`: `status`, `installed`, and `reason`
+report forwarding state. Guest verification does not test forwarded traffic.
 
 Voom keeps the VM running, reserves ports, and blocks further changes while a
 change is unconfirmed. It keeps checking in the background. For a requested repair, run

@@ -2,6 +2,12 @@
 
 Inspect a VM
 
+### Synopsis
+
+Show saved VM configuration, disk usage, and current USB, PCI, egress, and forwarding status.
+
+Forwarding problems appear as warnings. Status shows whether the VM process is running. Use 'voom forward list <name>' to inspect each forward.
+
 ```
 voom info <name> [flags]
 ```

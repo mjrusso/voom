@@ -110,6 +110,12 @@ guest listener report and a running watcher. See
 and [proxy attachment recovery](proxy-attachments.md#observation-and-recovery) for integration-specific
 requirements and recovery.
 
+`voom list` adds `forwarding=warning` when recovery is pending, an expected
+forward is missing, or forwarding state cannot be read. `voom info` and
+`voom doctor` explain the warning. `list` and `info` include `forwardingWarnings`
+in JSON when warnings are present. VM status shows whether the VM process is
+running; these commands do not repair forwards or test forwarded traffic.
+
 ### Forwarding reports uncertain state
 
 If a manual or automatic port-forward request times out or loses its response,

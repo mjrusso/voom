@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/mjrusso/voom/internal/driver/qemu"
 	"github.com/mjrusso/voom/internal/driver/vfkit"
@@ -147,7 +148,8 @@ func StateDiagnostics(st *state.Store) []Check {
 		}
 		vms = append(vms, vmRec)
 	}
-	for _, vmRec := range vms {
+	forwardingWarnings := vmMgr.ForwardingWarningsForVMs(context.Background(), vms)
+	for i, vmRec := range vms {
 		name := vmRec.Name
 		if prev := vmSeenIDs[vmRec.ID]; prev != "" {
 			out = append(out, Check{"state-vm-duplicate-id", "warn", false, prev + " and " + name})
@@ -166,6 +168,9 @@ func StateDiagnostics(st *state.Store) []Check {
 			macosIdentities[identity] = name
 		}
 		out = append(out, egressDiagnostics(st, vmMgr, vmRec)...)
+		if warnings := forwardingWarnings[i]; len(warnings) > 0 {
+			out = append(out, Check{"forwarding-" + name, "warn", false, strings.Join(warnings, "; ")})
+		}
 		if runtime.GOOS == "linux" {
 			for _, device := range vmRec.USBDevices {
 				if !usbScanned {

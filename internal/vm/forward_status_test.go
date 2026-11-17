@@ -3,9 +3,12 @@ package vm
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -13,6 +16,69 @@ import (
 	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/state"
 )
+
+func TestForwardingInspectionHonorsCancellation(t *testing.T) {
+	st, _ := newTestStore(t)
+	m := New(st)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := m.ForwardRows(ctx, nil); !errors.Is(err, context.Canceled) {
+		t.Errorf("canceled inspection returned %v", err)
+	}
+	vms := make([]*state.VMRecord, 24)
+	for i := range vms {
+		vms[i] = &state.VMRecord{Name: fmt.Sprintf("unregistered-%d", i)}
+	}
+	for i, warnings := range m.ForwardingWarningsForVMs(ctx, vms) {
+		if len(warnings) != 1 || !strings.Contains(warnings[0], context.Canceled.Error()) {
+			t.Errorf("VM %d was inspected after cancellation: %v", i, warnings)
+		}
+	}
+}
+
+func TestForwardingWarningsPreserveRuntimeInspectionFailure(t *testing.T) {
+	for _, pending := range []bool{false, true} {
+		for _, invalid := range []string{"malformed", "unreadable"} {
+			t.Run(fmt.Sprintf("%s/pending=%t", invalid, pending), func(t *testing.T) {
+				st, m, vm, proxy := newAutoForwardFixture(t)
+				rt := st.Runtime(vm)
+				if err := os.Remove(rt.VMProcessRecord()); err != nil {
+					t.Fatal(err)
+				}
+				if invalid == "malformed" {
+					if err := os.WriteFile(rt.VMProcessRecord(), []byte("invalid"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.Mkdir(rt.VMProcessRecord(), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if pending {
+					if err := state.WriteJSONAtomic(rt.ForwardMutation(), []forward.Decl{}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				rows, err := m.ForwardRows(context.Background(), []string{vm.Name})
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, row := range rows {
+					if row.Status == "stopped" || row.Installed || !strings.Contains(row.Reason, "cannot confirm runtime") {
+						t.Errorf("inspection failure was discarded: %+v", row)
+					}
+				}
+				warnings := m.ForwardingWarnings(context.Background(), vm.Name)
+				if len(warnings) == 0 || !strings.Contains(strings.Join(warnings, " "), "cannot confirm runtime") {
+					t.Fatalf("runtime failure missing from warnings: %+v", warnings)
+				}
+				proxy.mu.Lock()
+				defer proxy.mu.Unlock()
+				if proxy.snapshots != 0 {
+					t.Fatal("unknown runtime queried the backend")
+				}
+			})
+		}
+	}
+}
 
 func TestForwardRowsUsesOneBackendSnapshot(t *testing.T) {
 	st, _ := newTestStore(t)

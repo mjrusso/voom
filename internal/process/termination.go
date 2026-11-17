@@ -1,6 +1,7 @@
 package process
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -78,6 +79,15 @@ func RecordFingerprint(path string) (string, error) {
 // ObserveRecord compares an optional expected fingerprint before inspecting the process.
 // Inspection errors return RecordUnknown; only RecordExited confirms the recorded process is gone.
 func ObserveRecord(path, kind, expectedFingerprint string) (Observation, error) {
+	return ObserveRecordContext(context.Background(), path, kind, expectedFingerprint)
+}
+
+// ObserveRecordContext applies ctx to process inspection, including external commands.
+// Cancellation returns RecordUnknown and does not confirm process exit.
+func ObserveRecordContext(ctx context.Context, path, kind, expectedFingerprint string) (Observation, error) {
+	if err := ctx.Err(); err != nil {
+		return Observation{}, err
+	}
 	if expectedFingerprint != "" {
 		decoded, err := hex.DecodeString(expectedFingerprint)
 		if err != nil || len(decoded) != sha256.Size {
@@ -100,7 +110,7 @@ func ObserveRecord(path, kind, expectedFingerprint string) (Observation, error) 
 	if err != nil {
 		return Observation{}, err
 	}
-	status, err := inspectRecord(recorded, kind)
+	status, err := inspectRecord(ctx, recorded, kind)
 	if err != nil {
 		return Observation{}, err
 	}
@@ -130,9 +140,15 @@ func HasRecord(path string) bool {
 	return !errors.Is(err, os.ErrNotExist)
 }
 
-func inspectRecord(recorded processRecord, kind string) (RecordState, error) {
-	matched, commandErr := matchesKind(recorded.PID, kind)
+func inspectRecord(ctx context.Context, recorded processRecord, kind string) (RecordState, error) {
+	matched, commandErr := matchesKind(ctx, recorded.PID, kind)
+	if err := ctx.Err(); err != nil {
+		return RecordUnknown, err
+	}
 	current, err := birth(recorded.PID)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return RecordUnknown, ctxErr
+	}
 	if errors.Is(err, errProcessExited) {
 		return RecordExited, nil
 	}
@@ -170,7 +186,7 @@ func StopRecorded(path, kind string, timeout time.Duration) error {
 		return err
 	}
 	pid := recorded.PID
-	status, err := inspectRecord(recorded, kind)
+	status, err := inspectRecord(context.Background(), recorded, kind)
 	if err != nil {
 		return err
 	}

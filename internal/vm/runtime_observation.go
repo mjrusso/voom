@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -23,9 +24,14 @@ const (
 // requires confirmed exit or absence of both the record and driver artifacts.
 // Callers making stopped-only changes must hold the VM lock across observation and mutation.
 func (m *Manager) ObserveRuntime(vm *state.VMRecord) (RuntimeState, error) {
+	return m.ObserveRuntimeContext(context.Background(), vm)
+}
+
+// ObserveRuntimeContext applies ctx to runtime inspection and preserves cancellation as RuntimeUnknown.
+func (m *Manager) ObserveRuntimeContext(ctx context.Context, vm *state.VMRecord) (RuntimeState, error) {
 	rt := m.store.Runtime(vm)
 	path := rt.VMProcessRecord()
-	observed, err := process.ObserveRecord(path, state.VMProcessKind(vm.Driver), "")
+	observed, err := process.ObserveRecordContext(ctx, path, state.VMProcessKind(vm.Driver), "")
 	if errors.Is(err, os.ErrNotExist) {
 		if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
 			for _, artifact := range rt.DriverArtifacts(vm.Driver) {

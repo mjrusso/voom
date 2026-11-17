@@ -135,9 +135,9 @@ func WaitForContext(ctx context.Context, ok func() bool, d time.Duration) error 
 	return context.DeadlineExceeded
 }
 
-func matchesKind(pid int, kind string) (bool, error) {
+func matchesKind(ctx context.Context, pid int, kind string) (bool, error) {
 	withArgs := kind == "runtime-watch" || kind == "auto-forward"
-	parts, err := processInfo(pid, withArgs)
+	parts, err := processInfo(ctx, pid, withArgs)
 	if err != nil {
 		return false, err
 	}
@@ -168,7 +168,10 @@ func matchesKind(pid int, kind string) (bool, error) {
 	return false, nil
 }
 
-func processInfo(pid int, withArgs bool) ([]string, error) {
+func processInfo(ctx context.Context, pid int, withArgs bool) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if runtime.GOOS == "linux" {
 		cmdline, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
 		if err != nil {
@@ -187,9 +190,12 @@ func processInfo(pid int, withArgs bool) ([]string, error) {
 	if withArgs {
 		field = "command="
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "ps", "-ww", "-p", strconv.Itoa(pid), "-o", field).Output()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	line := strings.TrimSpace(string(out))
 	if err != nil || line == "" {
 		return nil, fmt.Errorf("process command unavailable for PID %d", pid)

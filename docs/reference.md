@@ -313,8 +313,10 @@ changes runtime state. There is no distinct crash event.
 
 `voom doctor` scans object directories in addition to `state.json` and reports
 dangling index entries, orphaned records, duplicate names or IDs, LAN
-exposure, stale process records, stale auto-forward state, and malformed guest
-port reports.
+exposure, stale process records, stale auto-forward state, malformed guest
+port reports, and forwarding warnings. `voom list` marks forwarding warnings;
+`voom info` reports their details. Both include `forwardingWarnings` in JSON when
+warnings are present. VM status shows whether the VM process is running.
 
 ## Command effects
 

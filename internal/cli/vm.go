@@ -267,7 +267,7 @@ func logsCommand() *cobra.Command {
 }
 
 func infoCommand() *cobra.Command {
-	return &cobra.Command{Use: "info <name>", ValidArgsFunction: completeVMNames, Aliases: []string{"inspect"}, Short: "Inspect a VM", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "info <name>", ValidArgsFunction: completeVMNames, Aliases: []string{"inspect"}, Short: "Inspect a VM", Long: "Show saved VM configuration, disk usage, and current USB, PCI, egress, and forwarding status.\n\nForwarding problems appear as warnings. Status shows whether the VM process is running. Use 'voom forward list <name>' to inspect each forward.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -276,7 +276,7 @@ func infoCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		out := vmInfo{VM: vmRec, Running: deps.vm.IsRunning(vmRec), DiskPath: deps.store.VMDiskPath(vmRec)}
+		out := vmInfo{VM: vmRec, Running: deps.vm.IsRunning(vmRec), DiskPath: deps.store.VMDiskPath(vmRec), ForwardingWarnings: deps.vm.ForwardingWarnings(cmd.Context(), vmRec.Name)}
 		if vmRec.MacOS != nil {
 			out.PlatformStateDir = deps.store.VMStorageDir(vmRec)
 		}
@@ -299,6 +299,9 @@ func infoCommand() *cobra.Command {
 			disk = fmt.Sprintf("%s virtual, %s allocated on host", formatBytes(out.Disk.VirtualBytes), formatBytes(out.Disk.AllocatedBytes))
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\nstatus: %s\nimage: %s\ncpus: %d\nmemory: %dMiB\ndisk: %s\nssh: %s@%s:%d\nforwards: %d\nshares: %d\nusb: %d\npci: %d\n", vmRec.Name, vmRec.ID, vm.Status(out.Running), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, disk, vmRec.Access.SSHUser, vmRec.Network.SSHBind, vmRec.Network.SSHPort, len(vmRec.Network.Forwards), len(vmRec.Shares), len(vmRec.USBDevices), len(vmRec.PCIDevices))
+		for _, warning := range out.ForwardingWarnings {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "forwarding-warning: %s\n", warning)
+		}
 		if vmRec.MacOS != nil {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "system: %s\nboot: macos\nimage-macos: %s (%s)\napple-identity: %s\nplatform-state: %s\n", vmRec.Arch, vmRec.MacOS.Version, vmRec.MacOS.Build, vmRec.MacOS.IdentitySHA256, out.PlatformStateDir)
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "apple-minimum-resources: %d CPUs, %dMiB\n", vmRec.MacOS.MinimumCPUs, vmRec.MacOS.MinimumMemoryMiB)
@@ -325,15 +328,16 @@ func infoCommand() *cobra.Command {
 }
 
 type vmInfo struct {
-	PlatformStateDir string            `json:"platformStateDir,omitempty"`
-	EgressRuntime    *vm.EgressRuntime `json:"egressRuntime,omitempty"`
-	VM               *state.VMRecord   `json:"vm"`
-	Running          bool              `json:"running"`
-	DiskPath         string            `json:"diskPath"`
-	Disk             *state.DiskUsage  `json:"disk,omitempty"`
-	DiskError        string            `json:"diskError,omitempty"`
-	USBStatus        []vm.USBStatus    `json:"usbStatus,omitempty"`
-	PCIStatus        []vm.PCIStatus    `json:"pciStatus,omitempty"`
+	ForwardingWarnings []string          `json:"forwardingWarnings,omitempty"`
+	PlatformStateDir   string            `json:"platformStateDir,omitempty"`
+	EgressRuntime      *vm.EgressRuntime `json:"egressRuntime,omitempty"`
+	VM                 *state.VMRecord   `json:"vm"`
+	Running            bool              `json:"running"`
+	DiskPath           string            `json:"diskPath"`
+	Disk               *state.DiskUsage  `json:"disk,omitempty"`
+	DiskError          string            `json:"diskError,omitempty"`
+	USBStatus          []vm.USBStatus    `json:"usbStatus,omitempty"`
+	PCIStatus          []vm.PCIStatus    `json:"pciStatus,omitempty"`
 }
 
 type omittedConfig struct {
@@ -343,7 +347,7 @@ type omittedConfig struct {
 }
 
 func listCommand() *cobra.Command {
-	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List VMs", Long: "List VMs, one per row: name, ID, status, image, CPUs, memory, SSH port, disk capacity, configured USB and PCI counts, and saved egress configuration. A disk that cannot be read shows as disk=?. The USB, PCI, and egress-config columns show saved configuration; 'voom info' reports observed USB, PCI, and egress state and host disk allocation.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List VMs", Long: "List VMs, one per row: name, ID, status, image, CPUs, memory, SSH port, disk capacity, configured USB and PCI counts, and saved egress configuration.\n\nA disk that cannot be read shows as disk=?. The USB, PCI, and egress-config columns show saved configuration. Use 'voom info <name>' for current USB, PCI, and egress state and host disk allocation.\n\nForwarding problems add forwarding=warning. Use 'voom info <name>' or 'voom forward list <name>' for details. Status shows whether the VM process is running.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -353,36 +357,39 @@ func listCommand() *cobra.Command {
 			return err
 		}
 		type row struct {
-			Name         string           `json:"name"`
-			ID           string           `json:"id"`
-			Status       string           `json:"status"`
-			Image        string           `json:"image"`
-			CPUs         int              `json:"cpus"`
-			MemoryMiB    int              `json:"memoryMiB"`
-			SSHPort      int              `json:"sshPort"`
-			Disk         *state.DiskUsage `json:"disk,omitempty"`
-			USB          int              `json:"usb"`
-			PCI          int              `json:"pci"`
-			EgressConfig string           `json:"egressConfig"`
+			ForwardingWarnings []string         `json:"forwardingWarnings,omitempty"`
+			Name               string           `json:"name"`
+			ID                 string           `json:"id"`
+			Status             string           `json:"status"`
+			Image              string           `json:"image"`
+			CPUs               int              `json:"cpus"`
+			MemoryMiB          int              `json:"memoryMiB"`
+			SSHPort            int              `json:"sshPort"`
+			Disk               *state.DiskUsage `json:"disk,omitempty"`
+			USB                int              `json:"usb"`
+			PCI                int              `json:"pci"`
+			EgressConfig       string           `json:"egressConfig"`
 		}
 		rows := []row{}
-		for _, vmRec := range vms {
+		forwardingWarnings := deps.vm.ForwardingWarningsForVMs(cmd.Context(), vms)
+		for i, vmRec := range vms {
 			var disk *state.DiskUsage
 			if usage, err := state.ReadDiskUsage(deps.store.VMDiskPath(vmRec)); err == nil {
 				disk = &usage
 			}
 			rows = append(rows, row{
-				Name:         vmRec.Name,
-				ID:           vmRec.ID,
-				Status:       vm.Status(deps.vm.IsRunning(vmRec)),
-				Image:        vmRec.Image.Name,
-				CPUs:         vmRec.Resources.CPUs,
-				MemoryMiB:    vmRec.Resources.MemoryMiB,
-				SSHPort:      vmRec.Network.SSHPort,
-				Disk:         disk,
-				USB:          len(vmRec.USBDevices),
-				PCI:          len(vmRec.PCIDevices),
-				EgressConfig: egressConfig(vmRec.Network.Egress),
+				ForwardingWarnings: forwardingWarnings[i],
+				Name:               vmRec.Name,
+				ID:                 vmRec.ID,
+				Status:             vm.Status(deps.vm.IsRunning(vmRec)),
+				Image:              vmRec.Image.Name,
+				CPUs:               vmRec.Resources.CPUs,
+				MemoryMiB:          vmRec.Resources.MemoryMiB,
+				SSHPort:            vmRec.Network.SSHPort,
+				Disk:               disk,
+				USB:                len(vmRec.USBDevices),
+				PCI:                len(vmRec.PCIDevices),
+				EgressConfig:       egressConfig(vmRec.Network.Egress),
 			})
 		}
 		if outputFormat(cmd) == "json" {
@@ -394,7 +401,11 @@ func listCommand() *cobra.Command {
 			if r.Disk != nil {
 				disk = formatBytes(r.Disk.VirtualBytes)
 			}
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%dMiB\t%d\tdisk=%s\tusb=%d\tpci=%d\tegress-config=%s\n", r.Name, r.ID, r.Status, r.Image, r.CPUs, r.MemoryMiB, r.SSHPort, disk, r.USB, r.PCI, r.EgressConfig)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%dMiB\t%d\tdisk=%s\tusb=%d\tpci=%d\tegress-config=%s", r.Name, r.ID, r.Status, r.Image, r.CPUs, r.MemoryMiB, r.SSHPort, disk, r.USB, r.PCI, r.EgressConfig)
+			if len(r.ForwardingWarnings) > 0 {
+				_, _ = fmt.Fprint(tw, "\tforwarding=warning")
+			}
+			_, _ = fmt.Fprintln(tw)
 		}
 		return tw.Flush()
 	}}

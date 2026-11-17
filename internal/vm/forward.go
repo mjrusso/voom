@@ -133,6 +133,9 @@ func (m *Manager) RemoveForward(ctx context.Context, name string, port int, bind
 // ForwardRows reports configured forwards and unresolved reservations for the
 // given VM names, or for all VMs when args is empty.
 func (m *Manager) ForwardRows(ctx context.Context, args []string) ([]ForwardRow, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	var vms []*state.VMRecord
 	if len(args) == 1 {
 		vm, err := m.store.LoadVM(args[0])
@@ -149,7 +152,13 @@ func (m *Manager) ForwardRows(ctx context.Context, args []string) ([]ForwardRow,
 	}
 	rows := []ForwardRow{}
 	for _, vm := range vms {
-		runtimeState, inspectionErr := m.ObserveRuntime(vm)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		runtimeState, inspectionErr := m.ObserveRuntimeContext(ctx, vm)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		running := runtimeState == RuntimeRunning
 		guestTargetIP := state.DefaultGuestTargetIP(vm.Driver)
 		if running {

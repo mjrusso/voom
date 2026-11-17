@@ -9,6 +9,9 @@
   and failed-startup cleanup can still stop the VM.
 - Use one runtime watcher per VM for automatic forwarding, forwarding recovery,
   and cleanup after driver exit.
+- Warn in `voom list`, `voom info`, and `voom doctor` when forwarding recovery is
+  pending or forwards are unavailable. VM status shows whether the VM process
+  is running.
 - Record forwarding recovery errors in events and helper logs. Record the reason,
   operation, endpoint, and error before stopping a VM for private egress recovery.
 - Rotate helper and serial logs once per VM start, retaining the previous run as
