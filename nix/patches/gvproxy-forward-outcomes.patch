@@ -1,18 +1,12 @@
 diff --git a/pkg/services/forwarder/ports.go b/pkg/services/forwarder/ports.go
 --- a/pkg/services/forwarder/ports.go
 +++ b/pkg/services/forwarder/ports.go
-@@ -25,6 +25,10 @@
- 	"gvisor.dev/gvisor/pkg/tcpip/stack"
- )
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ package forwarder
  
-+type exposeRejection struct {
-+	error
-+}
-+
- type ProxyKey string
- 
- type PortsForwarder struct {
-@@ -71,7 +75,7 @@
+ import (
+@@ -71,7 +76,7 @@
  	f.proxiesLock.Lock()
  	defer f.proxiesLock.Unlock()
  	if _, ok := f.proxies[key(protocol, local)]; ok {
@@ -21,7 +15,7 @@ diff --git a/pkg/services/forwarder/ports.go b/pkg/services/forwarder/ports.go
  	}
  
  	switch protocol {
-@@ -201,22 +205,22 @@
+@@ -201,22 +206,22 @@
  	case types.UDP:
  		address, err := tcpipAddress(1, remote)
  		if err != nil {
@@ -48,7 +42,7 @@ diff --git a/pkg/services/forwarder/ports.go b/pkg/services/forwarder/ports.go
  		}
  		go p.Run()
  		f.proxies[key(protocol, local)] = proxy{
-@@ -228,7 +232,7 @@
+@@ -228,7 +233,7 @@
  	case types.TCP:
  		address, err := tcpipAddress(1, remote)
  		if err != nil {
@@ -57,7 +51,7 @@ diff --git a/pkg/services/forwarder/ports.go b/pkg/services/forwarder/ports.go
  		}
  
  		var p tcpproxy.Proxy
-@@ -239,7 +243,7 @@
+@@ -239,7 +244,7 @@
  			},
  		})
  		if err := p.Start(); err != nil {
@@ -66,7 +60,20 @@ diff --git a/pkg/services/forwarder/ports.go b/pkg/services/forwarder/ports.go
  		}
  		go func() {
  			if err := p.Wait(); err != nil {
-@@ -318,7 +322,12 @@
+@@ -269,8 +274,11 @@
+ 	if !ok {
+ 		return nil
+ 	}
++	if err := proxy.underlying.Close(); err != nil {
++		return err
++	}
+ 	delete(f.proxies, key(protocol, local))
+-	return proxy.underlying.Close()
++	return nil
+ }
+ 
+ func (f *PortsForwarder) Mux() http.Handler {
+@@ -318,7 +326,12 @@
  		}
  
  		if err := f.Expose(req.Protocol, req.Local, remoteAddr); err != nil {
@@ -80,3 +87,28 @@ diff --git a/pkg/services/forwarder/ports.go b/pkg/services/forwarder/ports.go
  			return
  		}
  		w.WriteHeader(http.StatusOK)
+diff --git a/vendor/github.com/inetaf/tcpproxy/tcpproxy.go b/vendor/github.com/inetaf/tcpproxy/tcpproxy.go
+--- a/vendor/github.com/inetaf/tcpproxy/tcpproxy.go
++++ b/vendor/github.com/inetaf/tcpproxy/tcpproxy.go
+@@ -1,3 +1,4 @@
++// Modified by the Voom project; see https://github.com/mjrusso/voom.
+ // Copyright 2017 Google Inc.
+ //
+ // Licensed under the Apache License, Version 2.0 (the "License");
+@@ -172,10 +173,13 @@
+ 
+ // Close closes all the proxy's self-opened listeners.
+ func (p *Proxy) Close() error {
++	var failures []error
+ 	for _, c := range p.lns {
+-		c.Close()
+-	}
+-	return nil
++		if err := c.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
++			failures = append(failures, err)
++		}
++	}
++	return errors.Join(failures...)
+ }
+ 
+ // Start creates a TCP listener for each unique ipPort from the

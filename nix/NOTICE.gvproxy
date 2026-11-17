@@ -6,18 +6,18 @@ Upstream version: v0.8.9
 
 Voom adds private gateway forwarding and subnet blocking with exact IP and
 port exceptions. It blocks guest access to host loopback services and fixes
-UDP datagram forwarding and session cleanup. It also records the results of
+UDP datagram forwarding and session cleanup. Failed listener closes remain
+retryable. It also records the results of
 host forwarding requests. The changes are in
 nix/patches/gvproxy-gateway-forward.patch,
 nix/patches/gvproxy-modification-notices.patch,
 nix/patches/gvproxy-udp-forward.patch,
 nix/patches/gvproxy-forward-outcomes.patch,
-nix/patches/gvproxy-blocked-subnets.patch, and
-nix/patches/gvproxy-mutation-outcomes.patch in the Voom source repository.
+nix/patches/gvproxy-blocked-subnets.patch,
+nix/patches/gvproxy-mutation-outcomes.patch, and
+internal/gvproxy/forwarder/mutation_outcomes.go and internal/gvproxy/source/
+in the Voom source repository.
 
 gvproxy is licensed under the Apache License, Version 2.0. See
 LICENSE.gvproxy. Licenses and notices for its linked dependencies are under
 THIRD_PARTY_LICENSES.
-
-Voom-owned helper sources are maintained under internal/gvproxy/source and
-internal/gvproxy/forwarder; the remaining patches integrate them upstream.
