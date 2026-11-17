@@ -160,9 +160,7 @@ func restartCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		// Best-effort stop: a not-running VM is the common case; surface failures via Start.
-		_, _ = deps.vm.Stop(cmd.Context(), args[0])
-		vmRec, err := deps.vm.Start(cmd.Context(), cmd.ErrOrStderr(), args[0])
+		vmRec, err := deps.vm.Restart(cmd.Context(), cmd.ErrOrStderr(), args[0])
 		if err != nil {
 			return err
 		}

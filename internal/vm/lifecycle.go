@@ -325,6 +325,24 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		return nil, err
 	}
 	defer unlock()
+	return m.startLocked(ctx, stderr, vm)
+}
+
+// Restart retains the VM lock and identity across confirmed shutdown and startup.
+func (m *Manager) Restart(ctx context.Context, stderr io.Writer, name string) (*state.VMRecord, error) {
+	vm, unlock, err := m.store.LockVMRecord(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	if _, err := m.stopLocked(ctx, vm, "restart"); err != nil {
+		return nil, err
+	}
+	return m.startLocked(ctx, stderr, vm)
+}
+
+// The caller must hold the VM lock.
+func (m *Manager) startLocked(ctx context.Context, stderr io.Writer, vm *state.VMRecord) (*state.VMRecord, error) {
 	if err := ValidateGuestDeclarations(vm); err != nil {
 		return nil, err
 	}
@@ -353,7 +371,7 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		return nil, err
 	}
 	if d := vm.Network.Egress; d != nil {
-		if err := m.store.WithGlobalVM(name, vm.ID, func() error {
+		if err := m.store.WithGlobalVM(vm.Name, vm.ID, func() error {
 			return m.CheckEgressAssignment(vm, *d)
 		}); err != nil {
 			return nil, err
