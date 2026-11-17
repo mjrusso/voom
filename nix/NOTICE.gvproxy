@@ -18,3 +18,6 @@ nix/patches/gvproxy-mutation-outcomes.patch in the Voom source repository.
 gvproxy is licensed under the Apache License, Version 2.0. See
 LICENSE.gvproxy. Licenses and notices for its linked dependencies are under
 THIRD_PARTY_LICENSES.
+
+Voom-owned helper sources are maintained under internal/gvproxy/source and
+internal/gvproxy/forwarder; the remaining patches integrate them upstream.

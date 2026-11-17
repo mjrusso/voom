@@ -105,3 +105,7 @@ Commands log each recovery attempt. The automatic forwarding watcher logs an
 error when it first occurs or changes, including errors checking whether the VM
 process has exited. After driver exit, cleanup waits for MacOS storage locks to
 be released before emitting a `vm stop` event with `reason=driver exited`.
+
+Voom-owned helper implementations and tests live under `internal/gvproxy/source`
+and `internal/gvproxy/forwarder`. `gvproxy-source.nix` installs them after
+applying patches to upstream integration points.

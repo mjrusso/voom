@@ -15,4 +15,12 @@ applyPatches {
     ./patches/gvproxy-blocked-subnets.patch
     ./patches/gvproxy-mutation-outcomes.patch
   ];
+  postPatch = ''
+    for source in $(find ${../internal/gvproxy/source} -name '*.go' -type f); do
+      target="''${source#${../internal/gvproxy/source}/}"
+      mkdir -p "$(dirname "$target")"
+      sed '1,2d' "$source" > "$target"
+    done
+    install -m644 ${../internal/gvproxy/forwarder/mutation_outcomes.go} pkg/services/forwarder/mutation_outcomes.go
+  '';
 }
