@@ -28,6 +28,7 @@ func (c *ctxReader) Read(p []byte) (int, error) {
 }
 
 // WriteJSONAtomic writes indented JSON and durably replaces path.
+// Publication failures follow the atomicfile.Write contract.
 func WriteJSONAtomic(path string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {

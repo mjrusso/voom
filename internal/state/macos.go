@@ -119,9 +119,9 @@ func (s *Store) importMacOSImage(ctx context.Context, opts ImportOptions) (*Imag
 	if err != nil {
 		return nil, err
 	}
-	committed := false
+	published := false
 	defer func() {
-		if !committed {
+		if !published {
 			_ = os.RemoveAll(s.ImageDir(id))
 		}
 	}()
@@ -153,10 +153,10 @@ func (s *Store) importMacOSImage(ctx context.Context, opts ImportOptions) (*Imag
 	if err := os.Rename(filepath.Join(s.ImageDir(id), "image.json"), filepath.Join(s.ImageDir(id), "bundle.json")); err != nil {
 		return nil, err
 	}
-	if err := s.registerImage(im); err != nil {
+	published, err = s.registerImage(im)
+	if err != nil {
 		return nil, err
 	}
-	committed = true
 	return im, nil
 }
 

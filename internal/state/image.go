@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mjrusso/voom/internal/atomicfile"
 	"github.com/mjrusso/voom/internal/image"
 )
 
@@ -166,9 +167,9 @@ func (s *Store) ImportImage(ctx context.Context, opts ImportOptions) (*ImageReco
 	if err := os.MkdirAll(s.ImageDir(id), 0o755); err != nil {
 		return nil, err
 	}
-	committed := false
+	published := false
 	defer func() {
-		if !committed {
+		if !published {
 			_ = os.RemoveAll(s.ImageDir(id))
 		}
 	}()
@@ -183,10 +184,10 @@ func (s *Store) ImportImage(ctx context.Context, opts ImportOptions) (*ImageReco
 			im.Metadata.KernelCmdline = append([]string{}, boot.KernelCmdline...)
 		}
 	}
-	if err := s.registerImage(im); err != nil {
+	published, err = s.registerImage(im)
+	if err != nil {
 		return nil, err
 	}
-	committed = true
 	return im, nil
 }
 
@@ -296,7 +297,9 @@ func (s *Store) RemoveImage(name string, force bool) ([]string, error) {
 		}
 		delete(s.index.Images, name)
 		if err := s.saveIndexLocked(); err != nil {
-			s.index.Images[name] = im.ID
+			if !atomicfile.Published(err) {
+				s.index.Images[name] = im.ID
+			}
 			return err
 		}
 		return nil
@@ -347,21 +350,23 @@ func containsKernelArg(args []string, prefix string) bool {
 	return false
 }
 
-func (s *Store) registerImage(im *ImageRecord) error {
+func (s *Store) registerImage(im *ImageRecord) (published bool, err error) {
 	if err := WriteJSONAtomic(filepath.Join(s.ImageDir(im.ID), "image.json"), im); err != nil {
-		return err
+		return false, err
 	}
-	return s.WithGlobal(func() error {
+	err = s.WithGlobal(func() error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if _, ok := s.index.Images[im.Name]; ok {
 			return fmt.Errorf("image %q already exists", im.Name)
 		}
 		s.index.Images[im.Name] = im.ID
-		if err := s.saveIndexLocked(); err != nil {
+		err := s.saveIndexLocked()
+		published = atomicfile.Published(err)
+		if !published {
 			delete(s.index.Images, im.Name)
-			return err
 		}
-		return nil
+		return err
 	})
+	return published, err
 }

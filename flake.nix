@@ -73,7 +73,7 @@
           golangci-lint
           actionlint
           gvproxy
-        ];
+        ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.strace ];
       in {
         packages = {
           vfkit-source = vfkitSource;

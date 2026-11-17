@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/mjrusso/voom/internal/atomicfile"
 	"github.com/mjrusso/voom/internal/forward"
 )
 
@@ -37,7 +38,9 @@ func (s *Store) RegisterVMLocked(name, id string) error {
 	}
 	s.index.VMs[name] = id
 	if err := s.saveIndexLocked(); err != nil {
-		delete(s.index.VMs, name)
+		if !atomicfile.Published(err) {
+			delete(s.index.VMs, name)
+		}
 		return err
 	}
 	return nil
@@ -131,6 +134,9 @@ func (s *Store) RenameVM(ctx context.Context, oldName, newName string) (*VMRecor
 		delete(s.index.VMs, oldName)
 		s.index.VMs[newName] = vm.ID
 		if err := s.saveIndexLocked(); err != nil {
+			if atomicfile.Published(err) {
+				return err
+			}
 			delete(s.index.VMs, newName)
 			s.index.VMs[oldName] = vm.ID
 			return errors.Join(err, s.SaveVM(&previous))
@@ -151,7 +157,9 @@ func (s *Store) DeleteVM(vm *VMRecord) error {
 		defer s.mu.Unlock()
 		delete(s.index.VMs, vm.Name)
 		if err := s.saveIndexLocked(); err != nil {
-			s.index.VMs[vm.Name] = vm.ID
+			if !atomicfile.Published(err) {
+				s.index.VMs[vm.Name] = vm.ID
+			}
 			return err
 		}
 		return nil

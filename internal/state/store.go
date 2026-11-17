@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mjrusso/voom/internal/atomicfile"
 	"github.com/mjrusso/voom/internal/host"
 )
 
@@ -132,6 +133,7 @@ func (s *Store) saveIndexLocked() error {
 func (s *Store) SetIndexSnapshot(next Index) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous := s.index
 	s.index = Index{
 		SchemaVersion: next.SchemaVersion,
 		VMs:           map[string]string{},
@@ -143,7 +145,11 @@ func (s *Store) SetIndexSnapshot(next Index) error {
 	for k, v := range next.Images {
 		s.index.Images[k] = v
 	}
-	return s.saveIndexLocked()
+	err := s.saveIndexLocked()
+	if !atomicfile.Published(err) {
+		s.index = previous
+	}
+	return err
 }
 
 // NewID returns a random 128-bit identifier as an uppercase hex string.

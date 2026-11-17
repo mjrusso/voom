@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/mjrusso/voom/internal/atomicfile"
 	"github.com/mjrusso/voom/internal/driver/qemu"
 	"github.com/mjrusso/voom/internal/driver/vfkit"
 	"github.com/mjrusso/voom/internal/egress"
@@ -126,11 +127,12 @@ func (m *Manager) Create(ctx context.Context, name, imageName, driver string, cp
 		if err := m.store.SaveVM(vm); err != nil {
 			return err
 		}
-		return m.store.RegisterVMLocked(name, id)
+		err = m.store.RegisterVMLocked(name, id)
+		cleanupObject = !atomicfile.Published(err)
+		return err
 	}); err != nil {
 		return nil, err
 	}
-	cleanupObject = false
 	m.emitVM("create", vm, map[string]string{"image": im.Name, "driver": vm.Driver, "arch": vm.Arch})
 	return vm, nil
 }
@@ -211,11 +213,12 @@ func (m *Manager) Clone(ctx context.Context, srcName, dstName string) (_ *state.
 		if err := m.store.SaveVM(&clone); err != nil {
 			return err
 		}
-		return m.store.RegisterVMLocked(dstName, id)
+		err = m.store.RegisterVMLocked(dstName, id)
+		cleanupObject = !atomicfile.Published(err)
+		return err
 	}); err != nil {
 		return nil, err
 	}
-	cleanupObject = false
 	m.emitVM("create", &clone, map[string]string{
 		"image": clone.Image.Name, "driver": clone.Driver, "arch": clone.Arch, "clonedFrom": src.Name,
 	})

@@ -3,12 +3,34 @@ package atomicfile
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 )
 
-// Write replaces path after the new contents and directory entry are durable.
+// PublicationError means the replacement is visible but its crash durability is unconfirmed.
+// Callers must preserve any objects the published file can reference.
+type PublicationError struct {
+	Path string
+	Err  error
+}
+
+func (e *PublicationError) Error() string {
+	return fmt.Sprintf("%s published but durability unconfirmed: %v", e.Path, e.Err)
+}
+
+func (e *PublicationError) Unwrap() error { return e.Err }
+
+// Published reports whether a write succeeded or returned a PublicationError.
+// It remains true when a PublicationError is wrapped or joined with other errors.
+func Published(err error) bool {
+	var published *PublicationError
+	return err == nil || errors.As(err, &published)
+}
+
+// Write durably replaces path. A PublicationError indicates that rename succeeded;
+// any other error leaves the destination unchanged.
 func Write(path string, data []byte, perm fs.FileMode) (retErr error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -18,10 +40,13 @@ func Write(path string, data []byte, perm fs.FileMode) (retErr error) {
 	if err != nil {
 		return err
 	}
+	renamed := false
 	defer func() {
 		_ = f.Close()
-		if err := os.Remove(f.Name()); err != nil && !errors.Is(err, os.ErrNotExist) {
-			retErr = errors.Join(retErr, err)
+		if !renamed {
+			if err := os.Remove(f.Name()); err != nil && !errors.Is(err, os.ErrNotExist) {
+				retErr = errors.Join(retErr, err)
+			}
 		}
 	}()
 	if err := f.Chmod(perm); err != nil {
@@ -39,10 +64,14 @@ func Write(path string, data []byte, perm fs.FileMode) (retErr error) {
 	if err := os.Rename(f.Name(), path); err != nil {
 		return err
 	}
+	renamed = true
 	d, err := os.Open(dir)
 	if err != nil {
-		return err
+		return &PublicationError{Path: path, Err: err}
 	}
 	defer func() { _ = d.Close() }()
-	return d.Sync()
+	if err := d.Sync(); err != nil {
+		return &PublicationError{Path: path, Err: err}
+	}
+	return nil
 }

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/mjrusso/voom/internal/atomicfile"
 )
 
 func validStorageGeneration(id string) bool {
@@ -85,9 +87,9 @@ func (s *Store) ReplaceStorage(ctx context.Context, vm, candidate *VMRecord, sou
 				return err
 			}
 		}
-		// SaveVM can fail after rename; retain both generations if commit durability is uncertain.
-		preserve = true
-		return s.SaveVM(next)
+		err := s.SaveVM(next)
+		preserve = atomicfile.Published(err)
+		return err
 	}); err != nil {
 		return err
 	}
