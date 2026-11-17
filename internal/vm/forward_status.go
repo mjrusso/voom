@@ -6,20 +6,20 @@ import (
 )
 
 type forwardObservation struct {
-	running   bool
-	uncertain bool
-	installed map[gvproxy.Forward]struct{}
-	err       error
+	running        bool
+	installed      map[gvproxy.Forward]struct{}
+	err            error
+	recoveryReason string
 }
 
 func (o forwardObservation) status(f forward.Decl, guestTargetIP string) (string, string) {
 	switch {
-	case o.uncertain:
-		return "uncertain", "forwarding change could not be confirmed; affected ports remain reserved. Stop and start the VM to clear this state"
-	case !o.running:
-		return "stopped", ""
+	case o.recoveryReason != "":
+		return "uncertain", o.recoveryReason
 	case o.err != nil:
 		return "unavailable", o.err.Error()
+	case !o.running:
+		return "stopped", ""
 	}
 	endpoint := gvproxy.Forward{Protocol: f.Protocol, Local: forward.Address(f.Bind, f.HostPort), Remote: forward.Address(guestTargetIP, f.GuestPort)}
 	if _, installed := o.installed[endpoint]; !installed {

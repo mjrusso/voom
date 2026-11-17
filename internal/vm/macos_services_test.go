@@ -180,7 +180,7 @@ func TestMacOSInstallsSSHAndManualForwards(t *testing.T) {
 	if err := st.SaveVM(record); err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.installDeclaredForwardsLocked(record); err != nil {
+	if err := manager.installDeclaredForwardsLocked(context.Background(), record); err != nil {
 		t.Fatal(err)
 	}
 	for local, want := range map[string]string{
@@ -279,6 +279,9 @@ func TestMacOSUnsupportedDeclarationsCanBeRemoved(t *testing.T) {
 
 func TestLinuxVFKitRetainsGuestServices(t *testing.T) {
 	st, manager, record, _ := newAutoForwardFixture(t)
+	if err := process.StopRecorded(st.Runtime(record).VMProcessRecord(), "qemu", time.Second); err != nil {
+		t.Fatal(err)
+	}
 	record.Arch, record.Driver = "aarch64-linux", "vfkit"
 	if err := st.SaveVM(record); err != nil {
 		t.Fatal(err)

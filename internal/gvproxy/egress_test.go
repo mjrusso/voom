@@ -37,7 +37,7 @@ func TestGuestIsolationCapabilityRequiresExactVersion(t *testing.T) {
 
 func TestResolveCompatibleReturnsCheckedExecutable(t *testing.T) {
 	executable := filepath.Join(t.TempDir(), "gvproxy")
-	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf '{\"guest-isolation-v1\":1,\"blocked-subnets-v1\":1}'\n"), 0o755); err != nil {
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf '{\"guest-isolation-v1\":1,\"blocked-subnets-v1\":1,\"forward-recovery-v3\":1}'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("VOOM_GVPROXY", executable)
@@ -106,9 +106,12 @@ func TestExecutableRequiresMinimumCapabilities(t *testing.T) {
 		{`{"blocked-subnets-v1":1}`, nil, GuestIsolationCapability},
 		{`{"guest-isolation-v1":1,"blocked-subnets-v1":2}`, nil, BlockedSubnetsCapability},
 		{`{"guest-isolation-v1":1,"gateway-forward-v1":1}`, []string{GatewayCapability}, BlockedSubnetsCapability},
-		{`{"guest-isolation-v1":1,"blocked-subnets-v1":1}`, nil, ""},
-		{`{"guest-isolation-v1":1,"blocked-subnets-v1":1}`, []string{GatewayCapability}, GatewayCapability},
-		{`{"guest-isolation-v1":1,"blocked-subnets-v1":1,"gateway-forward-v1":1}`, []string{GatewayCapability}, ""},
+		{`{"guest-isolation-v1":1,"blocked-subnets-v1":1}`, nil, ForwardRecoveryCapability},
+		{`{"guest-isolation-v1":1,"blocked-subnets-v1":1,"forward-recovery-v1":1}`, nil, ForwardRecoveryCapability},
+		{`{"guest-isolation-v1":1,"blocked-subnets-v1":1,"forward-recovery-v2":1}`, nil, ForwardRecoveryCapability},
+		{`{"guest-isolation-v1":1,"blocked-subnets-v1":1,"forward-recovery-v3":1}`, nil, ""},
+		{`{"guest-isolation-v1":1,"blocked-subnets-v1":1,"forward-recovery-v3":1}`, []string{GatewayCapability}, GatewayCapability},
+		{`{"guest-isolation-v1":1,"blocked-subnets-v1":1,"forward-recovery-v3":1,"gateway-forward-v1":1}`, []string{GatewayCapability}, ""},
 	} {
 		script := "#!/bin/sh\nprintf '%s\\n' '" + tc.capabilities + "'\n"
 		if err := os.WriteFile(executable, []byte(script), 0700); err != nil {

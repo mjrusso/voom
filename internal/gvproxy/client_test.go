@@ -10,9 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/mjrusso/voom/internal/forward"
 )
 
 // shortTempDir avoids the MacOS 104-char Unix-socket path limit that t.TempDir()
@@ -51,7 +53,7 @@ func TestExposePostsLocalAndRemote(t *testing.T) {
 		gotBody = string(b)
 		w.WriteHeader(http.StatusOK)
 	}))
-	if err := Expose(sock, "tcp", "127.0.0.1:2222", "192.168.127.2:22"); err != nil {
+	if _, err := ChangeForward(context.Background(), sock, "expose", Forward{Protocol: "tcp", Local: "127.0.0.1:2222", Remote: "192.168.127.2:22"}, "test-request"); err != nil {
 		t.Fatal(err)
 	}
 	if gotPath != "/services/forwarder/expose" {
@@ -67,10 +69,10 @@ func TestUnexposeReportsNon2xxBody(t *testing.T) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("forwarder not found\n"))
 	}))
-	err := Unexpose(sock, "tcp", "127.0.0.1:2222")
+	_, err := ChangeForward(context.Background(), sock, "unexpose", Forward{Protocol: "tcp", Local: "127.0.0.1:2222"}, "test-request")
 	var response *HTTPError
 	if !errors.As(err, &response) || response.Status != http.StatusBadRequest || response.Body != "forwarder not found" {
-		t.Fatalf("Unexpose error = %#v", err)
+		t.Fatalf("unexpose error = %#v", err)
 	}
 }
 
@@ -118,13 +120,6 @@ func TestLookupLeaseRejectsMalformedJSON(t *testing.T) {
 	}
 }
 
-func TestExposeFailsWhenSocketMissing(t *testing.T) {
-	sock := filepath.Join(shortTempDir(t), "x")
-	if err := Expose(sock, "tcp", "127.0.0.1:2222", "192.168.127.2:22"); err == nil {
-		t.Fatal("expected dial error")
-	}
-}
-
 func TestForwardsHonorsCancellation(t *testing.T) {
 	entered := make(chan struct{})
 	sock := newFakeGVProxy(t, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -156,7 +151,7 @@ func TestForwardMutationOutcomes(t *testing.T) {
 		name    string
 		status  int
 		unknown bool
-	}{{"rejected", 400, false}, {"conflict", 409, false}, {"server-error", 500, true}, {"lost-response", 0, true}} {
+	}{{"rejected", 400, false}, {"conflict", 409, false}, {"capacity", 429, false}, {"server-error", 500, true}, {"lost-response", 0, true}} {
 		for _, action := range []string{"expose", "unexpose"} {
 			t.Run(action+"-"+tc.name, func(t *testing.T) {
 				sock := newFakeGVProxy(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -171,12 +166,7 @@ func TestForwardMutationOutcomes(t *testing.T) {
 						http.Error(w, "failed", tc.status)
 					}
 				}))
-				var err error
-				if action == "expose" {
-					err = Expose(sock, "tcp", "127.0.0.1:18080", "192.168.127.3:8080")
-				} else {
-					err = Unexpose(sock, "tcp", "127.0.0.1:18080")
-				}
+				_, err := ChangeForward(context.Background(), sock, action, Forward{Protocol: "tcp", Local: "127.0.0.1:18080", Remote: "192.168.127.3:8080"}, "test-request")
 				unknown := tc.unknown || (action == "unexpose" && tc.status == http.StatusConflict)
 				if err == nil || errors.Is(err, ErrForwardOutcomeUnknown) != unknown {
 					t.Fatalf("outcome: %v", err)
@@ -190,124 +180,85 @@ func TestForwardMutationOutcomes(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(`{}`))
 	}))
-	if err := Expose(sock, "udp", "127.0.0.1:15353", "192.168.127.3:5353"); err == nil || errors.Is(err, ErrForwardOutcomeUnknown) {
+	if _, err := ChangeForward(context.Background(), sock, "expose", Forward{Protocol: "udp", Local: "127.0.0.1:15353", Remote: "192.168.127.3:5353"}, "test-request"); err == nil || errors.Is(err, ErrForwardOutcomeUnknown) {
 		t.Fatalf("capability rejection: %v", err)
 	}
 }
 
-func TestMutationRecoversCompletedOutcome(t *testing.T) {
-	for _, action := range []string{"expose", "unexpose"} {
-		for _, failure := range []string{"lost", "timeout"} {
-			t.Run(action+"-"+failure, func(t *testing.T) {
-				endpoint := Forward{Protocol: "tcp", Local: "127.0.0.1:2222", Remote: "192.168.127.3:22"}
-				var mutationID string
-				completed := make(chan struct{})
-				release := make(chan struct{})
-				var releaseOnce sync.Once
-				defer releaseOnce.Do(func() { close(release) })
-				sock := newFakeGVProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					switch r.URL.Path {
-					case "/services/forwarder/" + action:
-						mutationID = r.Header.Get("X-Voom-Forward-ID")
-						if failure == "timeout" {
-							<-release
-						}
-						close(completed)
-						conn, _, err := w.(http.Hijacker).Hijack()
-						if err == nil {
-							_ = conn.Close()
-						}
-					case "/services/forwarder/outcome":
-						select {
-						case <-completed:
-							if mutationID == "" || r.URL.Query().Get("id") != mutationID {
-								t.Error("outcome queried a different mutation")
-							}
-							_, _ = w.Write([]byte(`{"status":200}`))
-						default:
-							w.WriteHeader(http.StatusAccepted)
-							releaseOnce.Do(func() { close(release) })
-						}
-					case "/services/forwarder/all":
-						var rows []Forward
-						if action == "expose" {
-							rows = append(rows, endpoint)
-						}
-						_ = json.NewEncoder(w).Encode(rows)
-					default:
-						http.NotFound(w, r)
-					}
-				}))
-				clientForSocket(sock).Timeout = 20 * time.Millisecond
-				if err := mutateForward(sock, action, endpoint); err != nil {
-					t.Fatal(err)
-				}
-			})
-		}
-	}
-}
-
-func TestPendingMutationRetainsUncertainty(t *testing.T) {
+func TestLostMutationResponseDoesNotTriggerClientRecovery(t *testing.T) {
+	var requests atomic.Int32
 	sock := newFakeGVProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/services/forwarder/expose":
-			conn, _, err := w.(http.Hijacker).Hijack()
-			if err == nil {
-				_ = conn.Close()
-			}
-		case "/services/forwarder/outcome":
-			w.WriteHeader(http.StatusAccepted)
-		case "/services/forwarder/all":
-			_ = json.NewEncoder(w).Encode([]Forward{{Protocol: "tcp", Local: "127.0.0.1:2222", Remote: "192.168.127.3:22"}})
+		requests.Add(1)
+		if r.URL.Path != "/services/forwarder/expose" || r.Header.Get("X-Voom-Forward-ID") != "test-request" {
+			t.Errorf("unexpected recovery request: %s", r.URL.Path)
+		}
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err == nil {
+			_ = conn.Close()
 		}
 	}))
-	if err := Expose(sock, "tcp", "127.0.0.1:2222", "192.168.127.3:22"); !errors.Is(err, ErrForwardOutcomeUnknown) {
-		t.Fatal(err)
+	result, err := ChangeForward(context.Background(), sock, "expose", Forward{Protocol: "tcp", Local: "127.0.0.1:2222", Remote: "192.168.127.3:22"}, "test-request")
+	if result.Phase != forward.MutationUnknown || !errors.Is(err, ErrForwardOutcomeUnknown) || requests.Load() != 1 {
+		t.Fatalf("lost response: %+v, %v, requests=%d", result, err, requests.Load())
 	}
 }
 
-func TestExposeConflictRequiresMatchingTarget(t *testing.T) {
-	for _, matches := range []bool{true, false} {
-		sock := newFakeGVProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/services/forwarder/expose" {
-				http.Error(w, "proxy already running", http.StatusConflict)
-				return
-			}
-			remote := "192.168.127.3:22"
-			if !matches {
-				remote = "192.168.127.3:23"
-			}
-			_ = json.NewEncoder(w).Encode([]Forward{{Protocol: "tcp", Local: "127.0.0.1:2222", Remote: remote}})
-		}))
-		err := Expose(sock, "tcp", "127.0.0.1:2222", "192.168.127.3:22")
-		if (err == nil) != matches || errors.Is(err, ErrForwardOutcomeUnknown) {
-			t.Fatalf("matches=%t: %v", matches, err)
-		}
-	}
-}
-
-func TestCompletedOutcomeStillRequiresConfirmedState(t *testing.T) {
-	for _, action := range []string{"expose", "unexpose"} {
-		t.Run(action, func(t *testing.T) {
+func TestMutationResultSeparatesProbeErrorsFromHandlerResults(t *testing.T) {
+	for _, tc := range []struct {
+		name, protocol, header, action string
+		probe, status                  int
+		phase                          forward.MutationPhase
+		resultStatus                   int
+	}{
+		{name: "probe 404", protocol: "udp", probe: 404, phase: forward.MutationRejected},
+		{name: "probe 500", protocol: "udp", probe: 500, phase: forward.MutationRejected},
+		{name: "completed 500", protocol: "tcp", status: 500, header: "completed", phase: forward.MutationCompletedFailed, resultStatus: 500},
+		{name: "expose conflict", protocol: "tcp", status: 409, header: "completed", phase: forward.MutationCompletedRejected, resultStatus: 409},
+		{name: "unexpose conflict", action: "unexpose", protocol: "tcp", status: 409, header: "completed", phase: forward.MutationCompletedFailed, resultStatus: 409},
+		{name: "pending", protocol: "tcp", status: 202, header: "pending", phase: forward.MutationUnknown},
+		{name: "retired", protocol: "tcp", status: 410, header: "retired", phase: forward.MutationRetired},
+		{name: "capacity rejection", protocol: "tcp", status: 429, header: "not-submitted", phase: forward.MutationRejected},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mutations := 0
 			sock := newFakeGVProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
-				case "/services/forwarder/" + action:
-					conn, _, err := w.(http.Hijacker).Hijack()
-					if err == nil {
-						_ = conn.Close()
-					}
-				case "/services/forwarder/outcome":
-					_, _ = w.Write([]byte(`{"status":200}`))
-				case "/services/forwarder/all":
-					rows := []Forward{}
-					if action == "unexpose" {
-						rows = append(rows, Forward{Protocol: "tcp", Local: "127.0.0.1:2222"})
-					}
-					_ = json.NewEncoder(w).Encode(rows)
+				case "/services/gateway-forward/capabilities":
+					http.Error(w, "probe failed", tc.probe)
+				case "/services/forwarder/expose", "/services/forwarder/unexpose":
+					mutations++
+					w.Header().Set("X-Voom-Forward-Outcome", tc.header)
+					w.WriteHeader(tc.status)
+				default:
+					http.NotFound(w, r)
 				}
 			}))
-			if err := mutateForward(sock, action, Forward{Protocol: "tcp", Local: "127.0.0.1:2222", Remote: "192.168.127.3:22"}); !errors.Is(err, ErrForwardOutcomeUnknown) {
-				t.Fatalf("unconfirmed state: %v", err)
+			action := tc.action
+			if action == "" {
+				action = "expose"
+			}
+			result, err := ChangeForward(context.Background(), sock, action, Forward{Protocol: tc.protocol, Local: "127.0.0.1:8080", Remote: "192.168.127.3:8080"}, "typed-result")
+			if err == nil || result.Phase != tc.phase || result.Status != tc.resultStatus || (tc.probe != 0 && mutations != 0) {
+				t.Fatalf("result=%+v, error=%v, mutations=%d", result, err, mutations)
+			}
+			if errors.Is(err, ErrForwardOutcomeUnknown) != (result.Phase == forward.MutationUnknown) {
+				t.Fatalf("typed result and error disagree: result=%+v error=%v", result, err)
+			}
+			kind := forward.ManualExpose
+			if action == "unexpose" {
+				kind = forward.ManualUnexpose
+			}
+			journal := forward.MutationJournal{Version: 1, Process: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Requests: []forward.MutationRequest{{ID: "typed-result", Kind: kind, Endpoint: forward.Decl{Protocol: tc.protocol, Bind: "127.0.0.1", HostPort: 8080, GuestPort: 8080}, GuestTargetIP: "192.168.127.3", Result: result}}}
+			data, marshalErr := json.Marshal(journal)
+			path := filepath.Join(t.TempDir(), "journal.json")
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := forward.ReadMutationJournal(path); err != nil {
+				t.Fatalf("client result cannot be persisted unchanged: %v", err)
 			}
 		})
 	}

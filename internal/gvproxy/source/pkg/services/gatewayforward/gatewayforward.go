@@ -19,15 +19,16 @@ import (
 )
 
 const (
-	Capability               = "gateway-forward-v1"
-	IsolationCapability      = "guest-isolation-v1"
-	UDPForwardCapability     = "udp-forward-v1"
-	BlockedSubnetsCapability = "blocked-subnets-v1"
+	Capability                = "gateway-forward-v1"
+	IsolationCapability       = "guest-isolation-v1"
+	UDPForwardCapability      = "udp-forward-v1"
+	BlockedSubnetsCapability  = "blocked-subnets-v1"
+	ForwardRecoveryCapability = "forward-recovery-v3"
 )
 
 // Capabilities returns the versions supported by this build.
 func Capabilities() map[string]int {
-	return map[string]int{Capability: 1, IsolationCapability: 1, UDPForwardCapability: 1, BlockedSubnetsCapability: 1}
+	return map[string]int{Capability: 1, IsolationCapability: 1, UDPForwardCapability: 1, BlockedSubnetsCapability: 1, ForwardRecoveryCapability: 1}
 }
 
 type Route struct {

@@ -5,6 +5,12 @@ upstream provides the complete `gateway-forward-v1` capability. The packaging
 owner is the Voom repository maintainer. The patch is based on gvisor-tap-vsock
 v0.8.9, commit `9cfc86f66679ef0feed0f20ba1df558fe2bef5c6`.
 
+Voom-owned implementations and tests live in `internal/gvproxy/source/`, with
+paths relative to the upstream tree. Their `ignore` build constraint keeps
+this partial upstream source out of Voom's Go module. `gvproxy-source.nix`
+removes that constraint when installing the files into the patched upstream
+tree. Edit those files directly; patches contain upstream integration changes.
+
 Release archives and the default Nix package include this build. To build it
 separately during development:
 
@@ -25,8 +31,8 @@ QEMU network sockets; it needs neither a VM image nor a hypervisor.
 
 The default Nix package installs `voom` and `gvproxy` together. The separate
 `packages.${system}.gvproxy` output and `VOOM_GVPROXY` override remain available
-for development. Voom rejects binaries without its `guest-isolation-v1`
-and `blocked-subnets-v1` capabilities.
+for development. Voom requires `guest-isolation-v1`, `blocked-subnets-v1`,
+and `forward-recovery-v3`.
 
 The patch exposes JSON capability reporting with `-capabilities` and
 `GET /services/gateway-forward/capabilities`. Startup accepts repeated
@@ -41,7 +47,10 @@ Voom's host-to-guest SSH, declared-forward, and automatic-forward listeners do
 not use that mapping.
 
 The patched host forwarder treats removal of an absent listener as success.
-Cleanup can retry without matching gvproxy error text.
+Failed closes retain their forwarding-table entry so later requests can retry.
+TCP proxy shutdown reports listener close errors. A failed removal is retried
+even when a snapshot omits the listener; Voom retains its reservation until
+closure is confirmed.
 
 The host Unix control mux exposes `expose`, `unexpose`, and `all` below
 `/services/gateway-forward/`. These handlers are absent from the guest mux,
@@ -84,28 +93,57 @@ the host Unix control socket. The capabilities response remains a version map.
 Voom uses the policy report to detect missing blocks and settings that require
 a VM restart.
 
-`gvproxy-mutation-outcomes.patch` tracks host forwarder requests carrying an
-`X-Voom-Forward-ID` header. `GET /services/forwarder/outcome?id=...` returns 202
-while that handler is pending, 200 with its original HTTP status and body after
-completion, or 404 for an unknown or evicted ID. The process retains up to 256
-outcomes and only evicts completed entries. While an ID remains cached, reusing
-it is rejected without repeating the mutation. This host-only endpoint reports
-when the original handler has finished. A forward table snapshot alone cannot
-rule out a delayed expose. After an uncertain response, Voom queries the outcome
-up to three times without resending the mutation and verifies the table after
-reported success.
+`internal/gvproxy/forwarder/mutation_outcomes.go` implements request tracking.
+Nix installs this file unchanged into gvproxy, and Voom's test fixtures import
+the same package. Its upstream protocol tests live in
+`internal/gvproxy/source/pkg/services/forwarder/`.
+`gvproxy-mutation-outcomes.patch` adds the integration points.
+
+The forwarder tracks requests carrying an
+`X-Voom-Forward-ID` header. `POST /services/forwarder/ids?count=N` allocates a
+range of ordered IDs and returns its first ID. Allocation advances a counter;
+it does not retain a record for each ID.
+
+`GET /services/forwarder/outcome?id=...` returns 202 while the handler is pending,
+200 with its original HTTP status and body after completion, or 404 for an
+unknown ID. Repeating the same ID with an identical action and body returns 202
+while pending, or the original HTTP status and body after completion. A changed
+action or body is rejected with HTTP 422.
+
+`POST /services/forwarder/acknowledge?id=...` acknowledges a durably recorded
+result. It is idempotent and rejects pending requests. A retirement watermark
+advances past acknowledged requests without crossing an unacknowledged request.
+Records at or below the watermark are deleted. Both queries and submissions for
+retired IDs return HTTP 410 with `X-Voom-Forward-Outcome: retired`; those IDs
+can never execute again, even if they had not reached gvproxy before retirement.
+
+The process retains at most 256 request records, including acknowledgements
+waiting behind an older request. When full, it rejects new mutations with HTTP
+429 before execution. These host-only endpoints report `forward-recovery-v3`.
+
+A forwarding-table snapshot alone cannot rule out a delayed expose. Voom retries
+uncertain submissions with their original IDs and verifies the table after
+reported success. It records request IDs, operations, targets, manual add/remove
+intent, the full automatic forwarding plan, and the gvproxy process identity
+before sending requests. A rejected manual add is removed from saved declarations
+during journal completion, including recovery after the CLI exits.
+The journal has one manual intent, which must match its request's action and
+endpoint. Recovery validates this before changing declarations. Completed results
+retain their outcome classification so recovery does not reinterpret HTTP errors.
+Voom saves completion before acknowledging it, then records acknowledgement
+progress so later attempts skip finished requests. Verification shares one
+forwarding-table snapshot across all requests. Once all submitted requests are
+fenced, confirmed rejections do not block further forwarding changes. Rejected
+removals keep the existing listener reserved.
+Recovery can safely resubmit an uncertain ID, including after a crash between
+saving it and sending it. If that ID has retired, recovery checks the forwarding
+table and allocates a new ID only if another change is needed.
 
 For manual or automatic port-forward changes on a running VM, failed recovery
 leaves the guest and gvproxy running. Voom keeps the recovery journal, reserves
-the affected ports, and blocks further forwarding changes until the VM is stopped
-and started. Private gateway recovery follows the shutdown behavior described
-above; failed-startup cleanup can also stop the VM.
-
-Commands log each recovery attempt. The automatic forwarding watcher logs an
-error when it first occurs or changes, including errors checking whether the VM
-process has exited. After driver exit, cleanup waits for MacOS storage locks to
-be released before emitting a `vm stop` event with `reason=driver exited`.
-
-Voom-owned helper implementations and tests live under `internal/gvproxy/source`
-and `internal/gvproxy/forwarder`. `gvproxy-source.nix` installs them after
-applying patches to upstream integration points.
+the affected ports, and blocks further forwarding changes until confirmation.
+Automatic forwarding retries unresolved requests through its watcher when
+enabled. Journals without the
+required request or commit details require a stop/start. Private gateway
+recovery follows the shutdown behavior described above; failed-startup cleanup
+can also stop the VM.

@@ -14,10 +14,11 @@ import (
 
 // Capabilities required by Voom.
 const (
-	GatewayCapability        = "gateway-forward-v1"
-	GuestIsolationCapability = "guest-isolation-v1"
-	BlockedSubnetsCapability = "blocked-subnets-v1"
-	UDPForwardCapability     = "udp-forward-v1"
+	GatewayCapability         = "gateway-forward-v1"
+	GuestIsolationCapability  = "guest-isolation-v1"
+	BlockedSubnetsCapability  = "blocked-subnets-v1"
+	UDPForwardCapability      = "udp-forward-v1"
+	ForwardRecoveryCapability = "forward-recovery-v3"
 )
 
 const gatewayExposePath = "/services/gateway-forward/expose"
@@ -49,7 +50,7 @@ func CheckExecutable(ctx context.Context, executable string, required ...string)
 	if err != nil {
 		return fmt.Errorf("gvproxy capability probe failed: %w", err)
 	}
-	minimum := []string{GuestIsolationCapability, BlockedSubnetsCapability}
+	minimum := []string{GuestIsolationCapability, BlockedSubnetsCapability, ForwardRecoveryCapability}
 	return checkCapabilities(data, append(minimum, required...)...)
 }
 

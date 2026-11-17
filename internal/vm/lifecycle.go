@@ -499,7 +499,7 @@ func (m *Manager) startLocked(ctx context.Context, stderr io.Writer, vm *state.V
 	}, gvproxyStartTimeout); err != nil {
 		return nil, fmt.Errorf("timed out waiting for gvproxy sockets; see %s", m.store.LogPath(vm, "gvproxy"))
 	}
-	if err := m.installDeclaredForwardsLocked(vm); err != nil {
+	if err := m.installDeclaredForwardsLocked(ctx, vm); err != nil {
 		return nil, err
 	}
 	switch vm.Driver {
@@ -687,12 +687,12 @@ func (m *Manager) cleanupRuntime(vm *state.VMRecord, gatewayConfirmed bool) (boo
 			failures = append(failures, err)
 		}
 	} else {
-		operations := make([]forwardOperation, 0, len(vm.Network.Forwards))
+		requests := make([]forward.MutationRequest, 0, len(vm.Network.Forwards))
 		for _, f := range vm.Network.Forwards {
-			operations = append(operations, forwardOperation{action: forwardUnexpose, endpoint: f})
+			requests = append(requests, forward.MutationRequest{Kind: forward.ManualUnexpose, Endpoint: f})
 		}
-		if len(operations) > 0 {
-			err := m.executeForwardMutation(vm, forwardMutation{operations: operations})
+		if len(requests) > 0 {
+			_, err := m.applyForwardDeclarations(context.Background(), vm, forward.MutationJournal{Requests: requests})
 			failures = append(failures, err)
 		}
 	}
@@ -700,7 +700,7 @@ func (m *Manager) cleanupRuntime(vm *state.VMRecord, gatewayConfirmed bool) (boo
 	if gatewayConfirmed {
 		autoErr = m.clearRuntimeAutoForwardsLocked(vm)
 	} else {
-		autoErr = m.cleanupAutoForwardsLocked(vm)
+		autoErr = m.cleanupAutoForwardsLocked(context.Background(), vm)
 	}
 	failures = append(failures, autoErr)
 	if err := m.stopVirtiofsd(rt); err != nil {
@@ -729,7 +729,8 @@ func hasRuntimeState(vm *state.VMRecord, rt state.RuntimeLayout) bool {
 	return false
 }
 
-// IsRunning reports whether the VM's driver process is alive.
+// IsRunning reports a confirmed live driver. Use ObserveRuntime to distinguish
+// stopped VMs from inspection failures before making runtime-dependent changes.
 func (m *Manager) IsRunning(vm *state.VMRecord) bool {
 	observed, _ := m.ObserveRuntime(vm)
 	return observed == RuntimeRunning

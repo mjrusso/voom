@@ -14,9 +14,18 @@ func (m *Manager) recordForwardRecovery(vm *state.VMRecord, outcome string, caus
 	attributes := map[string]string{"vm": vm.Name, "outcome": outcome, "error": cause.Error()}
 	var failure *forwardMutationFailure
 	if errors.As(cause, &failure) {
-		attributes["operation"] = failure.operation.action.String()
-		attributes["endpoint"] = forward.Address(failure.operation.endpoint.Bind, failure.operation.endpoint.HostPort)
-		attributes["protocol"] = failure.operation.endpoint.Protocol
+		attributes["operation"] = failure.request.Action()
+		attributes["endpoint"] = forward.Address(failure.request.Endpoint.Bind, failure.request.Endpoint.HostPort)
+		attributes["protocol"] = failure.request.Endpoint.Protocol
+	} else if journal, journalErr := forward.ReadMutationJournal(m.store.Runtime(vm).ForwardMutation()); journalErr == nil && journal != nil {
+		for _, request := range journal.Requests {
+			if request.Result.Phase == forward.MutationUnknown || request.Error != "" {
+				attributes["operation"] = request.Action()
+				attributes["endpoint"] = forward.Address(request.Endpoint.Bind, request.Endpoint.HostPort)
+				attributes["protocol"] = request.Endpoint.Protocol
+				break
+			}
+		}
 	}
 	m.events.Emit(events.Event{Type: "forward", Action: "recovery", Actor: events.Actor{ID: vm.ID, Attributes: attributes}})
 	m.appendAutoForwardLog(vm, "error", fmt.Sprintf("forward recovery %s: %v", outcome, cause))

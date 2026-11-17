@@ -132,9 +132,10 @@ A missing file allows no exceptions. Invalid settings prevent VM startup;
 Home Manager can write the file with `xdg.configFile."voom/network.json"`.
 Edit that configuration in Nix; the CLI refuses to replace symlinks.
 
-VM startup requires a gvproxy build with `blocked-subnets-v1`. Release archives
-and Nix packages include a compatible build. If you set `VOOM_GVPROXY`, update
-it to that build. Restart running VMs to apply the block and allowlist changes.
+VM startup requires gvproxy capabilities `blocked-subnets-v1` and
+`forward-recovery-v3`. Release archives and Nix packages include a compatible
+build. If you set `VOOM_GVPROXY`, point it at that build. Restart running VMs to
+apply the block and allowlist changes.
 `voom doctor` compares each running gvproxy's policy with the current settings
 and warns about missing blocks, stale exceptions, or unavailable policy
 reporting. It checks the subnet blocks even when `network.json` is invalid.

@@ -2,7 +2,6 @@ package vm
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -19,205 +17,6 @@ import (
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 )
-
-type fakeAutoForwardGVProxy struct {
-	mu                   sync.Mutex
-	installed            map[string]string
-	exposes              int
-	exposeStatus         int
-	exposeStatuses       map[string]int
-	unexposes            int
-	unexposeStatus       int
-	loseExposeResponse   bool
-	loseUnexposeResponse bool
-	timeoutAction        string
-	reportOutcomes       bool
-}
-
-func (f *fakeAutoForwardGVProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	var request map[string]string
-	_ = json.NewDecoder(r.Body).Decode(&request)
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var loseResponse bool
-	switch r.URL.Path {
-	case "/services/forwarder/expose":
-		f.exposes++
-		status := f.exposeStatus
-		if specific, exists := f.exposeStatuses[request["local"]]; exists {
-			status = specific
-		}
-		if status != 0 {
-			http.Error(w, "expose rejected", status)
-			return
-		}
-		f.installed[request["local"]] = request["remote"]
-		loseResponse = f.loseExposeResponse
-	case "/services/forwarder/unexpose":
-		f.unexposes++
-		if f.unexposeStatus != 0 {
-			http.Error(w, "unexpose failed", f.unexposeStatus)
-			return
-		}
-		delete(f.installed, request["local"])
-		loseResponse = f.loseUnexposeResponse
-	case "/services/forwarder/outcome":
-		if !f.reportOutcomes {
-			http.NotFound(w, r)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"status": http.StatusNoContent})
-		return
-	case "/services/forwarder/all":
-		var rows []map[string]string
-		for local, remote := range f.installed {
-			rows = append(rows, map[string]string{"protocol": "tcp", "local": local, "remote": remote})
-		}
-		_ = json.NewEncoder(w).Encode(rows)
-		return
-	default:
-		http.NotFound(w, r)
-		return
-	}
-	if r.URL.Path == "/services/forwarder/"+f.timeoutAction {
-		<-r.Context().Done()
-		return
-	}
-	if loseResponse {
-		conn, _, err := w.(http.Hijacker).Hijack()
-		if err != nil {
-			panic(err)
-		}
-		_ = conn.Close()
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (f *fakeAutoForwardGVProxy) install(local string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.installed[local] = ""
-}
-
-func (f *fakeAutoForwardGVProxy) failUnexpose(status int) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.unexposeStatus = status
-}
-
-func (f *fakeAutoForwardGVProxy) counts() (int, int) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.exposes, f.unexposes
-}
-
-func (f *fakeAutoForwardGVProxy) remote(local string) (string, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	remote, ok := f.installed[local]
-	return remote, ok
-}
-
-func newAutoForwardFixture(t *testing.T) (*state.Store, *Manager, *state.VMRecord, *fakeAutoForwardGVProxy) {
-	t.Helper()
-	root, err := os.MkdirTemp("", "vaf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	t.Setenv("VOOM_STATE_DIR", filepath.Join(root, "s"))
-	t.Setenv("VOOM_CONFIG_DIR", filepath.Join(root, "c"))
-	t.Setenv("VOOM_CACHE_DIR", filepath.Join(root, "l"))
-	t.Setenv("VOOM_RUNTIME_DIR", filepath.Join(root, "r"))
-	st, err := state.Open()
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	im := &state.ImageRecord{
-		SchemaVersion: state.SchemaVersion,
-		ID:            "image-id",
-		Name:          "image",
-		Capabilities:  state.ImageCapabilities{ControlShare: true, GuestPortReport: true},
-	}
-	if err := os.MkdirAll(st.ImageDir(im.ID), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := state.WriteJSONAtomic(filepath.Join(st.ImageDir(im.ID), "image.json"), im); err != nil {
-		t.Fatal(err)
-	}
-	index := st.IndexSnapshot()
-	index.Images[im.Name] = im.ID
-	if err := st.SetIndexSnapshot(index); err != nil {
-		t.Fatal(err)
-	}
-	vm := &state.VMRecord{
-		SchemaVersion: state.SchemaVersion,
-		ID:            "vm-id",
-		Name:          "demo",
-		Driver:        "qemu",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		Image:         state.VMImageRef{ID: im.ID, Name: im.Name},
-		Network: state.VMNetwork{
-			AutoForward:     true,
-			AutoForwardBind: "127.0.0.1",
-			SSHBind:         "127.0.0.1",
-		},
-	}
-	if err := os.MkdirAll(st.VMDir(vm.ID), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SaveVM(vm); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.RegisterVM(vm.Name, vm.ID); err != nil {
-		t.Fatal(err)
-	}
-	rt := st.Runtime(vm)
-	if err := os.MkdirAll(st.ControlShareDir(vm), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	driver := fakeNamedVMProcess(t, "qemu-system-test")
-	writeProcessRecord(t, rt.VMProcessRecord(), driver)
-	fake := &fakeAutoForwardGVProxy{installed: map[string]string{}}
-	listener, err := net.Listen("unix", rt.NetworkSock())
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := &http.Server{Handler: fake}
-	go func() { _ = server.Serve(listener) }()
-	t.Cleanup(func() {
-		_ = server.Close()
-		_ = listener.Close()
-	})
-	return st, New(st), vm, fake
-}
-
-func writeAutoForwardReport(t *testing.T, st *state.Store, vm *state.VMRecord, report GuestPortsReport) {
-	t.Helper()
-	b, err := json.Marshal(report)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(st.ControlSharePortsPath(vm), b, 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func freeLoopbackPort(t *testing.T) int {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	if err := listener.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return port
-}
 
 func TestReconcileKeepsRowsWithoutValidReport(t *testing.T) {
 	for _, tc := range []struct {
@@ -398,7 +197,7 @@ func TestReconcileDoesNotRepeatUnchangedSkipEvent(t *testing.T) {
 	}
 }
 
-func TestReconcileReusesInstalledRowWhenGVProxyPIDIsUnknown(t *testing.T) {
+func TestReconcileReusesInstalledRow(t *testing.T) {
 	st, manager, vm, proxy := newAutoForwardFixture(t)
 	port := freeLoopbackPort(t)
 	row := RuntimeAutoForward{
@@ -408,6 +207,7 @@ func TestReconcileReusesInstalledRowWhenGVProxyPIDIsUnknown(t *testing.T) {
 		GuestPort:     port,
 		GuestTargetIP: manager.GuestTargetIP(vm),
 		Status:        "active",
+		GVProxyPID:    manager.runtimeGVProxyPID(vm),
 	}
 	proxy.install(net.JoinHostPort(row.Bind, strconv.Itoa(port)))
 	if err := manager.saveRuntimeAutoForwards(vm, []RuntimeAutoForward{row}); err != nil {
@@ -454,19 +254,16 @@ func TestReconcileRetainsRowWhenRemovalFails(t *testing.T) {
 }
 
 func TestStopRuntimeForgetsAutoForwardsAfterConfirmedGatewayStop(t *testing.T) {
-	st, manager, vm, proxy := newAutoForwardFixture(t)
+	_, manager, vm, proxy := newAutoForwardFixture(t)
 	row := RuntimeAutoForward{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 8080, GuestPort: 8080, Status: "active"}
 	proxy.install("127.0.0.1:8080")
 	if err := manager.saveRuntimeAutoForwards(vm, []RuntimeAutoForward{row}); err != nil {
 		t.Fatal(err)
 	}
-	gateway := fakeNamedVMProcess(t, "gvproxy")
-	writeProcessRecord(t, st.Runtime(vm).GVProxyProcessRecord(), gateway)
 	stop, err := manager.stopRuntime(context.Background(), vm)
 	if err != nil || !stop.gatewayTerminationConfirmed {
 		t.Fatalf("stopRuntime result=%+v error=%v", stop, err)
 	}
-	_, _ = gateway.Process.Wait()
 	rows, err := manager.ReadRuntimeAutoForwards(vm)
 	if err != nil {
 		t.Fatal(err)
@@ -480,7 +277,10 @@ func TestStopRuntimeForgetsAutoForwardsAfterConfirmedGatewayStop(t *testing.T) {
 }
 
 func TestStopRuntimeUnexposesAutoForwardsWhenGatewayStopIsUnconfirmed(t *testing.T) {
-	_, manager, vm, proxy := newAutoForwardFixture(t)
+	st, manager, vm, proxy := newAutoForwardFixture(t)
+	if err := os.WriteFile(st.Runtime(vm).GVProxyProcessRecord(), []byte("invalid identity"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	row := RuntimeAutoForward{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 8080, GuestPort: 8080, Status: "active"}
 	proxy.install("127.0.0.1:8080")
 	if err := manager.saveRuntimeAutoForwards(vm, []RuntimeAutoForward{row}); err != nil {
@@ -529,8 +329,6 @@ func TestUpdateAutoForwardRemovesMismatchedRows(t *testing.T) {
 			if err := manager.saveRuntimeAutoForwards(vm, []RuntimeAutoForward{row}); err != nil {
 				t.Fatal(err)
 			}
-			watcher := fakeNamedVMProcess(t, "voom-test", "forward", "auto", "watch", vm.ID)
-			writeProcessRecord(t, manager.store.Runtime(vm).AutoForwardProcessRecord(), watcher)
 			updated, err := manager.UpdateAutoForward(context.Background(), vm.Name, tc.update)
 			if err != nil {
 				t.Fatal(err)
@@ -558,7 +356,7 @@ func TestUpdateAutoForwardRemovesMismatchedRows(t *testing.T) {
 	}
 }
 
-func TestUpdateAutoForwardStartsWatcherWhenMismatchRemovalFails(t *testing.T) {
+func TestUpdateAutoForwardRetainsRowsWhenMismatchRemovalFails(t *testing.T) {
 	_, manager, vm, proxy := newAutoForwardFixture(t)
 	vm.Network.AutoForwardBind = "0.0.0.0"
 	if err := manager.store.SaveVM(vm); err != nil {
@@ -570,26 +368,11 @@ func TestUpdateAutoForwardStartsWatcherWhenMismatchRemovalFails(t *testing.T) {
 	if err := manager.saveRuntimeAutoForwards(vm, []RuntimeAutoForward{row}); err != nil {
 		t.Fatal(err)
 	}
-	starts := 0
-	manager.startSelfRecorded = func(args []string, _, recordPath string) error {
-		starts++
-		if !reflect.DeepEqual(args, []string{"forward", "auto", "watch", vm.ID}) {
-			t.Fatalf("watcher arguments = %#v", args)
-		}
-		cmd := fakeNamedVMProcess(t, "voom-test", args...)
-		if err := process.Record(recordPath, cmd.Process.Pid); err != nil {
-			t.Fatal(err)
-		}
-		return nil
-	}
 	bind := "127.0.0.1"
 	enabled := true
 	updated, err := manager.UpdateAutoForward(context.Background(), vm.Name, AutoForwardUpdate{Enabled: &enabled, Bind: &bind})
 	if err == nil {
 		t.Fatal("expected mismatch removal error")
-	}
-	if starts != 1 {
-		t.Fatalf("watcher starts = %d, want 1", starts)
 	}
 	if updated == nil || updated.Network.AutoForwardBind != "127.0.0.1" {
 		t.Fatalf("updated VM = %#v", updated)
@@ -611,8 +394,8 @@ func TestDisableAutoForwardRetainsRowsWhenRemovalFails(t *testing.T) {
 	if err := manager.saveRuntimeAutoForwards(vm, []RuntimeAutoForward{row}); err != nil {
 		t.Fatal(err)
 	}
-	watcher := fakeNamedVMProcess(t, "voom-test", "forward", "auto", "watch", vm.ID)
-	writeProcessRecord(t, manager.store.Runtime(vm).AutoForwardProcessRecord(), watcher)
+	watcher := fakeNamedVMProcess(t, "voom-test", "debug", "watch-vm", vm.ID)
+	writeProcessRecord(t, manager.store.Runtime(vm).RuntimeWatcherProcessRecord(), watcher)
 	enabled := false
 	updated, err := manager.UpdateAutoForward(context.Background(), vm.Name, AutoForwardUpdate{Enabled: &enabled})
 	if err == nil {
@@ -714,7 +497,6 @@ func TestWatcherDeduplicatesErrorsAndLogsRecovery(t *testing.T) {
 	second := errors.New("second failure")
 	lastErr = manager.logAutoForwardWatchResult(vm, autoForwardWatchContinue, first, lastErr)
 	lastErr = manager.logAutoForwardWatchResult(vm, autoForwardWatchContinue, first, lastErr)
-	lastErr = manager.logAutoForwardWatchResult(vm, autoForwardWatchSkipped, second, lastErr)
 	lastErr = manager.logAutoForwardWatchResult(vm, autoForwardWatchContinue, second, lastErr)
 	lastErr = manager.logAutoForwardWatchResult(vm, autoForwardWatchContinue, nil, lastErr)
 	lastErr = manager.logAutoForwardWatchResult(vm, autoForwardWatchContinue, nil, lastErr)
@@ -859,7 +641,7 @@ func TestAutoForwardIgnoresUDPReservation(t *testing.T) {
 
 func TestUncertainAutoForwardRetainsReservation(t *testing.T) {
 	st, manager, vm, proxy := newAutoForwardFixture(t)
-	proxy.loseExposeResponse = true
+	proxy.dropNextResponses(-1)
 	port := freeLoopbackPort(t)
 	writeAutoForwardReport(t, st, vm, GuestPortsReport{SchemaVersion: 1, GeneratedAt: time.Now(), Listeners: []GuestListener{{Proto: "tcp", Addr: "0.0.0.0", Port: port}}})
 	if _, err := manager.ReconcileAutoForwards(context.Background(), vm.Name); err == nil || !strings.Contains(err.Error(), "forwarding change could not be confirmed") {
@@ -894,7 +676,7 @@ func TestUncertainAutoForwardRetainsReservation(t *testing.T) {
 	if _, err := manager.ReconcileAutoForwards(context.Background(), vm.Name); err == nil {
 		t.Fatal("uncertain retry reported success")
 	}
-	if err := manager.cleanupAutoForwardsLocked(vm); err == nil {
+	if err := manager.cleanupAutoForwardsLocked(context.Background(), vm); err == nil {
 		t.Fatal("cleanup forgot uncertain reservation")
 	}
 	if exposes, unexposes := proxy.counts(); exposes != 1 || unexposes != 0 {

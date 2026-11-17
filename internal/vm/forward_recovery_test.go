@@ -69,12 +69,12 @@ func TestStartupForwardMutationRetainsUncertainty(t *testing.T) {
 	if err := st.SaveVM(rec); err != nil {
 		t.Fatal(err)
 	}
-	proxy.loseExposeResponse = true
+	proxy.dropNextResponses(-1)
 	unlock, err := st.TryLockVM(rec.ID)
 	if err != nil || unlock == nil {
 		t.Fatalf("lock: %v", err)
 	}
-	err = m.installDeclaredForwardsLocked(rec)
+	err = m.installDeclaredForwardsLocked(context.Background(), rec)
 	if !errors.Is(err, gvproxy.ErrForwardOutcomeUnknown) || !errors.Is(err, errForwardRecoveryRequired) || !m.forwardMutationPending(rec) {
 		unlock()
 		t.Fatalf("startup uncertainty: %v", err)
@@ -97,13 +97,16 @@ func TestStartupForwardMutationRetainsUncertainty(t *testing.T) {
 
 func TestShutdownManualForwardMutationRetainsUncertainty(t *testing.T) {
 	st, m, rec, proxy := newAutoForwardFixture(t)
+	if err := os.WriteFile(st.Runtime(rec).GVProxyProcessRecord(), []byte("invalid identity"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	port := freeLoopbackPort(t)
 	rec.Network.Forwards = []forward.Decl{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: port, GuestPort: 8080}}
 	if err := st.SaveVM(rec); err != nil {
 		t.Fatal(err)
 	}
 	proxy.install(forward.Address("127.0.0.1", port))
-	proxy.loseUnexposeResponse = true
+	proxy.dropNextResponses(-1)
 	if _, err := m.Stop(context.Background(), rec.Name); !errors.Is(err, gvproxy.ErrForwardOutcomeUnknown) {
 		t.Fatalf("shutdown uncertainty: %v", err)
 	}
@@ -111,7 +114,7 @@ func TestShutdownManualForwardMutationRetainsUncertainty(t *testing.T) {
 		t.Fatal("unknown shutdown mutation lost its marker")
 	}
 	proxy.mu.Lock()
-	proxy.loseUnexposeResponse = false
+	proxy.dropResponses = nil
 	proxy.mu.Unlock()
 	if err := m.RemoveForward(context.Background(), rec.Name, port, "127.0.0.1", "tcp"); err == nil {
 		t.Fatal("removal released a reservation before confirmed termination")
@@ -147,12 +150,14 @@ func TestAutoForwardMutationRecovery(t *testing.T) {
 				m := New(st, WithEventEmitter(recorder))
 				gateway := fakeNamedVMProcess(t, "gvproxy")
 				writeProcessRecord(t, st.Runtime(rec).GVProxyProcessRecord(), gateway)
-				proxy.reportOutcomes = failure == "resolved"
-				if failure == "timeout" {
-					proxy.timeoutAction = action
+				if failure == "resolved" {
+					proxy.dropNextResponses(1)
+				} else {
+					proxy.dropNextResponses(-1)
 				}
-				proxy.loseExposeResponse = action == "expose" && failure != "timeout"
-				proxy.loseUnexposeResponse = action == "unexpose" && failure != "timeout"
+				if failure == "timeout" {
+					proxy.waitResponses = map[string]bool{"1": true}
+				}
 				port := freeLoopbackPort(t)
 				local := forward.Address("127.0.0.1", port)
 				report := GuestPortsReport{SchemaVersion: 1, GeneratedAt: time.Now()}
@@ -179,10 +184,13 @@ func TestAutoForwardMutationRecovery(t *testing.T) {
 						_ = conn.Close()
 					}
 				}()
-				outcome, err := m.watchAutoForwardsOnce(rec.ID)
-				lastErr := m.logAutoForwardWatchResult(rec, outcome, err, "")
-				if outcome != autoForwardWatchContinue || (err == nil) != proxy.reportOutcomes {
-					t.Fatalf("watcher: %d %v", outcome, err)
+				_, err = m.ReconcileAutoForwards(context.Background(), rec.Name)
+				lastErr := ""
+				if err != nil {
+					lastErr = err.Error()
+				}
+				if (err == nil) != (failure == "resolved") {
+					t.Fatalf("reconciliation: %v", err)
 				}
 				if !m.IsRunning(rec) {
 					t.Fatal("forwarding recovery stopped guest")
@@ -196,7 +204,7 @@ func TestAutoForwardMutationRecovery(t *testing.T) {
 				default:
 				}
 				assertVMStopEvents(t, recorder, rec.ID, 0)
-				if proxy.reportOutcomes {
+				if failure == "resolved" {
 					rows, readErr := m.ReadRuntimeAutoForwards(rec)
 					if readErr != nil || m.forwardMutationPending(rec) {
 						t.Fatalf("resolved journal: %v", readErr)
@@ -217,9 +225,9 @@ func TestAutoForwardMutationRecovery(t *testing.T) {
 				if reserved, reserveErr := st.PortReserved("tcp", "127.0.0.1", port); reserveErr != nil || !reserved {
 					t.Fatalf("reservation: %t %v", reserved, reserveErr)
 				}
-				outcome, err = m.watchAutoForwardsOnce(rec.ID)
-				m.logAutoForwardWatchResult(rec, outcome, err, lastErr)
-				if outcome != autoForwardWatchContinue || !errors.Is(err, errForwardRecoveryRequired) {
+				outcome, err := m.watchAutoForwardsOnce(rec.ID)
+				m.logAutoForwardWatchResult(rec, autoForwardWatchContinue, err, lastErr)
+				if outcome == autoForwardWatchSkipped || !errors.Is(err, errForwardRecoveryRequired) {
 					t.Fatalf("retry: %d %v", outcome, err)
 				}
 				if len(recorder.events) == 0 || recorder.events[0].Type != "forward" || recorder.events[0].Action != "recovery" {
@@ -244,7 +252,7 @@ func TestLostAutoForwardRemovalRetainsUncertainty(t *testing.T) {
 	local := forward.Address("127.0.0.1", port)
 	row := RuntimeAutoForward{Protocol: "tcp", Bind: "127.0.0.1", HostPort: port, GuestPort: port, GuestTargetIP: m.GuestTargetIP(rec), Status: "active"}
 	proxy.install(local)
-	proxy.loseUnexposeResponse = true
+	proxy.dropNextResponses(-1)
 	if err := m.saveRuntimeAutoForwards(rec, []RuntimeAutoForward{row}); err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +298,7 @@ func TestAutoForwardJournalSaveFailureKeepsRuntimeAlive(t *testing.T) {
 	defer func() { _ = os.Chmod(st.Runtime(rec).Dir(), 0700) }()
 	port := freeLoopbackPort(t)
 	desired := []forward.AutoPlan{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: port, GuestPort: port}}
-	if _, err := m.installAutoForwardRowsLocked(rec, desired, nil); err == nil {
+	if _, err := m.installAutoForwardRowsLocked(context.Background(), rec, desired, nil); err == nil {
 		t.Fatal("reservation save succeeded")
 	}
 	if !m.IsRunning(rec) {
@@ -375,7 +383,7 @@ func TestForwardRecoveryWaitsForMacStorageAndReportsExit(t *testing.T) {
 	defer unlock()
 	result := make(chan error, 1)
 	completed := make(chan struct{})
-	go func() { defer close(completed); result <- m.recoverPendingForwardMutation(rec) }()
+	go func() { defer close(completed); result <- m.recoverPendingForwardMutation(context.Background(), rec) }()
 	t.Cleanup(func() { release(); <-completed })
 	if err := waitFor(context.Background(), func() bool { return !m.forwardMutationPending(rec) }, 5*time.Second); err != nil {
 		t.Fatal(err)
@@ -401,7 +409,7 @@ func TestForwardRecoveryWaitsForMacStorageAndReportsExit(t *testing.T) {
 			t.Errorf("stop reason: %#v", event)
 		}
 	}
-	if err := m.cleanupExitedRuntime(context.Background(), rec.ID, fingerprint); err != nil {
+	if _, err := m.watchAutoForwardsOnce(rec.ID); err != nil {
 		t.Fatal(err)
 	}
 	assertVMStopEvents(t, recorder, rec.ID, 1)
@@ -466,8 +474,8 @@ func TestWatcherDeduplicatesPendingRecoveryObservations(t *testing.T) {
 			}
 		}
 		for range 2 {
-			outcome, err := m.watchAutoForwardsOnce(rec.ID)
-			lastErr = m.logAutoForwardWatchResult(rec, outcome, err, lastErr)
+			_, err := m.watchAutoForwardsOnce(rec.ID)
+			lastErr = m.logAutoForwardWatchResult(rec, autoForwardWatchContinue, err, lastErr)
 		}
 		if len(recorder.events) != phase+1 {
 			t.Fatalf("watcher recovery diagnostics: %#v", recorder.events)
@@ -482,8 +490,11 @@ func TestWatcherDeduplicatesPendingRecoveryObservations(t *testing.T) {
 	}
 }
 
-func TestAutoForwardWatcherRetriesRecoveryAfterDriverExit(t *testing.T) {
+func TestExitCleanupRetainsReservationsUntilGVProxyStops(t *testing.T) {
 	st, _, rec, _ := newAutoForwardFixture(t)
+	if err := os.WriteFile(st.Runtime(rec).GVProxyProcessRecord(), []byte("invalid identity"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	recorder := &recordingEmitter{}
 	m := New(st, WithEventEmitter(recorder))
 	rt := st.Runtime(rec)
@@ -508,7 +519,7 @@ func TestAutoForwardWatcherRetriesRecoveryAfterDriverExit(t *testing.T) {
 	}
 	for range 2 {
 		outcome, err := m.watchAutoForwardsOnce(rec.ID)
-		if outcome != autoForwardWatchContinue || !errors.Is(err, errForwardRecoveryRequired) {
+		if outcome == autoForwardWatchSkipped || !errors.Is(err, errForwardRecoveryRequired) {
 			t.Fatalf("unconfirmed recovery: outcome=%d error=%v", outcome, err)
 		}
 		assertVMStopEvents(t, recorder, rec.ID, 0)
@@ -587,7 +598,7 @@ func TestForwardRecoveryRetainsUnverifiableRuntime(t *testing.T) {
 			}
 			for range 2 {
 				outcome, recoveryErr := m.watchAutoForwardsOnce(rec.ID)
-				if outcome != autoForwardWatchContinue || !errors.Is(recoveryErr, errForwardRecoveryRequired) {
+				if outcome == autoForwardWatchSkipped || !errors.Is(recoveryErr, errForwardRecoveryRequired) {
 					t.Errorf("recovery: %d %v", outcome, recoveryErr)
 				}
 			}
@@ -620,10 +631,13 @@ func TestForwardRecoveryRetainsUnverifiableRuntime(t *testing.T) {
 
 func TestShutdownRetainsAutoReservationAfterLostRemovalResponse(t *testing.T) {
 	st, m, rec, proxy := newAutoForwardFixture(t)
+	if err := os.WriteFile(st.Runtime(rec).GVProxyProcessRecord(), []byte("invalid identity"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	port := freeLoopbackPort(t)
 	row := RuntimeAutoForward{Protocol: "tcp", Bind: "127.0.0.1", HostPort: port, GuestPort: port, Status: "active"}
 	proxy.install(forward.Address(row.Bind, port))
-	proxy.loseUnexposeResponse = true
+	proxy.dropNextResponses(-1)
 	if err := m.saveRuntimeAutoForwards(rec, []RuntimeAutoForward{row}); err != nil {
 		t.Fatal(err)
 	}
@@ -666,7 +680,7 @@ func TestAutoForwardCommandsRecoverUncertainRemoval(t *testing.T) {
 			port := freeLoopbackPort(t)
 			row := RuntimeAutoForward{Protocol: "tcp", Bind: "127.0.0.1", HostPort: port, GuestPort: port, Status: forward.ReservationActive}
 			proxy.install(forward.Address(row.Bind, port))
-			proxy.loseUnexposeResponse = true
+			proxy.dropNextResponses(-1)
 			if err := m.saveRuntimeAutoForwards(rec, []RuntimeAutoForward{row}); err != nil {
 				t.Fatal(err)
 			}
@@ -703,6 +717,9 @@ func TestAutoForwardCommandsRecoverUncertainRemoval(t *testing.T) {
 
 func TestSSHPortChangeRecoversUncertainStartup(t *testing.T) {
 	st, m, rec, proxy := newAutoForwardFixture(t)
+	if err := os.WriteFile(st.Runtime(rec).GVProxyProcessRecord(), []byte("invalid identity"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	rec.Network.SSHBind = "127.0.0.1"
 	rec.Network.SSHPort = freeLoopbackPort(t)
 	if err := st.SaveVM(rec); err != nil {
@@ -712,8 +729,8 @@ func TestSSHPortChangeRecoversUncertainStartup(t *testing.T) {
 	if err != nil || unlock == nil {
 		t.Fatalf("VM lock: %v", err)
 	}
-	proxy.loseExposeResponse = true
-	err = m.installDeclaredForwardsLocked(rec)
+	proxy.dropNextResponses(-1)
+	err = m.installDeclaredForwardsLocked(context.Background(), rec)
 	unlock()
 	if !errors.Is(err, gvproxy.ErrForwardOutcomeUnknown) {
 		t.Fatal(err)
@@ -757,6 +774,9 @@ func TestStoppedAutoForwardCommandsRecoverPendingMutation(t *testing.T) {
 	for _, command := range []string{"disable", "enable", "offset", "reconcile"} {
 		t.Run(command, func(t *testing.T) {
 			st, m, rec, proxy := newAutoForwardFixture(t)
+			if err := os.WriteFile(st.Runtime(rec).GVProxyProcessRecord(), []byte("invalid identity"), 0600); err != nil {
+				t.Fatal(err)
+			}
 			exitAutoForwardFixtureDriver(t, st, rec)
 			row := forward.Decl{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 8080, GuestPort: 8080}
 			if err := state.WriteJSONAtomic(st.Runtime(rec).ForwardMutation(), []forward.Decl{row}); err != nil {

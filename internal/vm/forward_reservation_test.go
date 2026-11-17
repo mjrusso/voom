@@ -2,13 +2,16 @@ package vm
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/mjrusso/voom/internal/forward"
+	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/state"
 )
 
@@ -20,13 +23,31 @@ func TestAutoForwardJournalPrecedesExpose(t *testing.T) {
 	if err := os.MkdirAll(rt.Dir(), 0700); err != nil {
 		t.Fatal(err)
 	}
+	writeProcessRecord(t, rt.GVProxyProcessRecord(), fakeNamedVMProcess(t, "gvproxy"))
 	port := freeLoopbackPort(t)
 	endpoint := forward.Decl{Protocol: "tcp", Bind: "127.0.0.1", HostPort: port, GuestPort: 8080}
 	listener, err := net.Listen("unix", rt.NetworkSock())
 	if err != nil {
 		t.Fatal(err)
 	}
+	var installed atomic.Bool
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/services/forwarder/ids" {
+			_, _ = w.Write([]byte(`{"first":1}`))
+			return
+		}
+		if r.URL.Path == "/services/forwarder/all" {
+			rows := []gvproxy.Forward{}
+			if installed.Load() {
+				rows = append(rows, gvproxy.Forward{Protocol: "tcp", Local: forward.Address(endpoint.Bind, endpoint.HostPort), Remote: forward.Address(m.GuestTargetIP(rec), endpoint.GuestPort)})
+			}
+			_ = json.NewEncoder(w).Encode(rows)
+			return
+		}
+		if r.URL.Path == "/services/forwarder/acknowledge" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.URL.Path != "/services/forwarder/expose" {
 			t.Errorf("unexpected request: %s", r.URL.Path)
 		}
@@ -47,6 +68,7 @@ func TestAutoForwardJournalPrecedesExpose(t *testing.T) {
 		}); err != nil {
 			t.Error(err)
 		}
+		installed.Store(true)
 		w.WriteHeader(http.StatusNoContent)
 	})}
 	go func() { _ = server.Serve(listener) }()
@@ -57,7 +79,7 @@ func TestAutoForwardJournalPrecedesExpose(t *testing.T) {
 	}
 	defer unlock()
 	plans := []forward.AutoPlan{{Protocol: endpoint.Protocol, Bind: endpoint.Bind, HostPort: port, GuestPort: endpoint.GuestPort, GuestTargetIP: m.GuestTargetIP(rec)}}
-	rows, err := m.installAutoForwardRowsLocked(rec, plans, nil)
+	rows, err := m.installAutoForwardRowsLocked(context.Background(), rec, plans, nil)
 	if err != nil || len(rows) != 1 || !rows[0].Installed() {
 		t.Fatalf("confirmed result: %#v %v", rows, err)
 	}
@@ -70,7 +92,7 @@ func TestAutoForwardRejectsReservationClaimedAfterPlanning(t *testing.T) {
 	st, manager, rec, proxy := newAutoForwardFixture(t)
 	port := freeLoopbackPort(t)
 	report := GuestPortsReport{SchemaVersion: 1, GeneratedAt: time.Now(), Listeners: []GuestListener{{Proto: "tcp", Addr: "0.0.0.0", Port: port}}}
-	plans, err := manager.PlanAutoForwards(rec, report, nil)
+	plans, err := manager.PlanAutoForwards(context.Background(), rec, report, nil)
 	if err != nil || len(plans) != 1 || plans[0].Reason != "" {
 		t.Fatalf("initial plan: %#v %v", plans, err)
 	}
@@ -87,7 +109,7 @@ func TestAutoForwardRejectsReservationClaimedAfterPlanning(t *testing.T) {
 		t.Fatalf("VM lock: %v", err)
 	}
 	defer unlock()
-	rows, err := manager.installAutoForwardRowsLocked(rec, plans, nil)
+	rows, err := manager.installAutoForwardRowsLocked(context.Background(), rec, plans, nil)
 	if err != nil || len(rows) != 1 || rows[0].Status != forward.ReservationSkipped || rows[0].Reason != "host port is reserved by SSH or another forward" {
 		t.Fatalf("conflicting reservation: %#v %v", rows, err)
 	}
@@ -191,7 +213,7 @@ func TestAutoForwardResultsFollowEndpointIdentity(t *testing.T) {
 	}
 	old := RuntimeAutoForward{
 		Protocol: retained.Protocol, Bind: retained.Bind, HostPort: retained.HostPort, GuestPort: retained.GuestPort,
-		GuestTargetIP: retained.GuestTargetIP, Status: forward.ReservationActive,
+		GuestTargetIP: retained.GuestTargetIP, Status: forward.ReservationActive, GVProxyPID: m.runtimeGVProxyPID(rec),
 	}
 	if err := m.saveRuntimeAutoForwards(rec, []RuntimeAutoForward{old}); err != nil {
 		t.Fatal(err)
@@ -203,7 +225,7 @@ func TestAutoForwardResultsFollowEndpointIdentity(t *testing.T) {
 		t.Fatalf("VM lock: %v", err)
 	}
 	defer unlock()
-	rows, err := m.installAutoForwardRowsLocked(rec, []forward.AutoPlan{first, conflict, retained, rejected, last, skipped}, []RuntimeAutoForward{old})
+	rows, err := m.installAutoForwardRowsLocked(context.Background(), rec, []forward.AutoPlan{first, conflict, retained, rejected, last, skipped}, []RuntimeAutoForward{old})
 	if err != nil {
 		t.Fatal(err)
 	}

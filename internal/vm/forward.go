@@ -4,23 +4,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
-	"time"
 
 	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/state"
 )
 
+func declaredForwards(vm *state.VMRecord) []forward.Decl {
+	return append([]forward.Decl{{Protocol: "tcp", Bind: vm.Network.SSHBind, HostPort: vm.Network.SSHPort, GuestPort: 22}}, vm.Network.Forwards...)
+}
+
 // The caller must hold the VM lock. Failed startup owns runtime cleanup.
-func (m *Manager) installDeclaredForwardsLocked(vm *state.VMRecord) error {
-	operations := []forwardOperation{{endpoint: forward.Decl{
-		Protocol: "tcp", Bind: vm.Network.SSHBind, HostPort: vm.Network.SSHPort, GuestPort: 22,
-	}, guestTargetIP: m.GuestTargetIP(vm)}}
-	for _, f := range vm.Network.Forwards {
-		operations = append(operations, forwardOperation{endpoint: f, guestTargetIP: m.GuestTargetIP(vm)})
+func (m *Manager) installDeclaredForwardsLocked(ctx context.Context, vm *state.VMRecord) error {
+	var requests []forward.MutationRequest
+	for _, endpoint := range declaredForwards(vm) {
+		requests = append(requests, forward.MutationRequest{Kind: forward.ManualExpose, Endpoint: endpoint, GuestTargetIP: m.GuestTargetIP(vm)})
 	}
-	return m.executeForwardMutation(vm, forwardMutation{operations: operations})
+	_, err := m.applyForwardDeclarations(ctx, vm, forward.MutationJournal{Requests: requests})
+	return err
 }
 
 // AddForward declares a host-to-guest port forward on the VM and installs it
@@ -47,53 +50,31 @@ func (m *Manager) AddForward(ctx context.Context, name string, guestPort, hostPo
 		return forward.Decl{}, err
 	}
 	defer unlock()
-	if err := m.recoverPendingForwardMutation(vm); err != nil {
+	if err := m.recoverPendingForwardMutation(ctx, vm); err != nil {
 		return forward.Decl{}, err
 	}
-	var f forward.Decl
-	err = m.store.WithGlobalVM(name, vm.ID, func() error {
-		reserved, err := m.store.PortReservations("")
-		if err != nil {
-			return err
-		}
-		if auto {
-			hostPort, err = allocateAutoPort(reserved, protocol, bind)
-			if err != nil {
-				return err
-			}
-		} else if hostPort == 0 {
-			hostPort = guestPort
-		}
-		if reserved.Reserved(protocol, bind, hostPort) || portBusy(protocol, bind, hostPort) {
-			return fmt.Errorf("%s host port %s is unavailable", protocol, forward.Address(bind, hostPort))
-		}
-		f = forward.Decl{Protocol: protocol, GuestPort: guestPort, HostPort: hostPort, Bind: bind}
-		vm.Network.Forwards = append(vm.Network.Forwards, f)
-		vm.UpdatedAt = time.Now().UTC()
-		if err := m.store.SaveVM(vm); err != nil {
-			vm.Network.Forwards = vm.Network.Forwards[:len(vm.Network.Forwards)-1]
-			return err
-		}
-		return nil
-	})
+	observed, err := m.ObserveRuntime(vm)
 	if err != nil {
 		return forward.Decl{}, err
 	}
-	if m.IsRunning(vm) {
-		err := m.executeForwardMutation(vm, forwardMutation{
-			operations: []forwardOperation{{endpoint: f, guestTargetIP: m.GuestTargetIP(vm)}},
-		})
-		releaseSafe, err := m.recoverAndReportForwardMutation(vm, err)
-		if err != nil {
-			if releaseSafe {
-				vm.Network.Forwards = vm.Network.Forwards[:len(vm.Network.Forwards)-1]
-				vm.UpdatedAt = time.Now().UTC()
-				err = errors.Join(err, m.store.WithGlobalVM(name, vm.ID, func() error { return m.store.SaveVM(vm) }))
-			}
-			return forward.Decl{}, err
-		}
+	if auto {
+		hostPort = 0
+	} else if hostPort == 0 {
+		hostPort = guestPort
 	}
-	return f, nil
+	intent := forward.ManualMutation{Kind: forward.ManualExpose, Endpoint: forward.Decl{Protocol: protocol, GuestPort: guestPort, HostPort: hostPort, Bind: bind}}
+	if observed == RuntimeStopped {
+		return m.editStoppedForward(ctx, vm, intent)
+	}
+	journal, err := m.applyForwardDeclarations(ctx, vm, forward.MutationJournal{
+		Requests: []forward.MutationRequest{{Kind: intent.Kind, Endpoint: intent.Endpoint, GuestTargetIP: m.GuestTargetIP(vm)}},
+		Manual:   &intent,
+	})
+	_, err = m.recoverAndReportForwardMutation(ctx, vm, err)
+	if err != nil {
+		return forward.Decl{}, err
+	}
+	return journal.Manual.Endpoint, nil
 }
 
 // RemoveForward removes the declared forward identified by protocol, host port, and bind
@@ -112,7 +93,6 @@ func (m *Manager) RemoveForward(ctx context.Context, name string, port int, bind
 		return err
 	}
 	defer unlock()
-	next := make([]forward.Decl, 0, len(vm.Network.Forwards))
 	var removed forward.Decl
 	found := false
 	for _, f := range vm.Network.Forwards {
@@ -121,37 +101,31 @@ func (m *Manager) RemoveForward(ctx context.Context, name string, port int, bind
 			found = true
 			continue
 		}
-		next = append(next, f)
 	}
 	if !found {
 		return fmt.Errorf("no %s forward %s for VM %q", protocol, forward.Address(bind, port), name)
 	}
-	if err := m.recoverPendingForwardMutation(vm); err != nil {
+	if err := m.recoverPendingForwardMutation(ctx, vm); err != nil {
 		return err
 	}
-	previous := vm.Network.Forwards
-	commit := func() error {
-		return m.store.WithGlobalVM(name, vm.ID, func() error {
-			vm.Network.Forwards = next
-			vm.UpdatedAt = time.Now().UTC()
-			if err := m.store.SaveVM(vm); err != nil {
-				vm.Network.Forwards = previous
-				return errors.Join(err, m.store.SaveVM(vm))
-			}
-			return nil
-		})
+	if !slices.Contains(vm.Network.Forwards, removed) {
+		return nil
 	}
-	if m.gvproxyMayBeRunning(vm) {
-		err := m.executeForwardMutation(vm, forwardMutation{
-			operations: []forwardOperation{{action: forwardUnexpose, endpoint: removed}},
-			commit:     func([]forwardOutcome) error { return commit() },
-		})
-		_, err = m.recoverAndReportForwardMutation(vm, err)
-		if err != nil {
-			return fmt.Errorf("could not remove %s forward: %w", protocol, err)
-		}
-	} else if err := commit(); err != nil {
+	intent := forward.ManualMutation{Kind: forward.ManualUnexpose, Endpoint: removed}
+	if !m.gvproxyMayBeRunning(vm) {
+		_, err := m.editStoppedForward(ctx, vm, intent)
 		return err
+	}
+	_, mutationErr := m.applyForwardDeclarations(ctx, vm, forward.MutationJournal{
+		Requests: []forward.MutationRequest{{Kind: intent.Kind, Endpoint: removed}},
+		Manual:   &intent,
+	})
+	_, err = m.recoverAndReportForwardMutation(ctx, vm, mutationErr)
+	if err != nil {
+		return fmt.Errorf("could not remove %s forward: %w", protocol, err)
+	}
+	if slices.Contains(vm.Network.Forwards, removed) {
+		return errors.Join(errors.New("forward removal was not saved"), mutationErr)
 	}
 	return nil
 }
@@ -175,7 +149,8 @@ func (m *Manager) ForwardRows(ctx context.Context, args []string) ([]ForwardRow,
 	}
 	rows := []ForwardRow{}
 	for _, vm := range vms {
-		running := m.IsRunning(vm)
+		runtimeState, inspectionErr := m.ObserveRuntime(vm)
+		running := runtimeState == RuntimeRunning
 		guestTargetIP := state.DefaultGuestTargetIP(vm.Driver)
 		if running {
 			guestTargetIP = m.GuestTargetIP(vm)
@@ -184,14 +159,32 @@ func (m *Manager) ForwardRows(ctx context.Context, args []string) ([]ForwardRow,
 		if err != nil {
 			return nil, err
 		}
-		uncertain := m.forwardMutationPending(vm)
+		journal, err := forward.ReadMutationJournal(m.store.Runtime(vm).ForwardMutation())
+		if err != nil {
+			return nil, err
+		}
 		var installed map[gvproxy.Forward]struct{}
-		var snapshotErr error
-		if running && !uncertain {
+		snapshotErr := inspectionErr
+		if running && journal == nil {
 			installed, snapshotErr = gvproxy.Forwards(ctx, m.store.Runtime(vm).NetworkSock())
 		}
-		observation := forwardObservation{running: running, uncertain: uncertain, installed: installed, err: snapshotErr}
-		declarations := append([]forward.Decl{{Protocol: "tcp", Bind: vm.Network.SSHBind, HostPort: vm.Network.SSHPort, GuestPort: 22}}, vm.Network.Forwards...)
+		observation := forwardObservation{running: running, installed: installed, err: snapshotErr}
+		if journal != nil {
+			observation.recoveryReason = "confirmation pending; affected ports remain reserved. Run 'voom forward reconcile " + vm.Name + "' to retry"
+			if journal.Version == 0 {
+				observation.recoveryReason = "recovery details are unavailable; stop and start the VM to clear this state"
+			}
+			for _, request := range journal.Requests {
+				if request.Error != "" {
+					observation.recoveryReason += ": " + request.Error
+					break
+				}
+			}
+			if inspectionErr != nil {
+				observation.recoveryReason += "; " + inspectionErr.Error()
+			}
+		}
+		declarations := declaredForwards(vm)
 		known := make(map[forward.Decl]struct{})
 		for i, f := range declarations {
 			known[f] = struct{}{}
@@ -207,12 +200,8 @@ func (m *Manager) ForwardRows(ctx context.Context, args []string) ([]ForwardRow,
 			status, reason := observation.autoStatus(f)
 			rows = append(rows, ForwardRow{VM: vm.Name, Kind: "auto", Bind: f.Bind, HostPort: f.HostPort, GuestPort: f.GuestPort, GuestTargetIP: f.GuestTargetIP, Protocol: f.Protocol, Status: status, Installed: status == "active", Offset: f.Offset, Reason: reason})
 		}
-		if uncertain {
-			reservations, err := forward.ReadMutationReservations(m.store.Runtime(vm).ForwardMutation())
-			if err != nil {
-				return nil, err
-			}
-			for _, f := range reservations {
+		if journal != nil {
+			for _, f := range journal.Reservations {
 				if _, represented := known[f]; represented {
 					continue
 				}

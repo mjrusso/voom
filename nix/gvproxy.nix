@@ -7,7 +7,7 @@
 }:
 buildGoModule {
   pname = "gvproxy";
-  version = "0.8.9-voom.8";
+  version = "0.8.9-voom.9";
   src = gvproxySource;
   vendorHash = null;
   subPackages = [ "cmd/gvproxy" ];

@@ -67,7 +67,7 @@ func (m *Manager) SetSSHPort(ctx context.Context, name string, port int) (*state
 		return nil, false, err
 	}
 	defer unlock()
-	if err := m.recoverPendingForwardMutation(vm); err != nil {
+	if err := m.recoverPendingForwardMutation(ctx, vm); err != nil {
 		return nil, false, err
 	}
 	if err := m.requireStopped(vm, "changing the SSH port"); err != nil {

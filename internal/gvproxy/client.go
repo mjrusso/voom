@@ -4,13 +4,15 @@ package gvproxy
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +20,11 @@ import (
 	"github.com/mjrusso/voom/internal/forward"
 )
 
-// ErrForwardOutcomeUnknown means a mutation may have completed despite its error.
+// ErrForwardOutcomeUnknown means the request's completion could not be confirmed.
 var ErrForwardOutcomeUnknown = errors.New("gvproxy forward mutation outcome unknown")
+
+// ErrForwardRequestRetired means the ID can no longer execute and its outcome is unavailable.
+var ErrForwardRequestRetired = errors.New("gvproxy forward mutation ID retired")
 
 var (
 	clientsMu sync.Mutex
@@ -43,116 +48,77 @@ func clientForSocket(sock string) *http.Client {
 	return c
 }
 
-// Expose registers a host-to-guest TCP or UDP forwarder with gvproxy.
-func Expose(sock, protocol, local, remote string) error {
-	protocol, err := forward.NormalizeProtocol(protocol)
+// AllocateForwardIDs obtains ordered request IDs from the running gvproxy.
+func AllocateForwardIDs(ctx context.Context, sock string, count int) ([]string, error) {
+	if count <= 0 {
+		return nil, errors.New("forwarding request count must be positive")
+	}
+	data, err := request(ctx, sock, http.MethodPost, "/services/forwarder/ids?count="+strconv.Itoa(count), nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if protocol == "udp" {
-		if err := CheckProcess(context.Background(), sock, UDPForwardCapability); err != nil {
-			return fmt.Errorf("UDP forwarding unavailable: %w", err)
-		}
+	var allocation struct {
+		First uint64 `json:"first"`
 	}
-	return mutateForward(sock, "expose", Forward{Protocol: protocol, Local: local, Remote: remote})
+	if err := json.Unmarshal(data, &allocation); err != nil {
+		return nil, err
+	}
+	if allocation.First == 0 || uint64(count-1) > math.MaxUint64-allocation.First {
+		return nil, errors.New("invalid forwarding request ID range")
+	}
+	ids := make([]string, count)
+	for i := range ids {
+		ids[i] = strconv.FormatUint(allocation.First+uint64(i), 10)
+	}
+	return ids, nil
 }
 
-// Unexpose removes a previously registered host-to-guest TCP or UDP forwarder.
-func Unexpose(sock, protocol, local string) error {
-	protocol, err := forward.NormalizeProtocol(protocol)
-	if err != nil {
-		return err
+// ChangeForward submits a mutation. Reusing its ID is safe only with the same
+// action and endpoint, against a process with ForwardRecoveryCapability.
+func ChangeForward(ctx context.Context, sock, action string, endpoint Forward, id string) (forward.MutationResult, error) {
+	rejected := forward.RejectedMutation()
+	if action != "expose" && action != "unexpose" {
+		return rejected, errors.New("invalid forwarding operation")
 	}
+	protocol, err := forward.NormalizeProtocol(endpoint.Protocol)
+	if err != nil {
+		return rejected, err
+	}
+	endpoint.Protocol = protocol
 	if protocol == "udp" {
-		if err := CheckProcess(context.Background(), sock, UDPForwardCapability); err != nil {
-			return fmt.Errorf("UDP forwarding unavailable: %w", err)
+		if err := CheckProcess(ctx, sock, UDPForwardCapability); err != nil {
+			return rejected, fmt.Errorf("UDP forwarding unavailable: %w", err)
 		}
 	}
-	return mutateForward(sock, "unexpose", Forward{Protocol: protocol, Local: local})
-}
-
-func mutateForward(sock, action string, endpoint Forward) error {
-	id := rand.Text()
+	if err := ctx.Err(); err != nil {
+		return rejected, err
+	}
 	path := "/services/forwarder/" + action
-	_, err := requestWithID(context.Background(), sock, http.MethodPost, path, endpoint, id)
-	err = forwardMutationError(err)
-	if err == nil {
-		return nil
-	}
-	// Cancellation does not fence the server. Query the original handler's
-	// outcome before trusting /all; a snapshot alone can precede a late expose.
-	for attempt := 0; errors.Is(err, ErrForwardOutcomeUnknown) && attempt < 3; attempt++ {
-		if attempt > 0 {
-			time.Sleep(100 * time.Millisecond)
+	_, response, err := requestWithID(ctx, sock, http.MethodPost, path, endpoint, id)
+	if response != nil {
+		switch response.Header.Get("X-Voom-Forward-Outcome") {
+		case "not-submitted":
+			return rejected, err
+		case "retired":
+			return forward.RetiredMutation(), ErrForwardRequestRetired
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		data, queryErr := request(ctx, sock, http.MethodGet, "/services/forwarder/outcome?id="+id, nil)
-		cancel()
-		if queryErr != nil {
-			continue
-		}
-		var outcome struct {
-			Status int    `json:"status"`
-			Body   string `json:"body"`
-		}
-		if json.Unmarshal(data, &outcome) != nil || outcome.Status == 0 {
-			continue
-		}
-		if outcome.Status >= 200 && outcome.Status < 300 {
-			if verifyErr := forwardMatches(sock, action, endpoint); verifyErr != nil {
-				return errors.Join(err, verifyErr)
+		status := response.StatusCode
+		result := forward.CompletedMutation(action == "expose", status)
+		if response.Header.Get("X-Voom-Forward-Outcome") == "completed" ||
+			(status != http.StatusAccepted && (err == nil || result.Phase == forward.MutationCompletedRejected)) {
+			if status >= 200 && status <= 599 {
+				return result, err
 			}
-			return nil
-		}
-		err = forwardMutationError(&HTTPError{Path: path, Status: outcome.Status, Body: strings.TrimSpace(outcome.Body)})
-		break
-	}
-	var response *HTTPError
-	if action == "expose" && errors.As(err, &response) && response.Status == http.StatusConflict {
-		// A conflict can also mean a failed bind; only an exact target match
-		// establishes that exposure is already satisfied.
-		if forwardMatches(sock, action, endpoint) == nil {
-			return nil
 		}
 	}
+	return forward.UnknownMutation(), errors.Join(ErrForwardOutcomeUnknown, err)
+}
+
+// AcknowledgeForward frees the cached response body after the caller has
+// durably recorded completion.
+func AcknowledgeForward(ctx context.Context, sock, id string) error {
+	_, err := request(ctx, sock, http.MethodPost, "/services/forwarder/acknowledge?id="+url.QueryEscape(id), nil)
 	return err
-}
-
-func forwardMatches(sock, action string, endpoint Forward) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	installed, err := Forwards(ctx, sock)
-	if err != nil {
-		return err
-	}
-	if action == "expose" {
-		if _, found := installed[endpoint]; found {
-			return nil
-		}
-	} else {
-		for row := range installed {
-			if row.Protocol == endpoint.Protocol && row.Local == endpoint.Local {
-				return errors.New("forward is still installed")
-			}
-		}
-		return nil
-	}
-	return errors.New("expected forward is absent from gvproxy")
-}
-
-func forwardMutationError(err error) error {
-	if err == nil {
-		return nil
-	}
-	var response *HTTPError
-	if errors.As(err, &response) {
-		// HTTP 409 from expose guarantees that no listener was installed.
-		if response.Status == http.StatusBadRequest ||
-			(response.Path == "/services/forwarder/expose" && response.Status == http.StatusConflict) {
-			return err
-		}
-	}
-	return errors.Join(ErrForwardOutcomeUnknown, err)
 }
 
 // LookupLease returns the IP address gvproxy has leased to the given MAC, or an error if no lease matches.
@@ -189,21 +155,22 @@ func (e *HTTPError) Error() string {
 }
 
 func request(ctx context.Context, sock, method, path string, body any) ([]byte, error) {
-	return requestWithID(ctx, sock, method, path, body, "")
+	data, _, err := requestWithID(ctx, sock, method, path, body, "")
+	return data, err
 }
 
-func requestWithID(ctx context.Context, sock, method, path string, body any, id string) ([]byte, error) {
+func requestWithID(ctx context.Context, sock, method, path string, body any, id string) ([]byte, *http.Response, error) {
 	var payload []byte
 	var err error
 	if body != nil {
 		payload, err = json.Marshal(body)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	req, err := http.NewRequestWithContext(ctx, method, "http://unix"+path, bytes.NewReader(payload))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -213,17 +180,17 @@ func requestWithID(ctx context.Context, sock, method, path string, body any, id 
 	}
 	res, err := clientForSocket(sock).Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() { _ = res.Body.Close() }()
 	data, readErr := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if res.StatusCode >= 300 {
-		return nil, &HTTPError{Path: path, Status: res.StatusCode, Body: string(bytes.TrimSpace(data))}
+		return nil, res, &HTTPError{Path: path, Status: res.StatusCode, Body: string(bytes.TrimSpace(data))}
 	}
 	if readErr != nil {
-		return nil, fmt.Errorf("gvproxy %s failed while reading response: %w", path, readErr)
+		return nil, res, fmt.Errorf("gvproxy %s failed while reading response: %w", path, readErr)
 	}
-	return data, nil
+	return data, res, nil
 }
 
 // Forward is a host listener and guest target reported by gvproxy.

@@ -161,7 +161,7 @@ func forwardDiscoverCommand() *cobra.Command {
 		}
 		var preview []forward.Row
 		if vmRec.Network.AutoForward {
-			plans, err := deps.vm.PlanAutoForwards(vmRec, *report, runtimeForwards)
+			plans, err := deps.vm.PlanAutoForwards(cmd.Context(), vmRec, *report, runtimeForwards)
 			if err != nil {
 				return err
 			}

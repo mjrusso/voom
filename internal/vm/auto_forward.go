@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mjrusso/voom/internal/forward"
+	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 )
@@ -53,7 +54,7 @@ func (m *Manager) UpdateAutoForward(ctx context.Context, name string, update Aut
 			return nil, err
 		}
 	}
-	if err := m.recoverPendingForwardMutation(vm); err != nil {
+	if err := m.recoverPendingForwardMutation(ctx, vm); err != nil {
 		return nil, err
 	}
 	if update.Enabled != nil {
@@ -71,8 +72,8 @@ func (m *Manager) UpdateAutoForward(ctx context.Context, name string, update Aut
 	}
 	if m.IsRunning(vm) {
 		if vm.Network.AutoForward {
-			_, removeErr := m.removeMismatchedAutoForwardsLocked(vm)
-			_, removeErr = m.recoverAndReportForwardMutation(vm, removeErr)
+			_, removeErr := m.removeMismatchedAutoForwardsLocked(ctx, vm)
+			_, removeErr = m.recoverAndReportForwardMutation(ctx, vm, removeErr)
 			if !m.IsRunning(vm) {
 				return vm, removeErr
 			}
@@ -81,8 +82,8 @@ func (m *Manager) UpdateAutoForward(ctx context.Context, name string, update Aut
 				return vm, err
 			}
 		} else {
-			cleanupErr := m.cleanupAutoForwardsLocked(vm)
-			if _, err := m.recoverAndReportForwardMutation(vm, cleanupErr); err != nil {
+			cleanupErr := m.cleanupAutoForwardsLocked(ctx, vm)
+			if _, err := m.recoverAndReportForwardMutation(ctx, vm, cleanupErr); err != nil {
 				return vm, err
 			}
 			if err := m.StopAutoForwardWatcher(vm); err != nil {
@@ -224,12 +225,12 @@ func (m *Manager) watchAutoForwardsLocked(vm *state.VMRecord) (autoForwardWatchO
 	if !im.Capabilities.GuestPortReport || !im.Capabilities.ControlShare {
 		return m.finishAutoForwardWatch(vm)
 	}
-	_, err = m.reconcileAutoForwardsLocked(vm)
+	_, err = m.reconcileAutoForwardsLocked(context.Background(), vm)
 	return m.autoForwardWatchAfterMutation(vm, err)
 }
 
 func (m *Manager) autoForwardWatchAfterMutation(vm *state.VMRecord, err error) (autoForwardWatchOutcome, error) {
-	_, err = m.recoverForwardMutation(vm, err)
+	_, err = m.recoverForwardMutation(context.Background(), vm, err)
 	if !m.IsRunning(vm) && !m.forwardMutationPending(vm) {
 		return autoForwardWatchDone, err
 	}
@@ -239,7 +240,7 @@ func (m *Manager) autoForwardWatchAfterMutation(vm *state.VMRecord, err error) (
 func (m *Manager) finishAutoForwardWatch(vm *state.VMRecord) (autoForwardWatchOutcome, error) {
 	var err error
 	if m.gvproxyMayBeRunning(vm) {
-		err = m.cleanupAutoForwardsLocked(vm)
+		err = m.cleanupAutoForwardsLocked(context.Background(), vm)
 	} else {
 		err = m.clearRuntimeAutoForwardsLocked(vm)
 	}
@@ -253,12 +254,12 @@ func (m *Manager) finishAutoForwardWatch(vm *state.VMRecord) (autoForwardWatchOu
 }
 
 // The caller must hold the VM lock.
-func (m *Manager) cleanupAutoForwardsLocked(vm *state.VMRecord) error {
+func (m *Manager) cleanupAutoForwardsLocked(ctx context.Context, vm *state.VMRecord) error {
 	oldRows, err := m.ReadRuntimeAutoForwards(vm)
 	if err != nil {
 		return err
 	}
-	_, err = m.removeAutoForwardRowsLocked(vm, oldRows, func(RuntimeAutoForward) bool { return true })
+	_, err = m.removeAutoForwardRowsLocked(ctx, vm, oldRows, func(RuntimeAutoForward) bool { return true })
 	return err
 }
 
@@ -295,39 +296,31 @@ func (m *Manager) ReconcileAutoForwards(ctx context.Context, name string) ([]Run
 	if err := ValidateAutoForwardConfig(vm); err != nil {
 		return nil, err
 	}
-	if err := m.recoverPendingForwardMutation(vm); err != nil {
-		return nil, err
+	err = m.reconcileForwardsLocked(ctx, vm)
+	if err == nil && !m.IsRunning(vm) {
+		err = fmt.Errorf("VM %q is not running", vm.Name)
 	}
-	if !m.IsRunning(vm) {
-		return nil, fmt.Errorf("VM %q is not running", vm.Name)
-	}
-	rows, err := m.reconcileAutoForwardsLocked(vm)
-	if errors.Is(err, errForwardRecoveryRequired) {
-		_, err = m.recoverAndReportForwardMutation(vm, err)
-		var readErr error
-		rows, readErr = m.ReadRuntimeAutoForwards(vm)
-		err = errors.Join(err, readErr)
-	}
-	return rows, err
+	rows, readErr := m.ReadRuntimeAutoForwards(vm)
+	return rows, errors.Join(err, readErr)
 }
 
 // The caller must hold the VM lock.
-func (m *Manager) reconcileAutoForwardsLocked(vm *state.VMRecord) ([]RuntimeAutoForward, error) {
+func (m *Manager) reconcileAutoForwardsLocked(ctx context.Context, vm *state.VMRecord) ([]RuntimeAutoForward, error) {
 	if err := ValidateAutoForwardConfig(vm); err != nil {
 		return nil, err
 	}
-	oldRows, err := m.removeMismatchedAutoForwardsLocked(vm)
+	oldRows, err := m.removeMismatchedAutoForwardsLocked(ctx, vm)
 	if err != nil {
 		return oldRows, err
 	}
 	if !vm.Network.AutoForward {
-		return m.removeAutoForwardRowsLocked(vm, oldRows, func(RuntimeAutoForward) bool { return true })
+		return m.removeAutoForwardRowsLocked(ctx, vm, oldRows, func(RuntimeAutoForward) bool { return true })
 	}
 	report, err := m.ReadGuestPorts(vm)
 	if err != nil {
 		return oldRows, err
 	}
-	desired, err := m.PlanAutoForwards(vm, *report, oldRows)
+	desired, err := m.PlanAutoForwards(ctx, vm, *report, oldRows)
 	if err != nil {
 		return oldRows, err
 	}
@@ -337,136 +330,110 @@ func (m *Manager) reconcileAutoForwardsLocked(vm *state.VMRecord) ([]RuntimeAuto
 			desiredEndpoints[desired[i].Endpoint()] = struct{}{}
 		}
 	}
-	oldRows, err = m.removeAutoForwardRowsLocked(vm, oldRows, func(row RuntimeAutoForward) bool {
+	oldRows, err = m.removeAutoForwardRowsLocked(ctx, vm, oldRows, func(row RuntimeAutoForward) bool {
 		_, keep := desiredEndpoints[row.Endpoint()]
 		return row.Installed() && !keep
 	})
 	if err != nil {
 		return oldRows, err
 	}
-	rows, err := m.installAutoForwardRowsLocked(vm, desired, oldRows)
-	if err != nil {
-		return rows, err
-	}
-	m.emitAutoForwardTransitions(vm, oldRows, rows)
-	return rows, nil
+	return m.installAutoForwardRowsLocked(ctx, vm, desired, oldRows)
 }
 
 // The caller must hold the VM lock.
-func (m *Manager) installAutoForwardRowsLocked(vm *state.VMRecord, plans []forward.AutoPlan, oldRows []RuntimeAutoForward) ([]RuntimeAutoForward, error) {
+func (m *Manager) installAutoForwardRowsLocked(ctx context.Context, vm *state.VMRecord, plans []forward.AutoPlan, oldRows []RuntimeAutoForward) ([]RuntimeAutoForward, error) {
 	if err := m.pendingForwardMutationError(vm); err != nil {
 		rows, readErr := m.ReadRuntimeAutoForwards(vm)
 		return rows, errors.Join(err, readErr)
 	}
 	gvproxyPID := m.runtimeGVProxyPID(vm)
+	installed, err := gvproxy.Forwards(ctx, m.store.Runtime(vm).NetworkSock())
+	if err != nil {
+		return oldRows, err
+	}
 	oldEndpoints := map[forward.Decl]struct{}{}
 	for _, old := range oldRows {
-		if old.Installed() && old.GVProxyPID == gvproxyPID {
+		target := old.GuestTargetIP
+		if target == "" {
+			target = m.GuestTargetIP(vm)
+		}
+		endpoint := gvproxy.Forward{Protocol: old.Protocol, Local: forward.Address(old.Bind, old.HostPort), Remote: forward.Address(target, old.GuestPort)}
+		_, present := installed[endpoint]
+		if old.Installed() && old.GVProxyPID == gvproxyPID && present {
 			oldEndpoints[old.Endpoint()] = struct{}{}
 		}
 	}
-	var operations []forwardOperation
+	var requests []forward.MutationRequest
 	for _, plan := range plans {
 		if plan.Reason != "" {
 			continue
 		}
 		endpoint := plan.Endpoint()
 		if _, installed := oldEndpoints[endpoint]; !installed {
-			operations = append(operations, forwardOperation{endpoint: endpoint, guestTargetIP: plan.GuestTargetIP})
+			requests = append(requests, forward.MutationRequest{Kind: forward.AutomaticExpose, Endpoint: endpoint, GuestTargetIP: plan.GuestTargetIP})
 		}
 	}
-	var rows []RuntimeAutoForward
-	err := m.executeForwardMutation(vm, forwardMutation{
-		rejection:  forwardSkipRejected,
-		operations: operations,
-		commit: func(outcomes []forwardOutcome) error {
-			byEndpoint := make(map[forward.Decl]forwardOutcome, len(outcomes))
-			for _, outcome := range outcomes {
-				byEndpoint[outcome.operation.endpoint] = outcome
-			}
-			rows = make([]RuntimeAutoForward, len(plans))
-			for i, plan := range plans {
-				reason := plan.Reason
-				if _, retained := oldEndpoints[plan.Endpoint()]; reason == "" && !retained {
-					outcome, exists := byEndpoint[plan.Endpoint()]
-					if !exists {
-						return fmt.Errorf("missing forward outcome for %s", forward.Address(plan.Bind, plan.HostPort))
-					}
-					if outcome.err != nil {
-						reason = outcome.err.Error()
-						if !errors.Is(outcome.err, errForwardPortReserved) {
-							reason = "gvproxy expose failed: " + reason
-						}
-					}
-				}
-				status, pid := forward.ReservationSkipped, 0
-				if reason == "" {
-					status, pid = forward.ReservationActive, gvproxyPID
-				}
-				rows[i] = RuntimeAutoForward{
-					Protocol: plan.Protocol, Bind: plan.Bind, HostPort: plan.HostPort, GuestPort: plan.GuestPort,
-					GuestTargetIP: plan.GuestTargetIP, Offset: plan.Offset, Status: status, Reason: reason, GVProxyPID: pid,
-				}
-			}
-			return m.saveRuntimeAutoForwards(vm, rows)
-		},
+	rows := make([]RuntimeAutoForward, len(plans))
+	for i, plan := range plans {
+		status, pid := forward.ReservationSkipped, 0
+		if plan.Reason == "" {
+			status, pid = forward.ReservationActive, gvproxyPID
+		}
+		rows[i] = RuntimeAutoForward{
+			Protocol: plan.Protocol, Bind: plan.Bind, HostPort: plan.HostPort, GuestPort: plan.GuestPort,
+			GuestTargetIP: plan.GuestTargetIP, Offset: plan.Offset, Status: status, Reason: plan.Reason, GVProxyPID: pid,
+		}
+	}
+	_, err = m.applyForwardDeclarations(ctx, vm, forward.MutationJournal{
+		Requests: requests, AutoForwards: &rows,
 	})
 	if err != nil {
 		persisted, readErr := m.ReadRuntimeAutoForwards(vm)
 		return persisted, errors.Join(err, readErr)
 	}
-	return rows, nil
+	return m.ReadRuntimeAutoForwards(vm)
 }
 
 // The caller must hold the VM lock.
-func (m *Manager) removeMismatchedAutoForwardsLocked(vm *state.VMRecord) ([]RuntimeAutoForward, error) {
+func (m *Manager) removeMismatchedAutoForwardsLocked(ctx context.Context, vm *state.VMRecord) ([]RuntimeAutoForward, error) {
 	oldRows, err := m.ReadRuntimeAutoForwards(vm)
 	if err != nil {
 		return nil, err
 	}
 	bind := autoForwardBind(vm)
 	offset := vm.Network.AutoForwardHostOffset
-	return m.removeAutoForwardRowsLocked(vm, oldRows, func(row RuntimeAutoForward) bool {
+	return m.removeAutoForwardRowsLocked(ctx, vm, oldRows, func(row RuntimeAutoForward) bool {
 		return row.Bind != bind || row.Offset != offset
 	})
 }
 
 // The caller must hold the VM lock.
-func (m *Manager) removeAutoForwardRowsLocked(vm *state.VMRecord, oldRows []RuntimeAutoForward, remove func(RuntimeAutoForward) bool) ([]RuntimeAutoForward, error) {
+func (m *Manager) removeAutoForwardRowsLocked(ctx context.Context, vm *state.VMRecord, oldRows []RuntimeAutoForward, remove func(RuntimeAutoForward) bool) ([]RuntimeAutoForward, error) {
 	if err := m.pendingForwardMutationError(vm); err != nil {
 		rows, readErr := m.ReadRuntimeAutoForwards(vm)
 		return rows, errors.Join(err, readErr)
 	}
 	remaining := make([]RuntimeAutoForward, 0, len(oldRows))
-	var operations []forwardOperation
+	var requests []forward.MutationRequest
 	for _, row := range oldRows {
 		if !remove(row) {
 			remaining = append(remaining, row)
 		} else if row.Installed() {
-			operations = append(operations, forwardOperation{
-				action:   forwardUnexpose,
-				endpoint: row.Endpoint(),
+			requests = append(requests, forward.MutationRequest{
+				Kind:     forward.AutomaticUnexpose,
+				Endpoint: row.Endpoint(),
 			})
 		}
 	}
-	if len(oldRows) > 0 && len(remaining) == len(oldRows) {
+	if len(remaining) == len(oldRows) {
 		return oldRows, nil
 	}
-	var err error
-	if len(operations) == 0 {
-		err = m.saveRuntimeAutoForwards(vm, remaining)
-	} else {
-		err = m.executeForwardMutation(vm, forwardMutation{
-			operations: operations,
-			commit:     func([]forwardOutcome) error { return m.saveRuntimeAutoForwards(vm, remaining) },
-		})
-	}
+	_, err := m.applyForwardDeclarations(ctx, vm, forward.MutationJournal{Requests: requests, AutoForwards: &remaining})
 	if err != nil {
 		rows, readErr := m.ReadRuntimeAutoForwards(vm)
 		return rows, errors.Join(err, readErr)
 	}
-	m.emitAutoForwardTransitions(vm, oldRows, remaining)
-	return remaining, nil
+	return m.ReadRuntimeAutoForwards(vm)
 }
 
 func (m *Manager) gvproxyMayBeRunning(vm *state.VMRecord) bool {
@@ -514,9 +481,9 @@ func (m *Manager) appendAutoForwardLog(vm *state.VMRecord, level, msg string) {
 
 // PlanAutoForwards computes the desired auto-forward rows for the VM given a
 // guest report and the existing runtime state.
-func (m *Manager) PlanAutoForwards(vm *state.VMRecord, report GuestPortsReport, existing []RuntimeAutoForward) ([]forward.AutoPlan, error) {
+func (m *Manager) PlanAutoForwards(ctx context.Context, vm *state.VMRecord, report GuestPortsReport, existing []RuntimeAutoForward) ([]forward.AutoPlan, error) {
 	var reserved state.PortReservations
-	err := m.store.WithGlobal(func() error {
+	err := m.store.WithGlobalContext(ctx, func() error {
 		var err error
 		reserved, err = m.store.PortReservations(vm.ID)
 		return err

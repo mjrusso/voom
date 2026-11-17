@@ -103,29 +103,37 @@ automatic forwarding require Linux guest services; check them with
 voom forward list dev
 ```
 
-Read each row's status and reason. A saved declaration or reserved host port
-does not prove that a forward is installed. Automatic forwarding also needs
-a recent guest listener report and a running watcher. See
+Read each row's status and reason. A saved mapping or reserved host port does
+not prove that a forward is installed. Automatic forwarding also needs a recent
+guest listener report and a running watcher. See
 [port forwarding](linux-guests.md#port-forwarding), [shares](linux-guests.md#shares),
 and [proxy attachment recovery](proxy-attachments.md#observation-and-recovery) for integration-specific
 requirements and recovery.
 
 ### Forwarding reports uncertain state
 
-If a manual or automatic port-forward request times out or loses its response
-while the VM is running, Voom checks whether the original request completed
-without resending it. After a reported success, it checks the forwarding table.
+If a manual or automatic port-forward request times out or loses its response,
+Voom retries it with the same request ID. gvproxy applies each ID at most once,
+so a retry is safe even if the first request has not arrived yet. After a
+reported success, Voom checks the forwarding table.
 
 If Voom still cannot confirm the change, it leaves the VM and gvproxy running,
 keeps the recovery journal, reserves the affected ports, and blocks further
-forwarding changes. Voom logs recovery errors in `auto-forward.log`;
-`voom forward list` shows `uncertain` rows. Existing guest networking can
-continue, but an uncertain forward may be present or absent.
+forwarding changes. Automatic forwarding retries through its watcher when
+enabled. For other VMs, stop and start the VM if the change remains unresolved.
 
-Run `voom stop dev` and `voom start dev` when you are ready to clear the unresolved
-change. Do not delete the recovery journal to release ports. The same recovery
-steps apply when the CLI or watcher exits during a change, or when an unresolved
-request was sent to a gvproxy build that cannot report whether it completed.
+When you remove a manual forward, Voom saves the removal before asking gvproxy
+to remove its listener. If it cannot confirm the change, the forward is no
+longer in the saved configuration, but its listener may still be running. The port stays reserved
+until recovery finishes, even if the CLI exits. Do not delete the recovery
+journal to release ports.
+
+A missing result may mean the request has not reached gvproxy yet. Retrying its
+ID lets recovery continue in either case. If gvproxy has retired that ID, Voom
+checks the forwarding table and uses a new ID if another change is needed.
+If recovery cannot finish because the journal is from an older version or the
+original gvproxy process cannot be verified, stop and start the VM to clear the
+unresolved change.
 
 During forwarding recovery, Voom stops helper processes only after confirming
 that the VM process has exited. If its process record is missing, unreadable, or

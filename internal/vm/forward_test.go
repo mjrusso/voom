@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/mjrusso/voom/internal/forward"
+	"github.com/mjrusso/voom/internal/gvproxy/forwarder"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 )
@@ -79,6 +80,7 @@ func testManualForwardMutationsAndCleanup(t *testing.T, st *state.Store, rec *st
 		}
 	}
 	seedInstalled()
+	installed["tcp/"+forward.Address(rec.Network.SSHBind, rec.Network.SSHPort)] = map[string]string{"protocol": "tcp", "local": forward.Address(rec.Network.SSHBind, rec.Network.SSHPort), "remote": forward.Address(m.GuestTargetIP(rec), 22)}
 	reject := false
 	rejectRemoval := false
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +91,7 @@ func testManualForwardMutationsAndCleanup(t *testing.T, st *state.Store, rec *st
 			if reject {
 				_, _ = w.Write([]byte(`{}`))
 			} else {
-				_, _ = w.Write([]byte(`{"udp-forward-v1":1}`))
+				_, _ = w.Write([]byte(`{"udp-forward-v1":1,"forward-recovery-v3":1}`))
 			}
 		case "/services/forwarder/all":
 			rows := []map[string]string{}
@@ -107,7 +109,7 @@ func testManualForwardMutationsAndCleanup(t *testing.T, st *state.Store, rec *st
 			key := row["protocol"] + "/" + row["local"]
 			if strings.HasSuffix(r.URL.Path, "/unexpose") {
 				if rejectRemoval {
-					w.WriteHeader(400)
+					w.WriteHeader(http.StatusServiceUnavailable)
 					return
 				}
 				delete(installed, key)
@@ -118,6 +120,21 @@ func testManualForwardMutationsAndCleanup(t *testing.T, st *state.Store, rec *st
 			w.WriteHeader(404)
 		}
 	})}
+	backend := srv.Handler
+	ledger := forwarder.TrackMutationOutcomes(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = r.Clone(r.Context())
+		r.URL.Path = "/services/forwarder" + r.URL.Path
+		backend.ServeHTTP(w, r)
+	}))
+	srv.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/services/forwarder/") {
+			r = r.Clone(r.Context())
+			r.URL.Path = strings.TrimPrefix(r.URL.Path, "/services/forwarder")
+			ledger.ServeHTTP(w, r)
+		} else {
+			backend.ServeHTTP(w, r)
+		}
+	})
 	ln, err := net.Listen("unix", rt.NetworkSock())
 	if err != nil {
 		t.Fatal(err)
@@ -130,6 +147,7 @@ func testManualForwardMutationsAndCleanup(t *testing.T, st *state.Store, rec *st
 	}
 	driver := fakeNamedVMProcess(t, driverName)
 	writeProcessRecord(t, rt.VMProcessRecord(), driver)
+	writeProcessRecord(t, rt.GVProxyProcessRecord(), fakeNamedVMProcess(t, "gvproxy"))
 	rows, err := m.ForwardRows(ctx, []string{rec.Name})
 	if err != nil {
 		t.Fatal(err)
@@ -144,25 +162,17 @@ func testManualForwardMutationsAndCleanup(t *testing.T, st *state.Store, rec *st
 		t.Fatal("failed removal reported success")
 	}
 	persisted, err := st.LoadVM(rec.Name)
-	if err != nil || len(persisted.Network.Forwards) != 2 {
+	if err != nil || len(persisted.Network.Forwards) != 1 {
 		t.Fatalf("removal lost declarations: %#v %v", persisted, err)
 	}
 	mu.Lock()
 	rejectRemoval = false
-	clear(installed)
 	mu.Unlock()
-	rows, err = m.ForwardRows(ctx, []string{rec.Name})
-	if err != nil || rows[2].Installed {
-		t.Fatalf("missing backend forward reported installed: %#v %v", rows, err)
-	}
-	mu.Lock()
-	seedInstalled()
-	mu.Unlock()
-	if err := m.RemoveForward(ctx, rec.Name, port, "127.0.0.1", "udp"); err != nil {
+	if _, err := m.ReconcileForwards(ctx, rec.Name); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
-	if len(installed) != 1 || installed["tcp/"+forward.Address("127.0.0.1", port)] == nil {
+	if len(installed) != 2 || installed["tcp/"+forward.Address("127.0.0.1", port)] == nil {
 		t.Error(installed)
 	}
 	reject = true
@@ -190,13 +200,16 @@ func testManualForwardMutationsAndCleanup(t *testing.T, st *state.Store, rec *st
 	if err := process.StopRecorded(rt.VMProcessRecord(), state.VMProcessKind(rec.Driver), processStopTimeout); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(rt.GVProxyProcessRecord(), []byte("invalid identity"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	stop, err := m.stopRuntime(ctx, rec)
 	if err == nil || stop.gatewayTerminationConfirmed {
 		t.Fatalf("unrecorded gateway shutdown: %+v %v", stop, err)
 	}
 	mu.Lock()
-	if len(installed) != 0 {
-		t.Error("shutdown left forwards installed", installed)
+	if len(installed) != 1 || installed["tcp/"+forward.Address(rec.Network.SSHBind, rec.Network.SSHPort)] == nil {
+		t.Error("shutdown left application forwards installed", installed)
 	}
 	mu.Unlock()
 	rec, err = st.LoadVM(rec.Name)

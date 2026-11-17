@@ -1,12 +1,14 @@
 package vm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +22,7 @@ import (
 	"github.com/mjrusso/voom/internal/driver/qemu"
 	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/gvproxy"
+	"github.com/mjrusso/voom/internal/gvproxy/forwarder"
 	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/share"
@@ -28,6 +31,7 @@ import (
 
 func TestManualForwardsSurviveManagerRestart(t *testing.T) {
 	st, m, rec := newForwardLifecycleVM(t)
+	startSelfRecorded := m.startSelfRecorded
 	ctx := context.Background()
 	t.Cleanup(func() {
 		if _, err := m.Stop(ctx, rec.Name); err != nil {
@@ -49,6 +53,7 @@ func TestManualForwardsSurviveManagerRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 		m = New(st)
+		m.startSelfRecorded = startSelfRecorded
 		persisted, err := st.LoadVM(rec.Name)
 		if err != nil {
 			t.Fatal(err)
@@ -137,7 +142,12 @@ func newForwardLifecycleVM(t *testing.T) (*state.Store, *Manager, *state.VMRecor
 		t.Fatal(err)
 	}
 	installForwardLifecycleExecutables(t, dir, rec.Arch)
-	return st, New(st), rec
+	manager := New(st)
+	manager.startSelfRecorded = func(args []string, logPath, recordPath string) error {
+		helper := filepath.Join(dir, "voom-helper")
+		return process.StartRecorded(helper, args, logPath, recordPath)
+	}
+	return st, manager, rec
 }
 
 func installForwardLifecycleExecutables(t *testing.T, dir, arch string) {
@@ -148,7 +158,7 @@ func installForwardLifecycleExecutables(t *testing.T, dir, arch string) {
 	}
 	t.Setenv("VOOM_FORWARD_TEST_PROCESS", "1")
 	t.Setenv("VOOM_FORWARD_TEST_HELPER", exe)
-	for name, role := range map[string]string{"gvproxy": "gvproxy", qemu.ExecutableName(arch): "qemu", "vfkit": "vfkit", "qemu-img": "qemu-img", "virtiofsd": "virtiofsd"} {
+	for name, role := range map[string]string{"gvproxy": "gvproxy", qemu.ExecutableName(arch): "qemu", "vfkit": "vfkit", "qemu-img": "qemu-img", "virtiofsd": "virtiofsd", "voom-helper": "watcher"} {
 		path := filepath.Join(dir, name)
 		script := "#!/usr/bin/env bash\nexec -a " + name + " \"$VOOM_FORWARD_TEST_HELPER\" -test.run '^TestForwardLifecycleProcess$' -- " + role + " \"$@\"\n"
 		if err := os.WriteFile(path, []byte(script), 0755); err != nil {
@@ -179,6 +189,20 @@ func TestForwardLifecycleProcess(t *testing.T) {
 			t.Fatalf("missing %s in %v", flag, args)
 		}
 		return args[i+1]
+	}
+	if role == "watcher" {
+		st, err := state.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(args) >= 4 && args[0] == "debug" && args[1] == "watch-vm" {
+			if err := New(st).WatchRuntime(context.Background(), args[2], args[3]); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			t.Fatalf("unexpected watcher arguments: %v", args)
+		}
+		return
 	}
 	if role == "forward" {
 		st, err := state.Open()
@@ -235,7 +259,7 @@ func TestForwardLifecycleProcess(t *testing.T) {
 		}))
 		return
 	}
-	caps := map[string]int{gvproxy.GuestIsolationCapability: 1, gvproxy.BlockedSubnetsCapability: 1, gvproxy.UDPForwardCapability: 1}
+	caps := map[string]int{gvproxy.GuestIsolationCapability: 1, gvproxy.BlockedSubnetsCapability: 1, gvproxy.ForwardRecoveryCapability: 1, gvproxy.UDPForwardCapability: 1}
 	if os.Getenv("VOOM_FORWARD_TEST_NO_UDP") == "1" {
 		delete(caps, gvproxy.UDPForwardCapability)
 	}
@@ -264,15 +288,13 @@ func TestForwardLifecycleProcess(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		switch r.URL.Path {
-		case "/services/gateway-forward/capabilities":
-			_ = json.NewEncoder(w).Encode(caps)
-		case "/services/forwarder/all":
+		case "/all":
 			rows := make([]gvproxy.Forward, 0, len(installed))
 			for row := range installed {
 				rows = append(rows, row)
 			}
 			_ = json.NewEncoder(w).Encode(rows)
-		case "/services/forwarder/expose":
+		case "/expose":
 			var row gvproxy.Forward
 			if err := json.NewDecoder(r.Body).Decode(&row); err != nil {
 				http.Error(w, err.Error(), 400)
@@ -299,18 +321,7 @@ func TestForwardLifecycleProcess(t *testing.T) {
 				return
 			}
 			installed[row] = listener
-			if !strings.HasSuffix(row.Remote, ":22") {
-				switch failure {
-				case "lost":
-					conn, _, err := w.(http.Hijacker).Hijack()
-					if err == nil {
-						_ = conn.Close()
-					}
-				case "timeout":
-					<-r.Context().Done()
-				}
-			}
-		case "/services/forwarder/unexpose":
+		case "/unexpose":
 			var row gvproxy.Forward
 			if err := json.NewDecoder(r.Body).Decode(&row); err != nil {
 				http.Error(w, err.Error(), 400)
@@ -322,17 +333,51 @@ func TestForwardLifecycleProcess(t *testing.T) {
 					delete(installed, key)
 				}
 			}
-			if os.Getenv("VOOM_FORWARD_TEST_UNEXPOSE_FAILURE") == "lost" {
-				conn, _, err := w.(http.Hijacker).Hijack()
-				if err == nil {
-					_ = conn.Close()
-				}
-			}
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	})
-	_ = http.Serve(ln, handler)
+	tracked := http.StripPrefix("/services/forwarder", forwarder.TrackMutationOutcomes(handler))
+	_ = http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/services/gateway-forward/capabilities" {
+			_ = json.NewEncoder(w).Encode(caps)
+			return
+		}
+		failure := ""
+		switch r.URL.Path {
+		case "/services/forwarder/expose":
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			var row gvproxy.Forward
+			if json.Unmarshal(body, &row) == nil && !strings.HasSuffix(row.Remote, ":22") {
+				failure = os.Getenv("VOOM_FORWARD_TEST_EXPOSE_FAILURE")
+			}
+		case "/services/forwarder/unexpose":
+			failure = os.Getenv("VOOM_FORWARD_TEST_UNEXPOSE_FAILURE")
+		}
+		response := httptest.NewRecorder()
+		tracked.ServeHTTP(response, r)
+		switch failure {
+		case "lost":
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+			return
+		case "timeout":
+			<-r.Context().Done()
+			return
+		}
+		for name, values := range response.Header() {
+			w.Header()[name] = values
+		}
+		w.WriteHeader(response.Code)
+		_, _ = w.Write(response.Body.Bytes())
+	}))
 }
 
 func TestManualForwardRecoversUncertainMutation(t *testing.T) {
@@ -345,6 +390,9 @@ func TestManualForwardRecoversUncertainMutation(t *testing.T) {
 			ctx := context.Background()
 			t.Cleanup(func() { _, _ = m.Stop(ctx, rec.Name) })
 			if _, err := m.Start(ctx, io.Discard, rec.Name); err != nil {
+				t.Fatal(err)
+			}
+			if err := gvproxy.CheckProcess(ctx, st.Runtime(rec).NetworkSock(), gvproxy.ForwardRecoveryCapability); err != nil {
 				t.Fatal(err)
 			}
 			recorder.events = nil
@@ -379,7 +427,7 @@ func TestManualForwardRecoversUncertainMutation(t *testing.T) {
 	}
 }
 
-func TestManualForwardUncertainRemovalKeepsDeclaration(t *testing.T) {
+func TestManualForwardUncertainRemovalKeepsReservation(t *testing.T) {
 	st, _, rec := newForwardLifecycleVM(t)
 	recorder := &recordingEmitter{}
 	m := New(st, WithEventEmitter(recorder))
@@ -402,14 +450,14 @@ func TestManualForwardUncertainRemovalKeepsDeclaration(t *testing.T) {
 	}
 	assertVMStopEvents(t, recorder, rec.ID, 0)
 	persisted, err := st.LoadVM(rec.Name)
-	if err != nil || len(persisted.Network.Forwards) != 1 {
-		t.Fatalf("lost removal declaration: %#v %v", persisted, err)
+	if err != nil || len(persisted.Network.Forwards) != 0 {
+		t.Fatalf("removal intent: %#v %v", persisted, err)
 	}
 	if _, err := m.Stop(ctx, rec.Name); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.RemoveForward(ctx, rec.Name, port, "127.0.0.1", "udp"); err != nil {
-		t.Fatal(err)
+	if reserved, err := st.PortReserved("udp", "127.0.0.1", port); err != nil || reserved {
+		t.Fatalf("reservation after stop: %t %v", reserved, err)
 	}
 }
 
@@ -512,11 +560,11 @@ func TestUnconfirmedManualForwardRetainsReservationAcrossCommands(t *testing.T) 
 				_ = os.WriteFile(record, identity, 0600)
 				_, _ = m.Stop(ctx, rec.Name)
 			})
-			if err := os.Remove(record); err != nil {
+			if err := os.WriteFile(record, []byte("invalid identity"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			port := freeLoopbackPort(t)
-			if _, err := m.AddForward(ctx, rec.Name, 5353, port, "127.0.0.1", false, protocol); err == nil || !strings.Contains(err.Error(), "affected ports reserved") {
+			if _, err := m.AddForward(ctx, rec.Name, 5353, port, "127.0.0.1", false, protocol); err == nil || !strings.Contains(err.Error(), "affected ports remain reserved") {
 				t.Fatalf("unknown installation: %v", err)
 			}
 			m = New(st)
