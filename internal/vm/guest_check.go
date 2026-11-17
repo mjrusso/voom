@@ -98,10 +98,10 @@ func (m *Manager) VerifyGuest(ctx context.Context, name string) (*GuestReport, e
 		report.Checks = append(report.Checks, check)
 	}
 	if record.Network.AutoForward {
-		_, alive := process.ValidRecord(m.store.Runtime(record).AutoForwardProcessRecord(), "auto-forward")
-		check := GuestCheck{Name: "auto-forward-watcher", OK: alive}
+		_, alive := process.ValidRecord(m.store.Runtime(record).RuntimeWatcherProcessRecord(), "runtime-watch")
+		check := GuestCheck{Name: "runtime-watcher", OK: alive}
 		if !alive {
-			check.Error = "automatic forwarding is enabled but its watcher is not running"
+			check.Error = "the VM runtime watcher is not running"
 		}
 		report.Checks = append(report.Checks, check)
 	}

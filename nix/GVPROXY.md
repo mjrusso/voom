@@ -142,8 +142,24 @@ table and allocates a new ID only if another change is needed.
 For manual or automatic port-forward changes on a running VM, failed recovery
 leaves the guest and gvproxy running. Voom keeps the recovery journal, reserves
 the affected ports, and blocks further forwarding changes until confirmation.
-Automatic forwarding retries unresolved requests through its watcher when
-enabled. Journals without the
-required request or commit details require a stop/start. Private gateway
+One runtime watcher reconciles automatic forwards, recovers pending mutations,
+and cleans up after driver exit. It polls the driver at a nominal half-second
+interval and guest reports at a nominal two-second interval. These intervals are
+not guaranteed response times: lock contention and work in the same loop can
+delay checks. Discovery pauses while mutation recovery remains unresolved,
+including during retry backoff. Recovery retries use a separate deadline with
+increasing delays, but an active recovery attempt occupies the same loop and can
+delay exit detection.
+Recovery also runs when automatic forwarding is disabled.
+`voom forward reconcile <name>` retries immediately and applies saved forwarding
+settings. Journals without the required request or commit details require a
+stop/start. The reconciliation timeout also
+bounds global-lock waits. A missing outcome may mean the request has not reached
+gvproxy yet, so Voom keeps checking without releasing ports. Private gateway
 recovery follows the shutdown behavior described above; failed-startup cleanup
 can also stop the VM.
+
+Commands log recovery failures. The runtime watcher logs each new or changed
+error and retries inspection failures with backoff. After driver exit, it retries
+cleanup until it succeeds or its context ends. Cleanup waits for MacOS storage
+locks to be released before emitting a `vm stop` event with `reason=driver exited`.

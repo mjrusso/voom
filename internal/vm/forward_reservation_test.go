@@ -134,8 +134,8 @@ func TestAutoForwardWatcherSeesVMsCreatedByAnotherStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeAutoForwardReport(t, otherStore, rec, GuestPortsReport{SchemaVersion: 1, GeneratedAt: time.Now(), Listeners: []GuestListener{{Proto: "tcp", Addr: "0.0.0.0", Port: port}}})
-	outcome, err := manager.watchAutoForwardsOnce(rec.ID)
-	if err != nil || outcome != autoForwardWatchContinue {
+	outcome, err := manager.watchRuntimeOnce(context.Background(), rec.ID, "", &runtimeWatchSchedule{})
+	if err != nil || outcome != runtimeWatchContinue {
 		t.Fatalf("watch iteration: %d %v", outcome, err)
 	}
 	rows, err := manager.ReadRuntimeAutoForwards(rec)

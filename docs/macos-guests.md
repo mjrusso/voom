@@ -221,9 +221,8 @@ snapshots, or suspend/resume. There is no serial console; use the window, SSH,
 or `voom logs <name>` for vfkit logs.
 
 Voom does not attach virtiofs shares, publish control-share configuration,
-start an automatic-forwarding watcher, or wait for guest-service reports for
-MacOS guests. See [guest verification](#guest-verification) for the checks
-that apply to MacOS.
+or wait for guest-service reports for MacOS guests. See
+[guest verification](#guest-verification) for the checks that apply to MacOS.
 
 Start, reset, and clone reject persisted shares, automatic forwarding, and
 egress attachments before changing runtime or storage. You can still inspect,

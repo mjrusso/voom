@@ -94,7 +94,7 @@ echo evidence
 			if err == nil {
 				t.Fatal("stale report and absent watcher passed")
 			}
-			if verificationCheck(t, report, "listener-report").OK || verificationCheck(t, report, "auto-forward-watcher").OK {
+			if verificationCheck(t, report, "listener-report").OK || verificationCheck(t, report, "runtime-watcher").OK {
 				t.Fatalf("unhealthy integrations passed: %+v", report)
 			}
 
@@ -102,13 +102,13 @@ echo evidence
 			if err := state.WriteJSONAtomic(st.ControlSharePortsPath(record), ports); err != nil {
 				t.Fatal(err)
 			}
-			watcher := fakeNamedVMProcess(t, "voom", "forward", "auto", "watch", record.ID)
-			writeProcessRecord(t, st.Runtime(record).AutoForwardProcessRecord(), watcher)
+			watcher := fakeNamedVMProcess(t, "voom", "debug", "watch-vm", record.ID)
+			writeProcessRecord(t, st.Runtime(record).RuntimeWatcherProcessRecord(), watcher)
 			report, err = manager.VerifyGuest(context.Background(), record.Name)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !verificationCheck(t, report, "listener-report").OK || !verificationCheck(t, report, "auto-forward-watcher").OK {
+			if !verificationCheck(t, report, "listener-report").OK || !verificationCheck(t, report, "runtime-watcher").OK {
 				t.Fatal("healthy integrations failed")
 			}
 			verificationCheck(t, report, "control-share")

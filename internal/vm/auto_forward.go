@@ -71,25 +71,14 @@ func (m *Manager) UpdateAutoForward(ctx context.Context, name string, update Aut
 		return nil, err
 	}
 	if m.IsRunning(vm) {
+		var mutationErr error
 		if vm.Network.AutoForward {
-			_, removeErr := m.removeMismatchedAutoForwardsLocked(ctx, vm)
-			_, removeErr = m.recoverAndReportForwardMutation(ctx, vm, removeErr)
-			if !m.IsRunning(vm) {
-				return vm, removeErr
-			}
-			watchErr := m.StartAutoForwardWatcher(vm)
-			if err := errors.Join(removeErr, watchErr); err != nil {
-				return vm, err
-			}
+			_, mutationErr = m.removeMismatchedAutoForwardsLocked(ctx, vm)
 		} else {
-			cleanupErr := m.cleanupAutoForwardsLocked(ctx, vm)
-			if _, err := m.recoverAndReportForwardMutation(ctx, vm, cleanupErr); err != nil {
-				return vm, err
-			}
-			if err := m.StopAutoForwardWatcher(vm); err != nil {
-				return vm, err
-			}
+			mutationErr = m.cleanupAutoForwardsLocked(ctx, vm)
 		}
+		_, mutationErr = m.recoverAndReportForwardMutation(ctx, vm, mutationErr)
+		return vm, mutationErr
 	}
 	return vm, nil
 }
@@ -107,150 +96,6 @@ func (m *Manager) ReadRuntimeAutoForwards(vm *state.VMRecord) ([]RuntimeAutoForw
 
 func (m *Manager) saveRuntimeAutoForwards(vm *state.VMRecord, rows []RuntimeAutoForward) error {
 	return forward.WriteRuntimeState(m.RuntimeAutoForwardsPath(vm), rows)
-}
-
-// StartAutoForwardWatcher spawns a detached `voom forward auto watch` process
-// for the VM if one is not already running.
-func (m *Manager) StartAutoForwardWatcher(vm *state.VMRecord) error {
-	recordPath := m.store.Runtime(vm).AutoForwardProcessRecord()
-	if _, ok := process.ValidRecord(recordPath, "auto-forward"); ok {
-		return nil
-	}
-	if process.HasRecord(recordPath) {
-		if err := process.StopRecorded(recordPath, "auto-forward", processStopTimeout); err != nil {
-			return err
-		}
-	}
-	return m.startSelfRecorded([]string{"forward", "auto", "watch", vm.ID}, m.store.LogPath(vm, "auto-forward"), recordPath)
-}
-
-// StopAutoForwardWatcher terminates the VM's auto-forward watcher process.
-// A calling watcher exits through its loop after runtime cleanup.
-func (m *Manager) StopAutoForwardWatcher(vm *state.VMRecord) error {
-	record := m.store.Runtime(vm).AutoForwardProcessRecord()
-	if pid, ok := process.ValidRecord(record, "auto-forward"); ok && pid == os.Getpid() {
-		return nil
-	}
-	return process.StopRecorded(record, "auto-forward", processStopTimeout)
-}
-
-type autoForwardWatchOutcome uint8
-
-const (
-	autoForwardWatchSkipped autoForwardWatchOutcome = iota
-	autoForwardWatchContinue
-	autoForwardWatchDone
-)
-
-// WatchAutoForwards runs the foreground auto-forward reconciliation loop for a VM ID.
-func (m *Manager) WatchAutoForwards(ctx context.Context, id string) error {
-	vm, err := m.store.LoadVMByID(id)
-	if err != nil {
-		return err
-	}
-	if vm.MacOS != nil {
-		return errors.New("automatic forwarding is not supported for MacOS guests")
-	}
-	defer func() { _ = process.RemoveRecord(m.store.Runtime(vm).AutoForwardProcessRecord()) }()
-	ticker := time.NewTicker(autoForwardTick)
-	defer ticker.Stop()
-	lastErr := ""
-	for {
-		outcome, iterationErr := m.watchAutoForwardsOnce(id)
-		lastErr = m.logAutoForwardWatchResult(vm, outcome, iterationErr, lastErr)
-		if outcome == autoForwardWatchDone {
-			return iterationErr
-		}
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-		}
-	}
-}
-
-func (m *Manager) logAutoForwardWatchResult(vm *state.VMRecord, outcome autoForwardWatchOutcome, iterationErr error, lastErr string) string {
-	if outcome == autoForwardWatchSkipped {
-		return lastErr
-	}
-	if iterationErr != nil {
-		msg := iterationErr.Error()
-		if msg != lastErr {
-			var failure *forwardRecoveryFailure
-			if errors.As(iterationErr, &failure) {
-				m.recordForwardRecovery(vm, failure.outcome, iterationErr)
-			} else {
-				m.appendAutoForwardLog(vm, "error", msg)
-			}
-		}
-		return msg
-	}
-	if lastErr != "" {
-		m.appendAutoForwardLog(vm, "info", "reconciliation recovered")
-	}
-	return ""
-}
-
-func (m *Manager) watchAutoForwardsOnce(id string) (autoForwardWatchOutcome, error) {
-	unlock, err := m.store.TryLockVM(id)
-	if err != nil {
-		return autoForwardWatchContinue, err
-	}
-	if unlock == nil {
-		return autoForwardWatchSkipped, nil
-	}
-	defer unlock()
-	vm, err := m.store.LoadVMByID(id)
-	if errors.Is(err, os.ErrNotExist) {
-		return autoForwardWatchDone, nil
-	}
-	if err != nil {
-		return autoForwardWatchContinue, err
-	}
-	return m.watchAutoForwardsLocked(vm)
-}
-
-// The caller must hold the VM lock.
-func (m *Manager) watchAutoForwardsLocked(vm *state.VMRecord) (autoForwardWatchOutcome, error) {
-	if err := m.pendingForwardMutationError(vm); err != nil {
-		return m.autoForwardWatchAfterMutation(vm, err)
-	}
-	if !m.IsRunning(vm) || !vm.Network.AutoForward {
-		return m.finishAutoForwardWatch(vm)
-	}
-	im, err := m.store.LoadImageByID(vm.Image.ID)
-	if err != nil {
-		return autoForwardWatchContinue, err
-	}
-	if !im.Capabilities.GuestPortReport || !im.Capabilities.ControlShare {
-		return m.finishAutoForwardWatch(vm)
-	}
-	_, err = m.reconcileAutoForwardsLocked(context.Background(), vm)
-	return m.autoForwardWatchAfterMutation(vm, err)
-}
-
-func (m *Manager) autoForwardWatchAfterMutation(vm *state.VMRecord, err error) (autoForwardWatchOutcome, error) {
-	_, err = m.recoverForwardMutation(context.Background(), vm, err)
-	if !m.IsRunning(vm) && !m.forwardMutationPending(vm) {
-		return autoForwardWatchDone, err
-	}
-	return autoForwardWatchContinue, err
-}
-
-func (m *Manager) finishAutoForwardWatch(vm *state.VMRecord) (autoForwardWatchOutcome, error) {
-	var err error
-	if m.gvproxyMayBeRunning(vm) {
-		err = m.cleanupAutoForwardsLocked(context.Background(), vm)
-	} else {
-		err = m.clearRuntimeAutoForwardsLocked(vm)
-	}
-	if errors.Is(err, errForwardRecoveryRequired) {
-		return m.autoForwardWatchAfterMutation(vm, err)
-	}
-	if err != nil {
-		return autoForwardWatchContinue, err
-	}
-	return autoForwardWatchDone, nil
 }
 
 // The caller must hold the VM lock.

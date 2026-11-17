@@ -112,6 +112,52 @@ func TestReconcileDelayedForwardWithoutRestart(t *testing.T) {
 	}
 }
 
+func TestRuntimeWatcherRecoversManualForward(t *testing.T) {
+	for _, driver := range []string{"qemu", "vfkit"} {
+		t.Run(driver, func(t *testing.T) {
+			st, manager, vm, proxy := newAutoForwardFixture(t)
+			vm.Driver, vm.Network.AutoForward = driver, false
+			if err := st.SaveVM(vm); err != nil {
+				t.Fatal(err)
+			}
+			if driver == "vfkit" {
+				writeProcessRecord(t, st.Runtime(vm).VMProcessRecord(), fakeNamedVMProcess(t, "vfkit"))
+			}
+			proxy.mu.Lock()
+			proxy.dropResponses = map[string]int{"1": -1}
+			proxy.mu.Unlock()
+			port := freeLoopbackPort(t)
+			if _, err := manager.AddForward(context.Background(), vm.Name, port, port, "127.0.0.1", false, "tcp"); !errors.Is(err, errForwardRecoveryRequired) {
+				t.Fatal(err)
+			}
+			proxy.mu.Lock()
+			proxy.dropResponses = nil
+			proxy.mu.Unlock()
+			fingerprint, err := process.RecordFingerprint(st.Runtime(vm).VMProcessRecord())
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- New(st).WatchRuntime(ctx, vm.ID, fingerprint) }()
+			if err := process.WaitFor(func() bool { return !manager.forwardMutationPending(vm) }, 3*time.Second); err != nil {
+				t.Fatal(err)
+			}
+			cancel()
+			if err := <-done; !errors.Is(err, context.Canceled) {
+				t.Fatalf("watcher exit: %v", err)
+			}
+			if !manager.IsRunning(vm) {
+				t.Fatal("background recovery stopped the VM")
+			}
+			if exposes, _ := proxy.counts(); exposes != 1 {
+				t.Fatalf("background recovery repeated request: %d", exposes)
+			}
+		})
+	}
+}
+
 func TestReconcileRemovalAfterCLIExit(t *testing.T) {
 	if os.Getenv("VOOM_RECOVERY_CHILD") == "1" {
 		st, err := state.Open()
@@ -430,5 +476,44 @@ func TestUDPProbeFailureDoesNotCorruptJournal(t *testing.T) {
 				t.Fatalf("failed capability probe sent a mutation: %d %d", exposes, unexposes)
 			}
 		})
+	}
+}
+
+func TestRuntimeWatcherOwnsRecoveryScheduleAndDiagnostics(t *testing.T) {
+	st, manager, vm, proxy := newAutoForwardFixture(t)
+	recorder := &recordingEmitter{}
+	manager.events = recorder
+	fingerprint, err := process.RecordFingerprint(st.Runtime(vm).GVProxyProcessRecord())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := gvproxy.AllocateForwardIDs(context.Background(), st.Runtime(vm).NetworkSock(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := forward.MutationRequest{ID: ids[0], Kind: forward.ManualExpose, GuestTargetIP: manager.GuestTargetIP(vm), Endpoint: forward.Decl{Protocol: "tcp", Bind: "127.0.0.1", HostPort: freeLoopbackPort(t), GuestPort: 8080}, Result: forward.UnknownMutation()}
+	if err := state.WriteJSONAtomic(st.Runtime(vm).ForwardMutation(), forward.MutationJournal{Version: 1, Process: fingerprint, Requests: []forward.MutationRequest{request}}); err != nil {
+		t.Fatal(err)
+	}
+	startPendingForwardRequest(t, proxy, st.Runtime(vm).NetworkSock(), request)
+	fingerprint, err = process.RecordFingerprint(st.Runtime(vm).VMProcessRecord())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	runtimeDone := make(chan error, 1)
+	go func() { runtimeDone <- manager.WatchRuntime(ctx, vm.ID, fingerprint) }()
+	if err := <-runtimeDone; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal(err)
+	}
+	proxy.mu.Lock()
+	submissions := proxy.submissions
+	proxy.mu.Unlock()
+	if submissions < 2 || submissions > 3 {
+		t.Fatalf("recovery attempts: %d", submissions)
+	}
+	if len(recorder.events) != 1 || recorder.events[0].Action != "recovery" {
+		t.Fatalf("duplicate recovery diagnostics: %+v", recorder.events)
 	}
 }

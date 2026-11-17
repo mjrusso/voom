@@ -178,20 +178,20 @@ func TestRuntimeLayoutPaths(t *testing.T) {
 	}
 	virtiofs := rt.Virtiofsd("repo")
 	checks := map[string]string{
-		rt.VMProcessRecord():          filepath.Join(wantDir, "vm.process.json"),
-		rt.GVProxyProcessRecord():     filepath.Join(wantDir, "gvproxy.process.json"),
-		rt.NetworkSock():              filepath.Join(wantDir, "network.sock"),
-		rt.QEMUNetSock():              filepath.Join(wantDir, "qemu-net.sock"),
-		rt.VFKitNetSock():             filepath.Join(wantDir, "vfkit-net.sock"),
-		rt.QEMUMonitor():              filepath.Join(wantDir, "qemu.mon"),
-		rt.VFKitRestSock():            filepath.Join(wantDir, "vfkit.sock"),
-		rt.EFIStore():                 filepath.Join(wantDir, "efi-variable-store"),
-		rt.GUIApp():                   filepath.Join(wantDir, "display.app"),
-		rt.AutoForwardProcessRecord(): filepath.Join(wantDir, "auto-forward.process.json"),
-		rt.AutoForwardsJSON():         filepath.Join(wantDir, "auto-forwards.json"),
-		virtiofs.ProcessRecord:        filepath.Join(wantDir, "virtiofs-repo.process.json"),
-		virtiofs.Socket:               filepath.Join(wantDir, "virtiofs-repo.sock"),
-		virtiofs.LockFile:             filepath.Join(wantDir, "virtiofs-repo.sock.pid"),
+		rt.VMProcessRecord():                filepath.Join(wantDir, "vm.process.json"),
+		rt.GVProxyProcessRecord():           filepath.Join(wantDir, "gvproxy.process.json"),
+		rt.NetworkSock():                    filepath.Join(wantDir, "network.sock"),
+		rt.QEMUNetSock():                    filepath.Join(wantDir, "qemu-net.sock"),
+		rt.VFKitNetSock():                   filepath.Join(wantDir, "vfkit-net.sock"),
+		rt.QEMUMonitor():                    filepath.Join(wantDir, "qemu.mon"),
+		rt.VFKitRestSock():                  filepath.Join(wantDir, "vfkit.sock"),
+		rt.EFIStore():                       filepath.Join(wantDir, "efi-variable-store"),
+		rt.GUIApp():                         filepath.Join(wantDir, "display.app"),
+		rt.LegacyAutoForwardProcessRecord(): filepath.Join(wantDir, "auto-forward.process.json"),
+		rt.AutoForwardsJSON():               filepath.Join(wantDir, "auto-forwards.json"),
+		virtiofs.ProcessRecord:              filepath.Join(wantDir, "virtiofs-repo.process.json"),
+		virtiofs.Socket:                     filepath.Join(wantDir, "virtiofs-repo.sock"),
+		virtiofs.LockFile:                   filepath.Join(wantDir, "virtiofs-repo.sock.pid"),
 	}
 	for got, want := range checks {
 		if got != want {

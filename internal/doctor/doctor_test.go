@@ -69,7 +69,7 @@ func TestStateDiagnosticsReportsStaleAutoForwardRuntimeFiles(t *testing.T) {
 	if err := os.MkdirAll(rt.Dir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(rt.AutoForwardProcessRecord(), []byte("invalid\n"), 0o600); err != nil {
+	if err := os.WriteFile(rt.LegacyAutoForwardProcessRecord(), []byte("invalid\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	rows := []forward.RuntimeAuto{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 18080, GuestPort: 8080, GuestTargetIP: state.DefaultGuestTargetIP("qemu"), Status: "active"}}

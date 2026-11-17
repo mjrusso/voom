@@ -49,18 +49,3 @@ func (m *Manager) prepareGuestFiles(vm *state.VMRecord, im *state.ImageRecord) e
 	}
 	return nil
 }
-
-// Watchers require a recorded driver process and its ready control socket.
-func (m *Manager) startGuestWatchers(vm *state.VMRecord, im *state.ImageRecord) error {
-	if vm.Network.AutoForward && im.Capabilities.GuestPortReport && im.Capabilities.ControlShare {
-		if err := m.StartAutoForwardWatcher(vm); err != nil {
-			return err
-		}
-	}
-	if vm.MacOS != nil {
-		if err := m.startRuntimeWatcher(vm); err != nil {
-			return err
-		}
-	}
-	return nil
-}

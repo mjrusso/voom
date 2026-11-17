@@ -16,7 +16,6 @@ import (
 	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/gvproxy"
 	"github.com/mjrusso/voom/internal/gvproxy/forwarder"
-	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 )
 
@@ -322,12 +321,7 @@ func newAutoForwardFixture(t *testing.T) (*state.Store, *Manager, *state.VMRecor
 		_ = server.Close()
 		_ = listener.Close()
 	})
-	manager := New(st)
-	manager.startSelfRecorded = func(args []string, _, recordPath string) error {
-		watcher := fakeNamedVMProcess(t, "voom-test", args...)
-		return process.Record(recordPath, watcher.Process.Pid)
-	}
-	return st, manager, vm, fake
+	return st, New(st), vm, fake
 }
 
 func writeAutoForwardReport(t *testing.T, st *state.Store, vm *state.VMRecord, report GuestPortsReport) {

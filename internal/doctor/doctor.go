@@ -203,7 +203,7 @@ func StateDiagnostics(st *state.Store) []Check {
 			name string
 			path string
 			kind string
-		}{{"vm.process.json", rt.VMProcessRecord(), state.VMProcessKind(vmRec.Driver)}, {"gvproxy.process.json", rt.GVProxyProcessRecord(), "gvproxy"}, {"auto-forward.process.json", rt.AutoForwardProcessRecord(), "auto-forward"}, {"runtime-watch.process.json", rt.RuntimeWatcherProcessRecord(), "runtime-watch"}}
+		}{{"vm.process.json", rt.VMProcessRecord(), state.VMProcessKind(vmRec.Driver)}, {"gvproxy.process.json", rt.GVProxyProcessRecord(), "gvproxy"}, {"auto-forward.process.json", rt.LegacyAutoForwardProcessRecord(), "auto-forward"}, {"runtime-watch.process.json", rt.RuntimeWatcherProcessRecord(), "runtime-watch"}}
 		for _, record := range staticRecords {
 			if process.HasRecord(record.path) {
 				if _, ok := process.ValidRecord(record.path, record.kind); !ok {

@@ -528,7 +528,7 @@ func (m *Manager) startLocked(ctx context.Context, stderr io.Writer, vm *state.V
 			return nil, m.driverStartError(vm, "vfkit")
 		}
 	}
-	if err := m.startGuestWatchers(vm, im); err != nil {
+	if err := m.startRuntimeWatcher(vm); err != nil {
 		return nil, err
 	}
 	started = true
@@ -567,14 +567,36 @@ func (m *Manager) stopLocked(ctx context.Context, vm *state.VMRecord, reason str
 }
 
 // The caller must hold the VM lock and have confirmed driver exit. Preserve
-// the driver record until gateway termination is confirmed; later recovery
-// needs that record to distinguish exit from an unknown identity.
+// the driver record until cleanup succeeds so later attempts can verify the
+// same exited generation.
 func (m *Manager) cleanupConfirmedExitLocked(ctx context.Context, vm *state.VMRecord) (runtimeStopResult, error) {
 	confirmed, err := m.stopGVProxy(vm)
 	if !confirmed {
 		return runtimeStopResult{}, err
 	}
-	return m.stopLocked(ctx, vm, "driver exited")
+	rt := m.store.Runtime(vm)
+	stop := runtimeStopResult{changed: hasRuntimeState(vm, rt), gatewayTerminationConfirmed: true}
+	autoErr := m.stopLegacyAutoForwardWatcher(vm)
+	_, cleanupErr := m.cleanupRuntime(vm, true)
+	if err := errors.Join(autoErr, cleanupErr); err != nil {
+		return stop, err
+	}
+	if vm.MacOS != nil {
+		if err := state.WaitMacOSStorage(ctx, m.store.VMStorageDir(vm)); err != nil {
+			return stop, err
+		}
+	}
+	_, err = stopService(runtimeService{
+		label: "VM", kind: state.VMProcessKind(vm.Driver), record: rt.VMProcessRecord(),
+		artifacts: rt.DriverArtifacts(vm.Driver), timeout: processStopTimeout,
+	})
+	if err != nil {
+		return stop, err
+	}
+	if stop.changed {
+		m.emitVM("stop", vm, map[string]string{"reason": "driver exited"})
+	}
+	return stop, nil
 }
 
 type runtimeStopResult struct {
@@ -638,7 +660,7 @@ func (m *Manager) stopVMProcesses(ctx context.Context, vm *state.VMRecord) error
 	if err := m.stopRuntimeWatcher(vm); err != nil {
 		failures = append(failures, err)
 	}
-	if err := m.StopAutoForwardWatcher(vm); err != nil {
+	if err := m.stopLegacyAutoForwardWatcher(vm); err != nil {
 		failures = append(failures, err)
 	}
 	if pid, ok := process.ValidRecord(rt.VMProcessRecord(), state.VMProcessKind(vm.Driver)); ok {
@@ -713,7 +735,7 @@ func (m *Manager) cleanupRuntime(vm *state.VMRecord, gatewayConfirmed bool) (boo
 func hasRuntimeState(vm *state.VMRecord, rt state.RuntimeLayout) bool {
 	if process.HasRecord(rt.VMProcessRecord()) ||
 		process.HasRecord(rt.GVProxyProcessRecord()) ||
-		process.HasRecord(rt.AutoForwardProcessRecord()) ||
+		process.HasRecord(rt.LegacyAutoForwardProcessRecord()) ||
 		process.HasRecord(rt.RuntimeWatcherProcessRecord()) ||
 		len(rt.FindVirtiofsd()) > 0 {
 		return true

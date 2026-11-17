@@ -17,10 +17,8 @@ const (
 	// virtiofsdShutdownTimeout is the graceful window before virtiofsd is SIGKILLed.
 	virtiofsdShutdownTimeout = 2 * time.Second
 	// processStopTimeout is the graceful window before SIGKILLing the VM
-	// driver, gvproxy, and the auto-forward watcher.
+	// driver, gvproxy, and runtime watcher.
 	processStopTimeout = 3 * time.Second
-	// autoForwardTick is the polling interval of WatchAutoForwards.
-	autoForwardTick = 2 * time.Second
 )
 
 const (

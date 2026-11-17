@@ -245,13 +245,5 @@ func forwardAutoCommand() *cobra.Command {
 		return tw.Flush()
 	}}
 	cmd.AddCommand(reconcile)
-	watch := &cobra.Command{Use: "watch <id>", Short: "Watch guest port reports and reconcile runtime auto-forwards", Args: cobra.ExactArgs(1), Hidden: true, RunE: func(cmd *cobra.Command, args []string) error {
-		deps, err := loadRuntimeDeps()
-		if err != nil {
-			return err
-		}
-		return deps.vm.WatchAutoForwards(cmd.Context(), args[0])
-	}}
-	cmd.AddCommand(watch)
 	return cmd
 }

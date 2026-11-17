@@ -43,7 +43,6 @@ func TestMacOSUnsupportedCommandsHaveNoSideEffects(t *testing.T) {
 		}},
 		{"listeners", func() error { _, err := manager.ReadGuestPorts(record); return err }},
 		{"reconcile", func() error { _, err := manager.ReconcileAutoForwards(ctx, record.Name); return err }},
-		{"watch loop", func() error { return manager.WatchAutoForwards(ctx, record.ID) }},
 		{"egress", func() error {
 			_, err := manager.SetEgress(ctx, record.Name, egress.Decl{}, EgressOptions{})
 			return err

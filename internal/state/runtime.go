@@ -82,8 +82,8 @@ func (r RuntimeLayout) EFIStore() string {
 	return filepath.Join(r.dir, "efi-variable-store")
 }
 
-// AutoForwardProcessRecord returns the auto-forward watcher process record path.
-func (r RuntimeLayout) AutoForwardProcessRecord() string {
+// LegacyAutoForwardProcessRecord returns the obsolete watcher record used during upgrade cleanup.
+func (r RuntimeLayout) LegacyAutoForwardProcessRecord() string {
 	return filepath.Join(r.dir, "auto-forward.process.json")
 }
 

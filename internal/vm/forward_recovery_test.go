@@ -225,9 +225,9 @@ func TestAutoForwardMutationRecovery(t *testing.T) {
 				if reserved, reserveErr := st.PortReserved("tcp", "127.0.0.1", port); reserveErr != nil || !reserved {
 					t.Fatalf("reservation: %t %v", reserved, reserveErr)
 				}
-				outcome, err := m.watchAutoForwardsOnce(rec.ID)
-				m.logAutoForwardWatchResult(rec, autoForwardWatchContinue, err, lastErr)
-				if outcome == autoForwardWatchSkipped || !errors.Is(err, errForwardRecoveryRequired) {
+				outcome, err := m.watchRuntimeOnce(context.Background(), rec.ID, "", &runtimeWatchSchedule{})
+				m.logForwardWatchResult(rec, err, lastErr)
+				if outcome == runtimeWatchSkipped || !errors.Is(err, errForwardRecoveryRequired) {
 					t.Fatalf("retry: %d %v", outcome, err)
 				}
 				if len(recorder.events) == 0 || recorder.events[0].Type != "forward" || recorder.events[0].Action != "recovery" {
@@ -409,7 +409,7 @@ func TestForwardRecoveryWaitsForMacStorageAndReportsExit(t *testing.T) {
 			t.Errorf("stop reason: %#v", event)
 		}
 	}
-	if _, err := m.watchAutoForwardsOnce(rec.ID); err != nil {
+	if _, err := m.watchRuntimeOnce(context.Background(), rec.ID, fingerprint, &runtimeWatchSchedule{}); err != nil {
 		t.Fatal(err)
 	}
 	assertVMStopEvents(t, recorder, rec.ID, 1)
@@ -474,8 +474,8 @@ func TestWatcherDeduplicatesPendingRecoveryObservations(t *testing.T) {
 			}
 		}
 		for range 2 {
-			_, err := m.watchAutoForwardsOnce(rec.ID)
-			lastErr = m.logAutoForwardWatchResult(rec, autoForwardWatchContinue, err, lastErr)
+			_, err := m.watchRuntimeOnce(context.Background(), rec.ID, "", &runtimeWatchSchedule{})
+			lastErr = m.logForwardWatchResult(rec, err, lastErr)
 		}
 		if len(recorder.events) != phase+1 {
 			t.Fatalf("watcher recovery diagnostics: %#v", recorder.events)
@@ -518,8 +518,8 @@ func TestExitCleanupRetainsReservationsUntilGVProxyStops(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		outcome, err := m.watchAutoForwardsOnce(rec.ID)
-		if outcome == autoForwardWatchSkipped || !errors.Is(err, errForwardRecoveryRequired) {
+		outcome, err := m.watchRuntimeOnce(context.Background(), rec.ID, "", &runtimeWatchSchedule{})
+		if outcome == runtimeWatchSkipped || !errors.Is(err, errForwardRecoveryRequired) {
 			t.Fatalf("unconfirmed recovery: outcome=%d error=%v", outcome, err)
 		}
 		assertVMStopEvents(t, recorder, rec.ID, 0)
@@ -532,8 +532,8 @@ func TestExitCleanupRetainsReservationsUntilGVProxyStops(t *testing.T) {
 	}
 	gateway := fakeNamedVMProcess(t, "gvproxy")
 	writeProcessRecord(t, rt.GVProxyProcessRecord(), gateway)
-	outcome, err := m.watchAutoForwardsOnce(rec.ID)
-	if outcome != autoForwardWatchDone || !errors.Is(err, errForwardRecoveryRequired) {
+	outcome, err := m.watchRuntimeOnce(context.Background(), rec.ID, "", &runtimeWatchSchedule{})
+	if outcome != runtimeWatchDone || err != nil {
 		t.Fatalf("confirmed recovery: outcome=%d error=%v", outcome, err)
 	}
 	assertVMStopEvents(t, recorder, rec.ID, 1)
@@ -597,8 +597,8 @@ func TestForwardRecoveryRetainsUnverifiableRuntime(t *testing.T) {
 				t.Fatal(err)
 			}
 			for range 2 {
-				outcome, recoveryErr := m.watchAutoForwardsOnce(rec.ID)
-				if outcome == autoForwardWatchSkipped || !errors.Is(recoveryErr, errForwardRecoveryRequired) {
+				outcome, recoveryErr := m.watchRuntimeOnce(context.Background(), rec.ID, "", &runtimeWatchSchedule{})
+				if outcome == runtimeWatchSkipped || !errors.Is(recoveryErr, errForwardRecoveryRequired) {
 					t.Errorf("recovery: %d %v", outcome, recoveryErr)
 				}
 			}

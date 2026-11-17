@@ -119,8 +119,8 @@ reported success, Voom checks the forwarding table.
 
 If Voom still cannot confirm the change, it leaves the VM and gvproxy running,
 keeps the recovery journal, reserves the affected ports, and blocks further
-forwarding changes. Automatic forwarding retries through its watcher when
-enabled. For other VMs, stop and start the VM if the change remains unresolved.
+forwarding changes. The runtime watcher retries in the background, with increasing
+delays between failed attempts, even when automatic forwarding is disabled.
 
 When you remove a manual forward, Voom saves the removal before asking gvproxy
 to remove its listener. If it cannot confirm the change, the forward is no
@@ -140,8 +140,9 @@ that the VM process has exited. If its process record is missing, unreadable, or
 invalid, Voom keeps the helper processes and port reservations. Run
 `voom stop dev` and check for cleanup errors before restarting the VM.
 
-After cleanup, a `vm stop` event with `reason=driver exited` confirms that Voom
-observed the VM exit.
+The runtime watcher retries cleanup failures until cleanup succeeds or the
+watcher is stopped. After cleanup, a `vm stop` event with `reason=driver exited`
+confirms that Voom observed the VM exit.
 
 Private egress recovery and failed-startup cleanup can still stop the VM. Private
 egress recovery stops the VM if the result of installing a gateway listener is

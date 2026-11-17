@@ -6,8 +6,8 @@ Voom manages local development VMs through the host's VM stack. Voom does not
 build images or run a persistent background control plane. Release and Nix
 installations bundle gvproxy and, on MacOS, patched vfkit; Apple Silicon
 packages also include the native identity helper. QEMU remains an external
-dependency on Linux. Per-VM watchers manage automatic forwarding and MacOS
-runtime cleanup while those VMs run.
+dependency on Linux. Each VM has one runtime watcher for forwarding recovery
+and driver-exit cleanup. For Linux guests, it also reconciles automatic forwards.
 
 Images must be explicitly imported, VMs must be created explicitly
 (referencing an existing, already-imported image), and optional guest
@@ -308,9 +308,8 @@ The initial event taxonomy is:
 | `vm` | `create`, `start`, `stop`, `rm` | An observed VM lifecycle operation completed; cloned VMs use `create` with a `clonedFrom` attribute. |
 | `forward` | `install`, `uninstall`, `skip` | Persisted automatic-forward state changed. |
 
-The MacOS runtime watcher emits a `stop` event when cleanup after driver exit
-changes runtime state. There is no distinct crash event; Linux driver exits
-are not automatically monitored.
+The runtime watcher emits a `stop` event when cleanup after driver exit
+changes runtime state. There is no distinct crash event.
 
 `voom doctor` scans object directories in addition to `state.json` and reports
 dangling index entries, orphaned records, duplicate names or IDs, LAN
@@ -339,7 +338,7 @@ growth and `nixos switch` support Linux guests only.
 | `voom resources disk grow` | `state.json`, `vm.json`, VM disk | grows the stopped VM disk |
 | `voom disk reset` | `state.json`, `vm.json`, `image.json`, image disk | stages replacement boot storage and image/access metadata, then switches the active generation atomically |
 | `voom forward add` / `remove` | `state.json`, `vm.json`, runtime socket when running | updates declared forwards in `vm.json`; exposes or unexposes gvproxy forwards for running VMs |
-| `voom forward auto enable` / `disable` / `offset` | `state.json`, `vm.json`, image capabilities, runtime report when running | updates auto-forward settings in `vm.json`; for running VMs, removes runtime auto-forwards that no longer match the bind or offset and starts or stops the watcher, which reconciles from guest reports; writes the event log on transitions |
+| `voom forward auto enable` / `disable` / `offset` | `state.json`, `vm.json`, image capabilities, runtime report when running | updates auto-forward settings in `vm.json`; for running VMs, removes obsolete runtime auto-forwards; the runtime watcher applies guest reports using the saved settings; writes the event log on transitions |
 | `voom share add` / `remove` | `state.json`, `vm.json`, host path | updates share declarations in `vm.json`; running VMs must be stopped first |
 | `voom nixos switch` | `state.json`, `vm.json`, image capabilities, flake metadata | runs `nixos-rebuild` over SSH and records switch metadata in `vm.json` |
 | `voom config show` | `state.json`, `vm.json` | no state changes |

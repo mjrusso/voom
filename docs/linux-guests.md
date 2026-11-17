@@ -138,7 +138,7 @@ Verification checks the driver process, SSH access, Linux version and
 architecture, SSH host keys, boot information, and root access or passwordless
 sudo. It also checks integrations enabled by the image and VM configuration:
 control-share mounts, declared share tags and access modes, recent listener
-reports, and the automatic-forwarding watcher. It does not send test traffic
+reports, and the runtime watcher. It does not send test traffic
 through forwarded ports.
 
 Nix is optional unless the image declares `nixosSwitch`. Verification checks
@@ -387,7 +387,8 @@ forwarding discovers TCP listeners only.
 
 If Voom cannot confirm a forwarding change on a running VM, it keeps the VM
 running, reserves the affected ports, and blocks further forwarding changes.
-Stop and start the VM to clear the unresolved change.
+Background recovery retries confirmation. Run `voom forward reconcile deb` to
+retry immediately without restarting the VM.
 
 Unconfirmed new automatic forwards appear in `voom forward list` as
 `reservation` rows with `uncertain` status. See

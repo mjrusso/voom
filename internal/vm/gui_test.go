@@ -133,11 +133,12 @@ func TestRuntimeWatcherPreservesExitForForwardRecovery(t *testing.T) {
 	if _, err := driver.Process.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	for range 2 {
-		if err := m.WatchRuntime(ctx, vm.ID, fingerprint); err == nil {
-			t.Fatal("unconfirmed gateway termination reported success")
+		attemptCtx, cancelAttempt := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		attemptErr := m.WatchRuntime(attemptCtx, vm.ID, fingerprint)
+		cancelAttempt()
+		if !errors.Is(attemptErr, context.DeadlineExceeded) {
+			t.Fatalf("watcher exited before cancellation: %v", attemptErr)
 		}
 		if got, err := process.RecordFingerprint(rt.VMProcessRecord()); err != nil || got != fingerprint {
 			t.Errorf("watcher lost driver exit evidence: %q %v", got, err)
@@ -153,6 +154,8 @@ func TestRuntimeWatcherPreservesExitForForwardRecovery(t *testing.T) {
 		}
 		assertVMStopEvents(t, recorder, vm.ID, 0)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	if err := os.WriteFile(rt.GVProxyProcessRecord(), gatewayRecord, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -207,8 +210,10 @@ func TestRuntimeWatcherCancellationAndUnknownIdentityRetainState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := New(st).WatchRuntime(context.Background(), vm.ID, fingerprint); err == nil {
-		t.Fatal("unknown driver identity accepted")
+	ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if err := New(st).WatchRuntime(ctx, vm.ID, fingerprint); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("watcher stopped retrying unknown driver identity: %v", err)
 	}
 	if !process.HasRecord(rt.VMProcessRecord()) {
 		t.Fatal("unknown identity record removed")
@@ -323,12 +328,7 @@ func TestExitedRuntimeCleanupRetainsNetworkWhenDriverInspectionFails(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	unlock, err := st.TryLockVM(vm.ID)
-	if err != nil || unlock == nil {
-		t.Fatalf("lock: %v", err)
-	}
-	defer unlock()
-	if err := New(st).cleanupExitedRuntime(context.Background(), vm.ID, fingerprint); err == nil {
+	if _, err := New(st).watchRuntimeOnce(context.Background(), vm.ID, fingerprint, &runtimeWatchSchedule{}); err == nil {
 		t.Fatal("cleanup accepted uncertain driver state")
 	}
 	if !process.Alive(driver.Process.Pid) {
@@ -336,5 +336,95 @@ func TestExitedRuntimeCleanupRetainsNetworkWhenDriverInspectionFails(t *testing.
 	}
 	if _, alive := process.ValidRecord(rt.GVProxyProcessRecord(), "gvproxy"); !alive {
 		t.Fatal("cleanup stopped the network before confirming driver exit")
+	}
+}
+
+func TestRuntimeWatcherRetriesFailedExitCleanup(t *testing.T) {
+	for _, failure := range []string{"gvproxy", "virtiofsd", "cancel"} {
+		t.Run(failure, func(t *testing.T) {
+			restore := failure != "cancel"
+			st, manager, vm, _ := newAutoForwardFixture(t)
+			rt := st.Runtime(vm)
+			gatewayPID, ok := process.ValidRecord(rt.GVProxyProcessRecord(), "gvproxy")
+			if !ok {
+				t.Fatal("fixture gvproxy is not running")
+			}
+			badRecord, badPID := rt.GVProxyProcessRecord(), gatewayPID
+			if failure == "virtiofsd" {
+				badRecord = rt.Virtiofsd("data").ProcessRecord
+				writer := fakeNamedVMProcess(t, "virtiofsd")
+				writeProcessRecord(t, badRecord, writer)
+				badPID = writer.Process.Pid
+			}
+			fingerprint, err := process.RecordFingerprint(rt.VMProcessRecord())
+			if err != nil {
+				t.Fatal(err)
+			}
+			exitAutoForwardFixtureDriver(t, st, vm)
+			if err := os.WriteFile(badRecord, []byte("{}"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			endpoint := forward.Decl{Protocol: "tcp", Bind: "127.0.0.1", HostPort: freeLoopbackPort(t), GuestPort: 8080}
+			if err := state.WriteJSONAtomic(rt.ForwardMutation(), []forward.Decl{endpoint}); err != nil {
+				t.Fatal(err)
+			}
+			recorder := &recordingEmitter{}
+			manager.events = recorder
+			timeout := time.Second
+			if restore {
+				timeout = 10 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			done := make(chan error, 1)
+			finished := make(chan struct{})
+			go func() {
+				defer close(finished)
+				done <- manager.WatchRuntime(ctx, vm.ID, fingerprint)
+			}()
+			t.Cleanup(func() { cancel(); <-finished })
+			if restore {
+				var earlyExit error
+				exited := false
+				if err := process.WaitFor(func() bool {
+					select {
+					case earlyExit = <-done:
+						exited = true
+						return true
+					default:
+					}
+					log, _ := os.ReadFile(st.LogPath(vm, "auto-forward"))
+					return strings.Contains(string(log), badRecord)
+				}, 3*time.Second); err != nil {
+					t.Fatal(err)
+				}
+				if exited {
+					t.Fatalf("watcher exited on cleanup failure: %v", earlyExit)
+				}
+				if reserved, err := st.PortReserved("tcp", endpoint.Bind, endpoint.HostPort); err != nil || (failure == "gvproxy" && !reserved) {
+					t.Fatalf("cleanup failure released port: %t %v", reserved, err)
+				}
+				if err := process.Record(badRecord, badPID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err = <-done
+			if restore {
+				if err != nil {
+					t.Fatalf("watcher did not recover: %v", err)
+				}
+				if manager.forwardMutationPending(vm) || process.HasRecord(rt.VMProcessRecord()) {
+					t.Fatal("successful cleanup retained recovery state")
+				}
+				assertVMStopEvents(t, recorder, vm.ID, 1)
+			} else {
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("watcher did not wait for its context: %v", err)
+				}
+				if !manager.forwardMutationPending(vm) || !process.HasRecord(rt.VMProcessRecord()) || !process.Alive(gatewayPID) {
+					t.Fatal("cancelled cleanup lost recovery state")
+				}
+				assertVMStopEvents(t, recorder, vm.ID, 0)
+			}
+		})
 	}
 }

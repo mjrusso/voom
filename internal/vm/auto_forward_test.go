@@ -416,8 +416,8 @@ func TestDisableAutoForwardRetainsRowsWhenRemovalFails(t *testing.T) {
 	}
 	gateway := fakeNamedVMProcess(t, "gvproxy")
 	writeProcessRecord(t, manager.store.Runtime(vm).GVProxyProcessRecord(), gateway)
-	outcome, retryErr := manager.watchAutoForwardsOnce(vm.ID)
-	if !errors.Is(retryErr, errForwardRecoveryRequired) || outcome != autoForwardWatchContinue {
+	outcome, retryErr := manager.watchRuntimeOnce(context.Background(), vm.ID, "", &runtimeWatchSchedule{})
+	if !errors.Is(retryErr, errForwardRecoveryRequired) || outcome != runtimeWatchContinue {
 		t.Fatalf("retry outcome = %d, error = %v", outcome, retryErr)
 	}
 	rows, readErr = manager.ReadRuntimeAutoForwards(vm)
@@ -468,14 +468,14 @@ func TestWatcherSkipsBusyVMAndReloadsByID(t *testing.T) {
 		unlock()
 		t.Fatal(err)
 	}
-	outcome, err := manager.watchAutoForwardsOnce(vm.ID)
-	if err != nil || outcome != autoForwardWatchSkipped {
+	outcome, err := manager.watchRuntimeOnce(context.Background(), vm.ID, "", &runtimeWatchSchedule{})
+	if err != nil || outcome != runtimeWatchSkipped {
 		unlock()
 		t.Fatalf("busy iteration = %d, %v", outcome, err)
 	}
 	unlock()
-	outcome, err = manager.watchAutoForwardsOnce(vm.ID)
-	if err == nil || outcome != autoForwardWatchContinue {
+	outcome, err = manager.watchRuntimeOnce(context.Background(), vm.ID, "", &runtimeWatchSchedule{})
+	if err == nil || outcome != runtimeWatchContinue {
 		t.Fatalf("next iteration = %d, %v", outcome, err)
 	}
 	rows, readErr := manager.ReadRuntimeAutoForwards(vm)
@@ -495,11 +495,11 @@ func TestWatcherDeduplicatesErrorsAndLogsRecovery(t *testing.T) {
 	lastErr := ""
 	first := errors.New("first failure")
 	second := errors.New("second failure")
-	lastErr = manager.logAutoForwardWatchResult(vm, autoForwardWatchContinue, first, lastErr)
-	lastErr = manager.logAutoForwardWatchResult(vm, autoForwardWatchContinue, first, lastErr)
-	lastErr = manager.logAutoForwardWatchResult(vm, autoForwardWatchContinue, second, lastErr)
-	lastErr = manager.logAutoForwardWatchResult(vm, autoForwardWatchContinue, nil, lastErr)
-	lastErr = manager.logAutoForwardWatchResult(vm, autoForwardWatchContinue, nil, lastErr)
+	lastErr = manager.logForwardWatchResult(vm, first, lastErr)
+	lastErr = manager.logForwardWatchResult(vm, first, lastErr)
+	lastErr = manager.logForwardWatchResult(vm, second, lastErr)
+	lastErr = manager.logForwardWatchResult(vm, nil, lastErr)
+	lastErr = manager.logForwardWatchResult(vm, nil, lastErr)
 
 	logPath := st.LogPath(vm, "auto-forward")
 	b, err := os.ReadFile(logPath)

@@ -45,7 +45,7 @@ func TestCleanupAttemptsGatewayAfterOtherHelperFailure(t *testing.T) {
 	}
 	cmd := fakeNamedVMProcess(t, "gvproxy")
 	writeProcessRecord(t, rt.GVProxyProcessRecord(), cmd)
-	if err := os.WriteFile(rt.AutoForwardProcessRecord(), []byte("invalid"), 0600); err != nil {
+	if err := os.WriteFile(rt.LegacyAutoForwardProcessRecord(), []byte("invalid"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	stop, err := New(st).stopRuntime(context.Background(), record)
@@ -58,7 +58,7 @@ func TestCleanupAttemptsGatewayAfterOtherHelperFailure(t *testing.T) {
 	if _, err := os.Stat(rt.GVProxyProcessRecord()); !os.IsNotExist(err) {
 		t.Fatal("gateway termination was not attempted")
 	}
-	if _, err := os.Stat(rt.AutoForwardProcessRecord()); err != nil {
+	if _, err := os.Stat(rt.LegacyAutoForwardProcessRecord()); err != nil {
 		t.Fatal("unknown helper record was discarded")
 	}
 }

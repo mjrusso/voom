@@ -3,9 +3,11 @@
 ## Unreleased
 
 - Keep running VMs alive when a manual or automatic port-forward change cannot
-  be confirmed. Affected ports remain reserved and further forwarding changes
-  are blocked until restart. Private egress recovery and failed-startup cleanup
-  can still stop the VM.
+  be confirmed. Voom checks again in the background, keeps affected ports
+  reserved, and blocks further forwarding changes until recovery finishes. Private egress recovery
+  and failed-startup cleanup can still stop the VM.
+- Use one runtime watcher per VM for automatic forwarding, forwarding recovery,
+  and cleanup after driver exit.
 - Record forwarding recovery errors in events and helper logs. Record the reason,
   operation, endpoint, and error before stopping a VM for private egress recovery.
 - Rotate helper and serial logs once per VM start, retaining the previous run as

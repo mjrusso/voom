@@ -278,12 +278,12 @@ func TestAutomaticRemovalAllowsMissingRetainedForward(t *testing.T) {
 				proxy.mu.Unlock()
 			}
 			if path == "pending-watcher" {
-				outcome, err := New(st).watchAutoForwardsOnce(vm.ID)
-				if err != nil || outcome == autoForwardWatchSkipped || m.forwardMutationPending(vm) {
+				outcome, err := New(st).watchRuntimeOnce(context.Background(), vm.ID, driver, &runtimeWatchSchedule{})
+				if err != nil || outcome == runtimeWatchSkipped || m.forwardMutationPending(vm) {
 					t.Fatalf("background recovery remained blocked: outcome=%d, error=%v", outcome, err)
 				}
-				outcome, err = m.watchAutoForwardsOnce(vm.ID)
-				if err != nil || outcome != autoForwardWatchContinue {
+				outcome, err = m.watchRuntimeOnce(context.Background(), vm.ID, "", &runtimeWatchSchedule{})
+				if err != nil || outcome != runtimeWatchContinue {
 					t.Fatalf("automatic watcher did not repair retained listener: %v", err)
 				}
 			} else if _, err := New(st).ReconcileForwards(context.Background(), vm.Name); err != nil {
