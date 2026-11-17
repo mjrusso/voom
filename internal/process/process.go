@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,11 +16,13 @@ import (
 )
 
 // StartRecorded launches an executable path and records its identity before releasing it.
+// The current executable must call DispatchLaunch at its entry point.
 func StartRecorded(exe string, args []string, logPath, recordPath string) error {
 	return startRecordedExe(exe, args, logPath, recordPath)
 }
 
 // StartSelfRecorded launches the current executable and records its identity before releasing it.
+// Its entry point must call DispatchLaunch before normal argument parsing.
 func StartSelfRecorded(args []string, logPath, recordPath string) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -28,7 +31,15 @@ func StartSelfRecorded(args []string, logPath, recordPath string) error {
 	return startRecordedExe(exe, args, logPath, recordPath)
 }
 
-func startRecordedExe(exe string, args []string, logPath, recordPath string) error {
+func startRecordedExe(exe string, args []string, logPath, recordPath string) (retErr error) {
+	exe, err := exec.LookPath(exe)
+	if err != nil {
+		return err
+	}
+	launcher, err := os.Executable()
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return err
 	}
@@ -36,25 +47,56 @@ func startRecordedExe(exe string, args []string, logPath, recordPath string) err
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(exe, args...)
+	defer func() { _ = log.Close() }()
+	gate, release, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = gate.Close(); _ = release.Close() }()
+	status, execStatus, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = status.Close(); _ = execStatus.Close() }()
+	cmd := exec.Command(launcher, append([]string{launchGateArgument, exe}, args...)...)
+	// This order must match the gate and exec-status descriptors in launch.go.
+	cmd.ExtraFiles = []*os.File{gate, execStatus}
 	cmd.Stdout, cmd.Stderr, cmd.Stdin = log, log, nil
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		_ = log.Close()
 		return err
 	}
-	if err := Record(recordPath, cmd.Process.Pid); err != nil {
-		killErr := cmd.Process.Kill()
-		if killErr == nil || errors.Is(killErr, os.ErrProcessDone) {
-			_ = cmd.Wait()
-		} else {
-			_ = cmd.Process.Release()
+	_ = gate.Close()
+	_ = execStatus.Close()
+	started := false
+	defer func() {
+		if !started {
+			_ = release.Close()
+			killErr := cmd.Process.Kill()
+			if killErr == nil || errors.Is(killErr, os.ErrProcessDone) {
+				_ = cmd.Wait()
+			} else {
+				retErr = errors.Join(retErr, killErr)
+				_ = cmd.Process.Release()
+			}
 		}
-		_ = log.Close()
-		return errors.Join(fmt.Errorf("record process identity in %s: %w", recordPath, err), killErr)
+	}()
+	if err := Record(recordPath, cmd.Process.Pid); err != nil {
+		return fmt.Errorf("record process identity in %s: %w", recordPath, err)
 	}
+	if _, err := release.Write([]byte{1}); err != nil {
+		return fmt.Errorf("release recorded process: %w", err)
+	}
+	_ = release.Close()
+	data, err := io.ReadAll(status)
+	if err != nil {
+		return err
+	}
+	if len(data) != 0 {
+		return fmt.Errorf("execute %s: %s", exe, data)
+	}
+	started = true
 	go func() { _ = cmd.Wait() }()
-	_ = log.Close()
 	return nil
 }
 

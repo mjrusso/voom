@@ -5,8 +5,16 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 )
+
+func TestMain(m *testing.M) {
+	if handled, code := process.DispatchLaunch(os.Args); handled {
+		os.Exit(code)
+	}
+	os.Exit(m.Run())
+}
 
 // newTestStore uses a short runtime path so generated Unix socket paths remain valid.
 func newTestStore(t *testing.T, opts ...state.Option) (*state.Store, string) {
