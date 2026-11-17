@@ -2,11 +2,9 @@ package state
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/mjrusso/voom/internal/atomicfile"
 	"github.com/mjrusso/voom/internal/forward"
@@ -66,25 +64,35 @@ func (s *Store) loadVMLocked(name string) (*VMRecord, error) {
 	if !ok {
 		return nil, fmt.Errorf("no such VM %q; run 'voom create %s --image <image>' first", name, name)
 	}
-	var vm VMRecord
-	if err := ReadJSON(filepath.Join(s.VMDir(id), "vm.json"), &vm); err != nil {
-		return nil, err
-	}
-	if vm.Name != name || vm.ID != id {
-		return nil, fmt.Errorf("VM index mismatch for %q", name)
-	}
-	if err := vm.validate(); err != nil {
-		return nil, err
-	}
-	return &vm, nil
+	return s.readVM(id, name)
 }
 
-// LoadVMByID loads a VM record directly by its ID, bypassing the name index.
+// LoadVMByID loads storage by ID and derives its current name from the index.
+// Unregistered objects have an empty name.
 func (s *Store) LoadVMByID(id string) (*VMRecord, error) {
+	index, err := ReadIndex(s.paths.State)
+	if err != nil {
+		return nil, err
+	}
+	name := ""
+	for candidate, current := range index.VMs {
+		if current == id {
+			name = candidate
+			break
+		}
+	}
+	return s.readVM(id, name)
+}
+
+func (s *Store) readVM(id, name string) (*VMRecord, error) {
 	var vm VMRecord
 	if err := ReadJSON(filepath.Join(s.VMDir(id), "vm.json"), &vm); err != nil {
 		return nil, err
 	}
+	if vm.ID != id {
+		return nil, fmt.Errorf("VM ID mismatch for %q", id)
+	}
+	vm.Name = name
 	if err := vm.validate(); err != nil {
 		return nil, err
 	}
@@ -118,35 +126,27 @@ func (s *Store) RenameVM(ctx context.Context, oldName, newName string) (*VMRecor
 		return nil, err
 	}
 	defer unlock()
-	previous := *vm
-	next := *vm
-	next.Name = newName
-	next.UpdatedAt = time.Now().UTC()
 	err = s.WithGlobalVM(oldName, vm.ID, func() error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if _, ok := s.index.VMs[newName]; ok {
 			return fmt.Errorf("VM %q already exists", newName)
 		}
-		if err := s.SaveVM(&next); err != nil {
-			return err
-		}
 		delete(s.index.VMs, oldName)
 		s.index.VMs[newName] = vm.ID
 		if err := s.saveIndexLocked(); err != nil {
-			if atomicfile.Published(err) {
-				return err
+			if !atomicfile.Published(err) {
+				delete(s.index.VMs, newName)
+				s.index.VMs[oldName] = vm.ID
 			}
-			delete(s.index.VMs, newName)
-			s.index.VMs[oldName] = vm.ID
-			return errors.Join(err, s.SaveVM(&previous))
+			return err
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	*vm = next
+	vm.Name = newName
 	return vm, nil
 }
 

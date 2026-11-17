@@ -85,14 +85,10 @@ func (s *Store) LockVMRecord(ctx context.Context, name string) (*VMRecord, func(
 				unlock()
 				return nil, nil, fmt.Errorf("VM %q changed while waiting for its lock", name)
 			}
-			vm, err := s.LoadVMByID(id)
+			vm, err := s.readVM(id, name)
 			if err != nil {
 				unlock()
 				return nil, nil, err
-			}
-			if vm.Name != name {
-				unlock()
-				return nil, nil, fmt.Errorf("VM index mismatch for %q", name)
 			}
 			return vm, unlock, nil
 		}

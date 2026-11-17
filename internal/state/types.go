@@ -60,8 +60,9 @@ type ImageCapabilities struct {
 
 // VMRecord is the on-disk record describing a managed VM.
 type VMRecord struct {
-	SchemaVersion     int            `json:"schemaVersion"`
-	ID                string         `json:"id"`
+	SchemaVersion int    `json:"schemaVersion"`
+	ID            string `json:"id"`
+	// Name comes from the index; vm.json retains it only as a legacy hint.
 	Name              string         `json:"name"`
 	Driver            string         `json:"driver"`
 	Arch              string         `json:"arch"`

@@ -123,7 +123,7 @@ func TestPublicationFailurePreservesReferencedStorage(t *testing.T) {
 	if err != nil {
 		t.Skip("strace is required for fsync fault injection")
 	}
-	for _, action := range []string{"import", "import macos", "create", "clone"} {
+	for _, action := range []string{"import", "import macos", "create", "clone", "rename"} {
 		t.Run(action, func(t *testing.T) {
 			var phases map[string]int
 			t.Run("baseline", func(t *testing.T) {

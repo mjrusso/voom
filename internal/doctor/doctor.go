@@ -4,9 +4,11 @@ package doctor
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 
 	"github.com/mjrusso/voom/internal/driver/qemu"
@@ -130,19 +132,23 @@ func StateDiagnostics(st *state.Store) []Check {
 	vmMgr := vm.New(st)
 	index := st.IndexSnapshot()
 	vmSeenIDs := map[string]string{}
+	registeredVMIDs := map[string]bool{}
 	macosIdentities := map[string]string{}
 	var usbInventory *usb.Inventory
 	var usbInventoryErr error
 	usbScanned := false
-	for name, id := range index.VMs {
+	var vms []*state.VMRecord
+	for _, name := range slices.Sorted(maps.Keys(index.VMs)) {
+		registeredVMIDs[index.VMs[name]] = true
 		vmRec, err := st.LoadVM(name)
-		if err != nil || vmRec.ID != id {
+		if err != nil || vmRec.ID != index.VMs[name] {
 			out = append(out, Check{"state-vm-" + name, "warn", false, "dangling VM index entry"})
 			continue
 		}
-		if vmRec.Name != name || vmRec.ID != id {
-			out = append(out, Check{"state-vm-mismatch-" + name, "warn", false, "VM object does not match state index entry"})
-		}
+		vms = append(vms, vmRec)
+	}
+	for _, vmRec := range vms {
+		name := vmRec.Name
 		if prev := vmSeenIDs[vmRec.ID]; prev != "" {
 			out = append(out, Check{"state-vm-duplicate-id", "warn", false, prev + " and " + name})
 		}
@@ -250,32 +256,18 @@ func StateDiagnostics(st *state.Store) []Check {
 		}
 		imageSeenIDs[im.ID] = name
 	}
+	vmObjectPaths := map[string]string{}
 	if err := filepath.WalkDir(filepath.Join(st.Paths().State, "vms"), func(path string, d os.DirEntry, err error) error {
 		if err == nil && d.Name() == "vm.json" {
 			var vmRec state.VMRecord
 			if state.ReadJSON(path, &vmRec) == nil {
-				if index.VMs[vmRec.Name] == "" {
+				if !registeredVMIDs[vmRec.ID] {
 					out = append(out, Check{"state-vm-orphan-" + vmRec.Name, "warn", false, "orphaned VM object directory"})
 				}
-				if prev := vmSeenIDs[vmRec.ID]; prev != "" && prev != vmRec.Name {
-					out = append(out, Check{"state-vm-duplicate-id", "warn", false, prev + " and " + vmRec.Name})
+				if prev, exists := vmObjectPaths[vmRec.ID]; exists {
+					out = append(out, Check{"state-vm-duplicate-id", "warn", false, prev + " and " + path})
 				}
-				vmSeenIDs[vmRec.ID] = vmRec.Name
-			}
-		}
-		return nil
-	}); err != nil {
-		out = append(out, Check{"state-vm-walk", "warn", false, err.Error()})
-	}
-	seenVMNames := map[string]string{}
-	if err := filepath.WalkDir(filepath.Join(st.Paths().State, "vms"), func(path string, d os.DirEntry, err error) error {
-		if err == nil && d.Name() == "vm.json" {
-			var vmRec state.VMRecord
-			if state.ReadJSON(path, &vmRec) == nil {
-				if prev := seenVMNames[vmRec.Name]; prev != "" && prev != vmRec.ID {
-					out = append(out, Check{"state-vm-duplicate-name-" + vmRec.Name, "warn", false, prev + " and " + vmRec.ID})
-				}
-				seenVMNames[vmRec.Name] = vmRec.ID
+				vmObjectPaths[vmRec.ID] = path
 			}
 		}
 		return nil
