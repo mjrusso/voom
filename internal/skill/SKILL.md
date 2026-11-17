@@ -23,19 +23,11 @@ problems. Read failures; inspection and cleanup may still be available.
 
 ## Use the installed CLI as the authority
 
-The installed binary defines its command syntax. Start with:
+The installed CLI defines command syntax. Use `voom --help` and
+`voom <command> --help` before unfamiliar operations. Do not guess flags or
+probe syntax with incomplete mutating commands.
 
-```bash
-voom --help
-voom image --help
-voom forward --help
-```
-
-Use `voom <command> --help` before unfamiliar operations. Do not discover
-syntax by guessing flags or running incomplete mutating commands.
-
-Use `--output json` when inspecting state or consuming results
-programmatically. In particular, do not parse Voom's human-readable tables:
+Use `--output json` for inspection; do not parse human-readable tables:
 
 ```bash
 voom list --output json
@@ -70,23 +62,20 @@ capability.
 
 ## Treat start as asynchronous
 
-`voom start` returns when the VM driver is reachable, before the guest has
-necessarily booted. Wait for SSH before dependent work. Linux guest port
-reports and automatic forwards may arrive later still.
+`voom start` returns when the driver is reachable. Wait for guest SSH before
+dependent work; Linux listener reports and automatic forwards can arrive later.
 
-After starting, poll `voom ssh <name> -- true` every two seconds with a
-two-minute deadline enforced by the agent's command runner. Retry connection
-failures while the guest boots, but leave SSH errors visible so configuration
-and authentication failures are not hidden. Do not rely on the external
-`timeout` command: it is not installed by default on every MacOS host.
+Poll `voom ssh <name> -- true` every two seconds for up to two minutes, using
+the command runner's deadline. Retry connection failures during boot; leave
+errors visible to distinguish configuration and authentication failures.
+Do not assume the external `timeout` command exists on MacOS.
 
 After SSH is ready, use `voom guest verify <name> --output json` to check guest
 health and supported integrations. It runs once without boot retries and
 checks Nix when detected; MacOS guests do not require Nix.
 
-`voom events` gives best-effort change notifications, not readiness. Reconcile
-events with current state. On Linux guests, an empty forward list after start
-can mean listener reports and reconciliation are still pending.
+`voom events` is best-effort; confirm readiness from current state. Missing
+application forwards after Linux boot may mean listener reports are pending.
 
 ## Workflows
 
@@ -138,8 +127,8 @@ voom forward list <name> --output json
 Read `voom forward auto enable --help` before selecting bind or LAN exposure.
 Exposing a service beyond loopback requires explicit user intent.
 
-Enabling starts the watcher without waiting for reconciliation. Poll the
-forward list until the installed row appears or the deadline expires.
+Enabling returns before reconciliation. Poll the forward list until the
+installed row appears or the deadline expires.
 
 For manual mappings on either guest OS:
 
@@ -167,6 +156,14 @@ change is unconfirmed. It keeps checking in the background. For a requested repa
 if unresolved. Do not delete recovery records. Stop/start requires authorization
 and is a fallback when recovery details are missing. Private egress recovery and
 failed-startup cleanup can still stop the VM.
+
+### Reach tailnet destinations from a guest
+
+Guest TCP/UDP to `100.64.0.0/10` and `fd7a:115c:a1e0::/48` is blocked; names may
+still resolve. Inspect `voom config allowed-destinations`. Exceptions are global
+IP:port pairs for both protocols. `set` replaces all entries; change only requested
+access and preserve unrelated exceptions. Changes apply at VM startup. `doctor`
+checks the active policy.
 
 ### Configure an explicit proxy attachment
 
@@ -277,9 +274,12 @@ voom info <name> --output json
 voom logs <name>
 ```
 
-Verify the guest after SSH is ready. `voom console <name>` is a Linux serial
-console. MacOS guests have no serial console; use `voom gui`, SSH, or vfkit
-logs from `voom logs`.
+Verify the guest after SSH is ready. `voom console <name>` follows Linux serial
+output. MacOS guests use the GUI, SSH, or vfkit logs.
+
+`voom logs` reads the current run; use `--kind auto-forward` for recovery errors.
+Logs rotate at VM start. The previous run is
+`<cache>/vms/<id>/<kind>.log.1`; `voom debug paths --output json` locates the cache.
 
 ## Safety and coordination
 
@@ -295,7 +295,5 @@ logs from `voom logs`.
   prompt is not permission to broaden the operation.
 - Do not remove images during ordinary scratch-VM cleanup. Images may be shared
   by other VMs.
-- Prefer a `scratch-` name or a name supplied by the user for disposable VMs.
-- Report the name and stable ID of each VM you create. When finished, report
-  which scratch resources you removed and which you intentionally left in
-  place.
+- Report names and IDs of created VMs, and which task-owned resources were
+  removed or left in place.
