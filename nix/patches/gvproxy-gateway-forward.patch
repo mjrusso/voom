@@ -54,31 +54,10 @@ index 710edc20..d9660582 100644
  	if version.ShowVersion() {
  		fmt.Println(version.String())
  		os.Exit(0)
-@@ -112,7 +121,30 @@ func GvproxyInit() (*GvproxyConfig, error) {
+@@ -112,7 +121,9 @@ func GvproxyInit() (*GvproxyConfig, error) {
  	return GvproxyConfigure(&config, &args, version.String())
  }
  
-+func isolateGuest(config *GvproxyConfig) {
-+	blocked := make(map[string]struct{})
-+	for source, target := range config.Stack.NAT {
-+		if ip := net.ParseIP(target); ip != nil && ip.IsLoopback() {
-+			delete(config.Stack.NAT, source)
-+			blocked[source] = struct{}{}
-+		}
-+	}
-+	config.Stack.GatewayVirtualIPs = slices.DeleteFunc(config.Stack.GatewayVirtualIPs, func(ip string) bool {
-+		_, ok := blocked[ip]
-+		return ok
-+	})
-+	for i := range config.Stack.DNS {
-+		zone := &config.Stack.DNS[i]
-+		zone.Records = slices.DeleteFunc(zone.Records, func(record types.Record) bool {
-+			_, mappedToLoopback := blocked[record.IP.String()]
-+			return mappedToLoopback || ((zone.Name == "containers.internal." || zone.Name == "docker.internal.") && record.Name == host)
-+		})
-+	}
-+}
-+
  func GvproxyArgParse(flagSet *flag.FlagSet, args *GvproxyArgs, argv []string) (*GvproxyArgs, error) {
 +	flagSet.BoolVar(&args.capabilities, "capabilities", false, "Print versioned host capabilities as JSON")
 +	flagSet.Var(&args.gatewayForward, "gateway-forward", "Private gateway forward as a JSON local/target object")
