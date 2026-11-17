@@ -122,6 +122,18 @@ keeps the recovery journal, reserves the affected ports, and blocks further
 forwarding changes. The runtime watcher retries in the background, with increasing
 delays between failed attempts, even when automatic forwarding is disabled.
 
+To retry immediately and inspect the result:
+
+```sh
+voom forward reconcile dev
+voom forward list dev
+```
+
+`reconcile` runs once without restarting the VM. Its `--timeout` defaults to ten
+seconds. If confirmation is still pending, it exits with an error and background
+recovery continues. You can run it again. `forward list` shows `uncertain` rows
+with the last error. Recovery errors are also recorded in `auto-forward.log`.
+
 When you remove a manual forward, Voom saves the removal before asking gvproxy
 to remove its listener. If it cannot confirm the change, the forward is no
 longer in the saved configuration, but its listener may still be running. The port stays reserved

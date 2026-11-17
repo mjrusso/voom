@@ -22,4 +22,5 @@ Manage guest port forwards
 * [voom forward auto](voom_forward_auto.md)	 - Configure auto-forwarding
 * [voom forward discover](voom_forward_discover.md)	 - Preview forwarding state
 * [voom forward list](voom_forward_list.md)	 - List effective forwards
+* [voom forward reconcile](voom_forward_reconcile.md)	 - Apply pending forwarding changes without restarting the VM
 * [voom forward remove](voom_forward_remove.md)	 - Remove a manual TCP or UDP forward

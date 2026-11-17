@@ -22,7 +22,7 @@ integrations are always opt-in.
 | Compute   | `resources cpus`, `resources memory`                                                                    |
 | Disk      | `resources disk grow`, `disk reset`                                                                     |
 | Access    | `ssh`, `console`, `gui`, `ssh-config`, `config show`, `config ssh-port`                                 |
-| Forwards  | `forward add`, `forward remove`, `forward list`, `forward discover`, `forward auto enable`/`disable`/`offset` |
+| Forwards  | `forward add`, `forward remove`, `forward list`, `forward discover`, `forward reconcile`, `forward auto enable`/`disable`/`offset` |
 | Egress    | `config egress set`, `config egress clear`, `config egress enable`, `config egress disable`             |
 | Shares    | `share add`, `share remove`, `share list`                                                               |
 | USB       | `usb discover`, `usb add`, `usb remove`, `usb list`                                                     |

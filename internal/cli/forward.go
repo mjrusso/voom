@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -15,7 +17,39 @@ import (
 
 func forwardCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "forward", Short: "Manage guest port forwards"}
-	cmd.AddCommand(forwardAddCommand(), forwardRemoveCommand(), forwardListCommand(), forwardDiscoverCommand(), forwardAutoCommand())
+	cmd.AddCommand(forwardAddCommand(), forwardRemoveCommand(), forwardListCommand(), forwardDiscoverCommand(), forwardReconcileCommand(), forwardAutoCommand())
+	return cmd
+}
+
+func forwardReconcileCommand() *cobra.Command {
+	var timeout time.Duration
+	cmd := &cobra.Command{
+		Use: "reconcile <name>", ValidArgsFunction: completeVMNames,
+		Short: "Apply pending forwarding changes without restarting the VM",
+		Long:  "Confirm pending requests and apply saved manual and automatic forwards. If a request is still unconfirmed after this attempt, the command returns an error. Voom keeps its ports reserved and continues checking in the background.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if timeout <= 0 {
+				return errors.New("--timeout must be positive")
+			}
+			deps, err := loadRuntimeDeps()
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+			defer cancel()
+			rows, err := deps.vm.ReconcileForwards(ctx, args[0])
+			if outputFormat(cmd) == "json" {
+				return errors.Join(err, json.NewEncoder(cmd.OutOrStdout()).Encode(rows))
+			}
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "forwarding reconciled for %s\n", args[0])
+			return err
+		},
+	}
+	cmd.Flags().DurationVar(&timeout, "timeout", 10*time.Second, "time limit for this attempt")
 	return cmd
 }
 

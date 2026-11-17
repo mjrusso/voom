@@ -4,7 +4,8 @@
 
 - Keep running VMs alive when a manual or automatic port-forward change cannot
   be confirmed. Voom checks again in the background, keeps affected ports
-  reserved, and blocks further forwarding changes until recovery finishes. Private egress recovery
+  reserved, and blocks further forwarding changes until recovery finishes. Run
+  `voom forward reconcile <name>` to retry immediately. Private egress recovery
   and failed-startup cleanup can still stop the VM.
 - Use one runtime watcher per VM for automatic forwarding, forwarding recovery,
   and cleanup after driver exit.

@@ -162,9 +162,11 @@ After a forwarding error, inspect `voom info <name> --output json` and
 `reason`; a saved declaration or reserved port does not prove installation.
 
 Voom keeps the VM running, reserves ports, and blocks further changes while a
-change is unconfirmed. It keeps checking in the background. Do not delete recovery
-records. Stop/start requires authorization and is a fallback when recovery details
-are missing. Private egress recovery and failed-startup cleanup can still stop the VM.
+change is unconfirmed. It keeps checking in the background. For a requested repair, run
+`voom forward reconcile <name> --output json`; it runs once and returns nonzero
+if unresolved. Do not delete recovery records. Stop/start requires authorization
+and is a fallback when recovery details are missing. Private egress recovery and
+failed-startup cleanup can still stop the VM.
 
 ### Configure an explicit proxy attachment
 
