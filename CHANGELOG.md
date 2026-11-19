@@ -2,31 +2,40 @@
 
 ## Unreleased
 
-- Keep running VMs alive when a manual or automatic port-forward change cannot
-  be confirmed. Voom checks again in the background, keeps affected ports
-  reserved, and blocks further forwarding changes until recovery finishes. Run
+## v1.6.0 - 2026-11-19
+
+> [!IMPORTANT]
+>
+> **After upgrading, restart running VMs** to apply the new network policy
+> and enable forwarding recovery. Point any `VOOM_GVPROXY` override at the
+> gvproxy bundled with this release. If guests need direct tailnet access,
+> configure the required IP and port exceptions before restarting.
+
+- Block direct guest TCP and UDP connections to tailnet addresses by default.
+  This prevents guests from making those connections using the host's Tailscale
+  identity. Use `voom config allowed-destinations set` to allow
+  specific IP and port pairs. Use `voom doctor` to check for missing blocks
+  and stale exceptions. See [tailnet destinations](docs/reference.md#tailnet-destinations).
+- Keep VMs running during port-forward recovery. If Voom cannot confirm a
+  manual or automatic forwarding change, it retries in the background, keeps
+  the affected ports reserved, and pauses further forwarding changes. Run
   `voom forward reconcile <name>` to retry immediately. Private egress recovery
-  and failed-startup cleanup can still stop the VM.
-- Use one runtime watcher per VM for automatic forwarding, forwarding recovery,
-  and cleanup after driver exit.
-- Warn in `voom list`, `voom info`, and `voom doctor` when forwarding recovery is
-  pending or forwards are unavailable. VM status shows whether the VM process
-  is running.
-- Record forwarding recovery errors in events and helper logs. Record the reason,
-  operation, endpoint, and error before stopping a VM for private egress recovery.
-- Rotate helper and serial logs once per VM start, retaining the previous run as
-  `<name>.log.1`. Daemons sharing a log and restarted watchers append to the
-  current run's log.
-- Block direct guest TCP and UDP connections to tailnet addresses. This prevents
-  guests from using the host's Tailscale identity to reach the tailnet.
-  After upgrading, point any `VOOM_GVPROXY` override at the bundled gvproxy;
-  Voom rejects builds without subnet blocking support. Configure any required
-  [IP and port exceptions](docs/reference.md#tailnet-destinations), then restart
-  running VMs to apply the block and exceptions. Run `voom doctor` to check for
-  missing blocks and stale exceptions.
-- Include missing third-party license files in release archives and Nix packages.
-- Fix broken links to license notices and dependency information in the
-  bundled license guide.
+  and failed-startup cleanup can still stop a VM. See
+  [forwarding recovery](docs/diagnostics-and-recovery.md#forwarding-reports-uncertain-state).
+- Show forwarding problems in VM diagnostics. `voom list`, `voom info`,
+  and `voom doctor` report pending recovery and forwarding problems separately
+  from whether the VM process is running. Voom records recovery errors in events
+  and helper logs, including the reason and endpoint for private egress stops.
+- Clean up automatically after the VM process exits on Linux. On Linux and
+  MacOS, the VM watcher retries failed cleanup and records a stop event when
+  cleanup completes.
+- Hold one lock across shutdown and startup during a restart. Operations such
+  as cloning or growing a disk require confirmation that the VM has stopped.
+  Voom can still find a VM if a rename is interrupted.
+- Keep logs from the previous VM run. Each start rotates helper and serial logs
+  to `<name>.log.1`. Restarted watchers append to the current log.
+- Include missing third-party license files in release archives and Nix packages,
+  and repair links in the bundled license guide.
 
 ## v1.5.0 - 2026-10-22
 
