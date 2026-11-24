@@ -167,7 +167,11 @@ func TestForwardingWarningsAcrossInspectionCommands(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer socket.Close()
+				t.Cleanup(func() {
+					if err := socket.Close(); err != nil {
+						t.Errorf("close driver socket: %v", err)
+					}
+				})
 			}
 			list := runCmd(t, "list")
 			if strings.Contains(list, "forwarding=warning") != wantWarning || !strings.Contains(list, status) {
