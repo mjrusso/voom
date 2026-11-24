@@ -29,7 +29,11 @@ func TestForwardingInspectionHonorsCancellation(t *testing.T) {
 	for i := range vms {
 		vms[i] = &state.VMRecord{Name: fmt.Sprintf("unregistered-%d", i)}
 	}
-	for i, warnings := range m.ForwardingWarningsForVMs(ctx, vms) {
+	for i, result := range m.InspectRuntimes(ctx, vms) {
+		if result.Status != RuntimeUnknown || !errors.Is(result.RuntimeError, context.Canceled) {
+			t.Errorf("VM %d should report unknown status and a cancellation error, got %+v", i, result)
+		}
+		warnings := result.ForwardingWarnings
 		if len(warnings) != 1 || !strings.Contains(warnings[0], context.Canceled.Error()) {
 			t.Errorf("VM %d was inspected after cancellation: %v", i, warnings)
 		}
@@ -66,7 +70,11 @@ func TestForwardingWarningsPreserveRuntimeInspectionFailure(t *testing.T) {
 						t.Errorf("inspection failure was discarded: %+v", row)
 					}
 				}
-				warnings := m.ForwardingWarnings(context.Background(), vm.Name)
+				result := m.InspectRuntime(context.Background(), vm)
+				if result.Status != RuntimeUnknown || result.RuntimeError == nil {
+					t.Fatalf("runtime failure missing from inspection: %+v", result)
+				}
+				warnings := result.ForwardingWarnings
 				if len(warnings) == 0 || !strings.Contains(strings.Join(warnings, " "), "cannot confirm runtime") {
 					t.Fatalf("runtime failure missing from warnings: %+v", warnings)
 				}

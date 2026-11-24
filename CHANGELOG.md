@@ -20,6 +20,10 @@
 - Store Linux guests' EFI variables in persistent VM storage on MacOS.
   [Copy any existing EFI store](docs/reference.md#migrate-an-efi-variable-store)
   after stopping the guest and before starting it with the new version.
+- Report `unknown` in `voom info` and `voom list` on Linux and MacOS when
+  Voom cannot verify the VM process state. Both commands previously showed
+  `stopped` in that case. `voom info` JSON adds `status` and keeps the
+  `running` boolean for compatibility.
 
 ## v1.6.0 - 2026-11-19
 

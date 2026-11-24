@@ -148,7 +148,7 @@ func StateDiagnostics(st *state.Store) []Check {
 		}
 		vms = append(vms, vmRec)
 	}
-	forwardingWarnings := vmMgr.ForwardingWarningsForVMs(context.Background(), vms)
+	inspections := vmMgr.InspectRuntimes(context.Background(), vms)
 	for i, vmRec := range vms {
 		name := vmRec.Name
 		if prev := vmSeenIDs[vmRec.ID]; prev != "" {
@@ -168,7 +168,7 @@ func StateDiagnostics(st *state.Store) []Check {
 			macosIdentities[identity] = name
 		}
 		out = append(out, egressDiagnostics(st, vmMgr, vmRec)...)
-		if warnings := forwardingWarnings[i]; len(warnings) > 0 {
+		if warnings := inspections[i].ForwardingWarnings; len(warnings) > 0 {
 			out = append(out, Check{"forwarding-" + name, "warn", false, strings.Join(warnings, "; ")})
 		}
 		if runtime.GOOS == "linux" {

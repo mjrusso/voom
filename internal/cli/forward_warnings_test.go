@@ -66,6 +66,7 @@ func TestForwardingWarningsAcrossInspectionCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	var table atomic.Value
+	var removeDriverRecord atomic.Bool
 	var mutations atomic.Int32
 	var active, peak atomic.Int32
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +80,12 @@ func TestForwardingWarningsAcrossInspectionCommands(t *testing.T) {
 			return
 		}
 		body := table.Load().(string)
+		if removeDriverRecord.Swap(false) {
+			if err := os.Remove(rt.VMProcessRecord()); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
 		if body == "blocked" {
 			current := active.Add(1)
 			defer active.Add(-1)
@@ -110,22 +117,28 @@ func TestForwardingWarningsAcrossInspectionCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name, table, journal, warning string
-		running                       bool
-		autoRows                      []forward.RuntimeAuto
+		name, status, table, journal, warning string
+		autoRows                              []forward.RuntimeAuto
 	}{
 		{name: "stopped"},
-		{name: "installed", running: true, table: all},
-		{name: "skipped automatic forward", running: true, table: all, autoRows: []forward.RuntimeAuto{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 10022, GuestPort: 22, GuestTargetIP: target, Status: forward.ReservationSkipped, Reason: "guest SSH port is reserved"}}},
-		{name: "missing manual forward", running: true, table: sshOnly, warning: "tcp 127.0.0.1:18080: declared forward is absent"},
-		{name: "missing automatic forward", running: true, table: all, autoRows: []forward.RuntimeAuto{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 19090, GuestPort: 9090, GuestTargetIP: target, Status: forward.ReservationActive}}, warning: "tcp 127.0.0.1:19090: declared forward is absent"},
-		{name: "pending recovery", running: true, journal: string(journal), warning: "voom forward reconcile dev"},
+		{name: "installed", status: "running", table: all},
+		{name: "driver socket without record", status: "unknown", warning: "remains without process identity"},
+		{name: "skipped automatic forward", status: "running", table: all, autoRows: []forward.RuntimeAuto{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 10022, GuestPort: 22, GuestTargetIP: target, Status: forward.ReservationSkipped, Reason: "guest SSH port is reserved"}}},
+		{name: "missing manual forward", status: "running", table: sshOnly, warning: "tcp 127.0.0.1:18080: declared forward is absent"},
+		{name: "missing automatic forward", status: "running", table: all, autoRows: []forward.RuntimeAuto{{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 19090, GuestPort: 9090, GuestTargetIP: target, Status: forward.ReservationActive}}, warning: "tcp 127.0.0.1:19090: declared forward is absent"},
+		{name: "pending recovery", status: "running", journal: string(journal), warning: "voom forward reconcile dev"},
 		{name: "stopped with pending recovery", journal: string(journal), warning: "voom forward reconcile dev"},
-		{name: "legacy recovery", running: true, journal: string(legacy), warning: "recovery details are unavailable"},
-		{name: "malformed journal", running: true, journal: "{", warning: "malformed"},
-		{name: "unavailable observation", running: true, warning: "snapshot unavailable"},
+		{name: "legacy recovery", status: "running", journal: string(legacy), warning: "recovery details are unavailable"},
+		{name: "malformed journal", status: "running", journal: "{", warning: "malformed"},
+		{name: "unavailable observation", status: "running", warning: "snapshot unavailable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			status := tc.status
+			if status == "" {
+				status = "stopped"
+			}
+			wantRunning := status == "running"
+			wantUnknown := status == "unknown"
 			table.Store(tc.table)
 			if len(tc.autoRows) > 0 {
 				if err := forward.WriteRuntimeState(rt.AutoForwardsJSON(), tc.autoRows); err != nil {
@@ -134,7 +147,7 @@ func TestForwardingWarningsAcrossInspectionCommands(t *testing.T) {
 			} else if err := os.Remove(rt.AutoForwardsJSON()); err != nil && !os.IsNotExist(err) {
 				t.Fatal(err)
 			}
-			if tc.running {
+			if wantRunning {
 				if err := process.Record(rt.VMProcessRecord(), driver.Process.Pid); err != nil {
 					t.Fatal(err)
 				}
@@ -149,11 +162,14 @@ func TestForwardingWarningsAcrossInspectionCommands(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantWarning := tc.warning != ""
-			list := runCmd(t, "list")
-			status := "stopped"
-			if tc.running {
-				status = "running"
+			if wantUnknown {
+				socket, err := net.Listen("unix", rt.QEMUMonitor())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer socket.Close()
 			}
+			list := runCmd(t, "list")
 			if strings.Contains(list, "forwarding=warning") != wantWarning || !strings.Contains(list, status) {
 				t.Fatalf("list: %s", list)
 			}
@@ -168,18 +184,23 @@ func TestForwardingWarningsAcrossInspectionCommands(t *testing.T) {
 				t.Fatalf("list JSON: %+v", rows)
 			}
 			info := runCmd(t, "info", record.Name)
-			if strings.Contains(info, "forwarding-warning:") != wantWarning || !strings.Contains(info, "status: "+status) || !strings.Contains(info, tc.warning) {
+			if strings.Contains(info, "forwarding-warning:") != wantWarning || !strings.Contains(info, "status: "+status) || !strings.Contains(info, tc.warning) || strings.Contains(info, "runtime-error: cannot confirm runtime state") != wantUnknown {
 				t.Fatalf("info: %s", info)
 			}
 			var details struct {
+				Status             string   `json:"status"`
+				RuntimeError       string   `json:"runtimeError"`
 				Running            bool     `json:"running"`
 				ForwardingWarnings []string `json:"forwardingWarnings"`
 			}
 			if err := json.Unmarshal([]byte(runCmd(t, "info", record.Name, "--output", "json")), &details); err != nil {
 				t.Fatal(err)
 			}
-			if details.Running != tc.running || (len(details.ForwardingWarnings) > 0) != wantWarning || !strings.Contains(strings.Join(details.ForwardingWarnings, "\n"), tc.warning) {
+			if details.Running != wantRunning || (len(details.ForwardingWarnings) > 0) != wantWarning || !strings.Contains(strings.Join(details.ForwardingWarnings, "\n"), tc.warning) {
 				t.Fatalf("info JSON: %+v", details)
+			}
+			if details.Status != status || (details.RuntimeError != "") != wantUnknown || (wantUnknown && !strings.Contains(details.RuntimeError, tc.warning)) {
+				t.Fatalf("info JSON runtime: %+v", details)
 			}
 			found := false
 			for _, check := range doctor.StateDiagnostics(store) {
@@ -202,11 +223,36 @@ func TestForwardingWarningsAcrossInspectionCommands(t *testing.T) {
 					t.Fatalf("inspection changed recovery journal: %s, %v", data, err)
 				}
 			}
-			if _, running := process.ValidRecord(rt.VMProcessRecord(), "qemu"); running != tc.running {
+			if _, running := process.ValidRecord(rt.VMProcessRecord(), "qemu"); running != wantRunning {
 				t.Fatal("inspection changed driver state")
 			}
 		})
 	}
+	t.Run("status and forwarding use the same runtime observation", func(t *testing.T) {
+		t.Cleanup(func() {
+			if err := process.Record(rt.VMProcessRecord(), driver.Process.Pid); err != nil {
+				t.Error(err)
+			}
+		})
+		for _, command := range []string{"list", "info"} {
+			if err := process.Record(rt.VMProcessRecord(), driver.Process.Pid); err != nil {
+				t.Fatal(err)
+			}
+			table.Store(all)
+			removeDriverRecord.Store(true)
+			args := []string{command, "--output", "json"}
+			if command == "info" {
+				args = append(args, record.Name)
+			}
+			output := runCmd(t, args...)
+			if !strings.Contains(output, `"status":"running"`) || strings.Contains(output, `"forwardingWarnings"`) {
+				t.Errorf("%s combined different runtime observations: %s", command, output)
+			}
+			if _, err := os.Stat(rt.VMProcessRecord()); !os.IsNotExist(err) {
+				t.Fatalf("forwarding probe did not remove the process record: %v", err)
+			}
+		}
+	})
 	t.Run("listing deadline and order", func(t *testing.T) {
 		table.Store("blocked")
 		for i := range 11 {
@@ -241,6 +287,7 @@ func TestForwardingWarningsAcrossInspectionCommands(t *testing.T) {
 		peak.Store(0)
 		var rows []struct {
 			Name     string   `json:"name"`
+			Status   string   `json:"status"`
 			Warnings []string `json:"forwardingWarnings"`
 		}
 		if err := json.Unmarshal([]byte(output), &rows); err != nil {
@@ -261,8 +308,8 @@ func TestForwardingWarningsAcrossInspectionCommands(t *testing.T) {
 			t.Fatalf("probe batch: rows=%d, doctor=%v, concurrent=%d", len(rows), names, peak.Load())
 		}
 		for i, row := range rows {
-			if row.Name != names[i] || len(row.Warnings) == 0 || (i > 0 && row.Name <= rows[i-1].Name) {
-				t.Fatalf("inspection order or warnings: %+v, doctor=%v", rows, names)
+			if row.Name != names[i] || row.Status != "running" || len(row.Warnings) == 0 || (i > 0 && row.Name <= rows[i-1].Name) {
+				t.Fatalf("inspection order, runtime status, or warnings: %+v, doctor=%v", rows, names)
 			}
 		}
 	})

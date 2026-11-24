@@ -39,6 +39,22 @@ and [aliases and shell
 completion](#aliases-and-shell-completion) for shortcuts and
 shell setup.
 
+### VM status and diagnostics
+
+`voom info` and `voom list` show whether the VM process is `running` or
+`stopped`. Voom reports `unknown` when it cannot verify the process state.
+In `voom info` JSON, `status` uses the same three values and `runtimeError`
+explains why the status is `unknown`. The `running` boolean is `false` for
+both `stopped` and `unknown`.
+
+`voom list` marks forwarding warnings, and `voom info` explains them. Both
+include `forwardingWarnings` in JSON when warnings are present.
+
+`voom doctor` scans object directories in addition to `state.json` and reports
+dangling index entries, orphaned records, duplicate names or IDs, LAN
+exposure, stale process records, stale auto-forward state, malformed guest
+port reports, and forwarding warnings.
+
 ## Directories
 
 | Purpose                     | Linux default                                  | Override           |
@@ -338,13 +354,6 @@ The initial event taxonomy is:
 
 The runtime watcher emits a `stop` event when cleanup after driver exit
 changes runtime state. There is no distinct crash event.
-
-`voom doctor` scans object directories in addition to `state.json` and reports
-dangling index entries, orphaned records, duplicate names or IDs, LAN
-exposure, stale process records, stale auto-forward state, malformed guest
-port reports, and forwarding warnings. `voom list` marks forwarding warnings;
-`voom info` reports their details. Both include `forwardingWarnings` in JSON when
-warnings are present. VM status shows whether the VM process is running.
 
 ## Command effects
 

@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,14 +52,15 @@ func TestForwardingWarningsBoundSlowProcessInspection(t *testing.T) {
 				defer cancel()
 			}
 			start := time.Now()
-			warnings := m.ForwardingWarningsForVMs(ctx, vms)
+			results := m.InspectRuntimes(ctx, vms)
 			t.Logf("inspected %d VMs in %s with budget %s", len(vms), time.Since(start), budget)
 			if elapsed := time.Since(start); elapsed > budget+500*time.Millisecond {
 				t.Errorf("process inspection exceeded shared budget %s: %s", budget, elapsed)
 			}
-			for i, warning := range warnings {
-				if len(warning) == 0 || !strings.Contains(strings.Join(warning, " "), context.DeadlineExceeded.Error()) {
-					t.Errorf("VM %d lost the inspection deadline: %v", i, warning)
+			for i, result := range results {
+				if result.Status != RuntimeUnknown || !errors.Is(result.RuntimeError, context.DeadlineExceeded) ||
+					!strings.Contains(strings.Join(result.ForwardingWarnings, " "), context.DeadlineExceeded.Error()) {
+					t.Errorf("VM %d should report unknown status and a deadline error, got %+v", i, result)
 				}
 			}
 			data, err := os.ReadFile(probes)

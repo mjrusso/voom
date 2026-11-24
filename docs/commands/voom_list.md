@@ -8,7 +8,7 @@ List VMs, one per row: name, ID, status, image, CPUs, memory, SSH port, disk cap
 
 A disk that cannot be read shows as disk=?. The USB, PCI, and egress-config columns show saved configuration. Use 'voom info <name>' for current USB, PCI, and egress state and host disk allocation.
 
-Forwarding problems add forwarding=warning. Use 'voom info <name>' or 'voom forward list <name>' for details. Status shows whether the VM process is running.
+Forwarding problems add forwarding=warning. Use 'voom info <name>' or 'voom forward list <name>' for details. Status is running, stopped, or unknown.
 
 ```
 voom list [flags]

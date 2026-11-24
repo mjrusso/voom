@@ -267,7 +267,7 @@ func logsCommand() *cobra.Command {
 }
 
 func infoCommand() *cobra.Command {
-	return &cobra.Command{Use: "info <name>", ValidArgsFunction: completeVMNames, Aliases: []string{"inspect"}, Short: "Inspect a VM", Long: "Show saved VM configuration, disk usage, and current USB, PCI, egress, and forwarding status.\n\nForwarding problems appear as warnings. Status shows whether the VM process is running. Use 'voom forward list <name>' to inspect each forward.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "info <name>", ValidArgsFunction: completeVMNames, Aliases: []string{"inspect"}, Short: "Inspect a VM", Long: "Show saved VM configuration, disk usage, and current USB, PCI, egress, and forwarding status.\n\nForwarding problems appear as warnings. Status is running, stopped, or unknown. Use 'voom forward list <name>' to inspect each forward.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -276,7 +276,17 @@ func infoCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		out := vmInfo{VM: vmRec, Running: deps.vm.IsRunning(vmRec), DiskPath: deps.store.VMDiskPath(vmRec), ForwardingWarnings: deps.vm.ForwardingWarnings(cmd.Context(), vmRec.Name)}
+		inspection := deps.vm.InspectRuntime(cmd.Context(), vmRec)
+		out := vmInfo{
+			VM:                 vmRec,
+			Status:             inspection.Status,
+			Running:            inspection.Status == vm.RuntimeRunning,
+			DiskPath:           deps.store.VMDiskPath(vmRec),
+			ForwardingWarnings: inspection.ForwardingWarnings,
+		}
+		if inspection.RuntimeError != nil {
+			out.RuntimeError = inspection.RuntimeError.Error()
+		}
 		if vmRec.MacOS != nil {
 			out.PlatformStateDir = deps.store.VMStorageDir(vmRec)
 		}
@@ -298,7 +308,10 @@ func infoCommand() *cobra.Command {
 		if out.Disk != nil {
 			disk = fmt.Sprintf("%s virtual, %s allocated on host", formatBytes(out.Disk.VirtualBytes), formatBytes(out.Disk.AllocatedBytes))
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\nstatus: %s\nimage: %s\ncpus: %d\nmemory: %dMiB\ndisk: %s\nssh: %s@%s:%d\nforwards: %d\nshares: %d\nusb: %d\npci: %d\n", vmRec.Name, vmRec.ID, vm.Status(out.Running), vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, disk, vmRec.Access.SSHUser, vmRec.Network.SSHBind, vmRec.Network.SSHPort, len(vmRec.Network.Forwards), len(vmRec.Shares), len(vmRec.USBDevices), len(vmRec.PCIDevices))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "name: %s\nid: %s\nstatus: %s\nimage: %s\ncpus: %d\nmemory: %dMiB\ndisk: %s\nssh: %s@%s:%d\nforwards: %d\nshares: %d\nusb: %d\npci: %d\n", vmRec.Name, vmRec.ID, out.Status, vmRec.Image.Name, vmRec.Resources.CPUs, vmRec.Resources.MemoryMiB, disk, vmRec.Access.SSHUser, vmRec.Network.SSHBind, vmRec.Network.SSHPort, len(vmRec.Network.Forwards), len(vmRec.Shares), len(vmRec.USBDevices), len(vmRec.PCIDevices))
+		if out.RuntimeError != "" {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "runtime-error: %s\n", out.RuntimeError)
+		}
 		for _, warning := range out.ForwardingWarnings {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "forwarding-warning: %s\n", warning)
 		}
@@ -332,6 +345,8 @@ type vmInfo struct {
 	PlatformStateDir   string            `json:"platformStateDir,omitempty"`
 	EgressRuntime      *vm.EgressRuntime `json:"egressRuntime,omitempty"`
 	VM                 *state.VMRecord   `json:"vm"`
+	Status             vm.RuntimeState   `json:"status"`
+	RuntimeError       string            `json:"runtimeError,omitempty"`
 	Running            bool              `json:"running"`
 	DiskPath           string            `json:"diskPath"`
 	Disk               *state.DiskUsage  `json:"disk,omitempty"`
@@ -347,7 +362,7 @@ type omittedConfig struct {
 }
 
 func listCommand() *cobra.Command {
-	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List VMs", Long: "List VMs, one per row: name, ID, status, image, CPUs, memory, SSH port, disk capacity, configured USB and PCI counts, and saved egress configuration.\n\nA disk that cannot be read shows as disk=?. The USB, PCI, and egress-config columns show saved configuration. Use 'voom info <name>' for current USB, PCI, and egress state and host disk allocation.\n\nForwarding problems add forwarding=warning. Use 'voom info <name>' or 'voom forward list <name>' for details. Status shows whether the VM process is running.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List VMs", Long: "List VMs, one per row: name, ID, status, image, CPUs, memory, SSH port, disk capacity, configured USB and PCI counts, and saved egress configuration.\n\nA disk that cannot be read shows as disk=?. The USB, PCI, and egress-config columns show saved configuration. Use 'voom info <name>' for current USB, PCI, and egress state and host disk allocation.\n\nForwarding problems add forwarding=warning. Use 'voom info <name>' or 'voom forward list <name>' for details. Status is running, stopped, or unknown.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		deps, err := loadRuntimeDeps()
 		if err != nil {
 			return err
@@ -360,7 +375,7 @@ func listCommand() *cobra.Command {
 			ForwardingWarnings []string         `json:"forwardingWarnings,omitempty"`
 			Name               string           `json:"name"`
 			ID                 string           `json:"id"`
-			Status             string           `json:"status"`
+			Status             vm.RuntimeState  `json:"status"`
 			Image              string           `json:"image"`
 			CPUs               int              `json:"cpus"`
 			MemoryMiB          int              `json:"memoryMiB"`
@@ -371,17 +386,18 @@ func listCommand() *cobra.Command {
 			EgressConfig       string           `json:"egressConfig"`
 		}
 		rows := []row{}
-		forwardingWarnings := deps.vm.ForwardingWarningsForVMs(cmd.Context(), vms)
+		inspections := deps.vm.InspectRuntimes(cmd.Context(), vms)
 		for i, vmRec := range vms {
+			inspection := inspections[i]
 			var disk *state.DiskUsage
 			if usage, err := state.ReadDiskUsage(deps.store.VMDiskPath(vmRec)); err == nil {
 				disk = &usage
 			}
 			rows = append(rows, row{
-				ForwardingWarnings: forwardingWarnings[i],
+				ForwardingWarnings: inspection.ForwardingWarnings,
 				Name:               vmRec.Name,
 				ID:                 vmRec.ID,
-				Status:             vm.Status(deps.vm.IsRunning(vmRec)),
+				Status:             inspection.Status,
 				Image:              vmRec.Image.Name,
 				CPUs:               vmRec.Resources.CPUs,
 				MemoryMiB:          vmRec.Resources.MemoryMiB,

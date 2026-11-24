@@ -155,69 +155,79 @@ func (m *Manager) ForwardRows(ctx context.Context, args []string) ([]ForwardRow,
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		runtimeState, inspectionErr := m.ObserveRuntimeContext(ctx, vm)
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		running := runtimeState == RuntimeRunning
-		guestTargetIP := state.DefaultGuestTargetIP(vm.Driver)
-		if running {
-			guestTargetIP = m.GuestTargetIP(vm)
-		}
-		autoRows, err := m.ReadRuntimeAutoForwards(vm)
+		status, runtimeErr := m.ObserveRuntimeContext(ctx, vm)
+		vmRows, err := m.forwardRowsForVM(ctx, vm, status, runtimeErr)
 		if err != nil {
 			return nil, err
 		}
-		journal, err := forward.ReadMutationJournal(m.store.Runtime(vm).ForwardMutation())
-		if err != nil {
-			return nil, err
+		rows = append(rows, vmRows...)
+	}
+	return rows, nil
+}
+
+func (m *Manager) forwardRowsForVM(ctx context.Context, vm *state.VMRecord, runtimeState RuntimeState, inspectionErr error) ([]ForwardRow, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	running := runtimeState == RuntimeRunning
+	guestTargetIP := state.DefaultGuestTargetIP(vm.Driver)
+	if running {
+		guestTargetIP = m.GuestTargetIP(vm)
+	}
+	autoRows, err := m.ReadRuntimeAutoForwards(vm)
+	if err != nil {
+		return nil, err
+	}
+	journal, err := forward.ReadMutationJournal(m.store.Runtime(vm).ForwardMutation())
+	if err != nil {
+		return nil, err
+	}
+	var installed map[gvproxy.Forward]struct{}
+	snapshotErr := inspectionErr
+	if running && journal == nil {
+		installed, snapshotErr = gvproxy.Forwards(ctx, m.store.Runtime(vm).NetworkSock())
+	}
+	observation := forwardObservation{running: running, installed: installed, err: snapshotErr}
+	if journal != nil {
+		observation.recoveryReason = "confirmation pending; affected ports remain reserved. Run 'voom forward reconcile " + vm.Name + "' to retry"
+		if journal.Version == 0 {
+			observation.recoveryReason = "recovery details are unavailable; stop and start the VM to clear this state"
 		}
-		var installed map[gvproxy.Forward]struct{}
-		snapshotErr := inspectionErr
-		if running && journal == nil {
-			installed, snapshotErr = gvproxy.Forwards(ctx, m.store.Runtime(vm).NetworkSock())
-		}
-		observation := forwardObservation{running: running, installed: installed, err: snapshotErr}
-		if journal != nil {
-			observation.recoveryReason = "confirmation pending; affected ports remain reserved. Run 'voom forward reconcile " + vm.Name + "' to retry"
-			if journal.Version == 0 {
-				observation.recoveryReason = "recovery details are unavailable; stop and start the VM to clear this state"
-			}
-			for _, request := range journal.Requests {
-				if request.Error != "" {
-					observation.recoveryReason += ": " + request.Error
-					break
-				}
-			}
-			if inspectionErr != nil {
-				observation.recoveryReason += "; " + inspectionErr.Error()
+		for _, request := range journal.Requests {
+			if request.Error != "" {
+				observation.recoveryReason += ": " + request.Error
+				break
 			}
 		}
-		declarations := declaredForwards(vm)
-		known := make(map[forward.Decl]struct{})
-		for i, f := range declarations {
+		if inspectionErr != nil {
+			observation.recoveryReason += "; " + inspectionErr.Error()
+		}
+	}
+	declarations := declaredForwards(vm)
+	rows := make([]ForwardRow, 0, len(declarations)+len(autoRows))
+	known := make(map[forward.Decl]struct{})
+	for i, f := range declarations {
+		known[f] = struct{}{}
+		kind := "manual"
+		if i == 0 {
+			kind = "ssh"
+		}
+		status, reason := observation.status(f, guestTargetIP)
+		rows = append(rows, ForwardRow{VM: vm.Name, Kind: kind, Bind: f.Bind, HostPort: f.HostPort, GuestPort: f.GuestPort, GuestTargetIP: guestTargetIP, Protocol: f.Protocol, Status: status, Installed: status == "running", Reason: reason})
+	}
+	for _, f := range autoRows {
+		known[f.Endpoint()] = struct{}{}
+		status, reason := observation.autoStatus(f)
+		rows = append(rows, ForwardRow{VM: vm.Name, Kind: "auto", Bind: f.Bind, HostPort: f.HostPort, GuestPort: f.GuestPort, GuestTargetIP: f.GuestTargetIP, Protocol: f.Protocol, Status: status, Installed: status == "active", Offset: f.Offset, Reason: reason})
+	}
+	if journal != nil {
+		for _, f := range journal.Reservations {
+			if _, represented := known[f]; represented {
+				continue
+			}
 			known[f] = struct{}{}
-			kind := "manual"
-			if i == 0 {
-				kind = "ssh"
-			}
 			status, reason := observation.status(f, guestTargetIP)
-			rows = append(rows, ForwardRow{VM: vm.Name, Kind: kind, Bind: f.Bind, HostPort: f.HostPort, GuestPort: f.GuestPort, GuestTargetIP: guestTargetIP, Protocol: f.Protocol, Status: status, Installed: status == "running", Reason: reason})
-		}
-		for _, f := range autoRows {
-			known[f.Endpoint()] = struct{}{}
-			status, reason := observation.autoStatus(f)
-			rows = append(rows, ForwardRow{VM: vm.Name, Kind: "auto", Bind: f.Bind, HostPort: f.HostPort, GuestPort: f.GuestPort, GuestTargetIP: f.GuestTargetIP, Protocol: f.Protocol, Status: status, Installed: status == "active", Offset: f.Offset, Reason: reason})
-		}
-		if journal != nil {
-			for _, f := range journal.Reservations {
-				if _, represented := known[f]; represented {
-					continue
-				}
-				known[f] = struct{}{}
-				status, reason := observation.status(f, guestTargetIP)
-				rows = append(rows, ForwardRow{VM: vm.Name, Kind: "reservation", Bind: f.Bind, HostPort: f.HostPort, GuestPort: f.GuestPort, GuestTargetIP: guestTargetIP, Protocol: f.Protocol, Status: status, Reason: reason})
-			}
+			rows = append(rows, ForwardRow{VM: vm.Name, Kind: "reservation", Bind: f.Bind, HostPort: f.HostPort, GuestPort: f.GuestPort, GuestTargetIP: guestTargetIP, Protocol: f.Protocol, Status: status, Reason: reason})
 		}
 	}
 	return rows, nil

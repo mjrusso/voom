@@ -12,39 +12,64 @@ import (
 	"github.com/mjrusso/voom/internal/state"
 )
 
-// ForwardingWarningsForVMs probes a VM list within one deadline, preserving its order.
-func (m *Manager) ForwardingWarningsForVMs(ctx context.Context, vms []*state.VMRecord) [][]string {
+// RuntimeInspection reports VM status and forwarding warnings from the same
+// driver process observation.
+type RuntimeInspection struct {
+	Status             RuntimeState
+	RuntimeError       error
+	ForwardingWarnings []string
+}
+
+// InspectRuntimes checks VM processes first so slow forwarding probes cannot
+// use up the shared deadline before a VM's process is checked. Results follow
+// the input order.
+func (m *Manager) InspectRuntimes(ctx context.Context, vms []*state.VMRecord) []RuntimeInspection {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-	warnings := make([][]string, len(vms))
-	jobs := make(chan int, len(vms))
-	for i := range vms {
+	results := make([]RuntimeInspection, len(vms))
+	inspectBatch(len(vms), func(i int) {
+		results[i].Status, results[i].RuntimeError = m.ObserveRuntimeContext(ctx, vms[i])
+	})
+	inspectBatch(len(vms), func(i int) {
+		result := &results[i]
+		result.ForwardingWarnings = m.forwardingWarnings(ctx, vms[i], result.Status, result.RuntimeError)
+	})
+	return results
+}
+
+func inspectBatch(count int, inspect func(int)) {
+	jobs := make(chan int, count)
+	for i := range count {
 		jobs <- i
 	}
 	close(jobs)
 	var workers sync.WaitGroup
-	for range min(8, len(vms)) {
+	for range min(8, count) {
 		workers.Go(func() {
 			for i := range jobs {
-				if err := ctx.Err(); err != nil {
-					warnings[i] = forwardingInspectionWarning(vms[i].Name, err)
-					continue
-				}
-				warnings[i] = m.ForwardingWarnings(ctx, vms[i].Name)
+				inspect(i)
 			}
 		})
 	}
 	workers.Wait()
-	return warnings
 }
 
-// ForwardingWarnings reports pending recovery and unavailable forwards without changing them.
-func (m *Manager) ForwardingWarnings(ctx context.Context, name string) []string {
+// InspectRuntime bounds the driver and forwarding inspection with one deadline.
+func (m *Manager) InspectRuntime(ctx context.Context, vm *state.VMRecord) RuntimeInspection {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-	rows, err := m.ForwardRows(ctx, []string{name})
+	status, runtimeErr := m.ObserveRuntimeContext(ctx, vm)
+	return RuntimeInspection{
+		Status:             status,
+		RuntimeError:       runtimeErr,
+		ForwardingWarnings: m.forwardingWarnings(ctx, vm, status, runtimeErr),
+	}
+}
+
+func (m *Manager) forwardingWarnings(ctx context.Context, vm *state.VMRecord, status RuntimeState, runtimeErr error) []string {
+	rows, err := m.forwardRowsForVM(ctx, vm, status, runtimeErr)
 	if err != nil {
-		return forwardingInspectionWarning(name, err)
+		return []string{fmt.Sprintf("cannot inspect forwarding: %v. Run 'voom forward list %s' for details", err, vm.Name)}
 	}
 	var warnings []string
 	for _, row := range rows {
@@ -58,10 +83,6 @@ func (m *Manager) ForwardingWarnings(ctx context.Context, name string) []string 
 		}
 	}
 	return warnings
-}
-
-func forwardingInspectionWarning(name string, err error) []string {
-	return []string{fmt.Sprintf("cannot inspect forwarding: %v; run 'voom forward list %s' for details", err, name)}
 }
 
 type forwardObservation struct {

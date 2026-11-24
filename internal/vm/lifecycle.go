@@ -776,11 +776,3 @@ func (m *Manager) IsRunning(vm *state.VMRecord) bool {
 	observed, _ := m.ObserveRuntime(vm)
 	return observed == RuntimeRunning
 }
-
-// Status returns "running" or "stopped" based on the supplied flag.
-func Status(running bool) string {
-	if running {
-		return "running"
-	}
-	return "stopped"
-}
