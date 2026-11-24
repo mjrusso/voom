@@ -15,9 +15,14 @@ func (s *Store) VMDir(id string) string {
 	return filepath.Join(s.paths.State, "vms", id)
 }
 
+// VMEFIStorePath returns the VM's persistent EFI variable store.
+func (s *Store) VMEFIStorePath(vm *VMRecord) string {
+	return filepath.Join(s.VMDir(vm.ID), "efi-variable-store")
+}
+
 // RuntimeVMDir returns the per-VM runtime directory used for process records and sockets.
 func (s *Store) RuntimeVMDir(vm *VMRecord) string {
-	return filepath.Join(s.paths.Runtime, "vms", vm.ID)
+	return s.Runtime(vm).Dir()
 }
 
 // ControlShareDir returns the path to the VM's control-share directory under runtime.

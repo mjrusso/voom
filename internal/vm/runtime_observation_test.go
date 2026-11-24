@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mjrusso/voom/internal/forward"
 	"github.com/mjrusso/voom/internal/pci"
 	"github.com/mjrusso/voom/internal/share"
 	"github.com/mjrusso/voom/internal/state"
@@ -174,5 +175,130 @@ func TestObserveRuntimeDistinguishesStoppedRunningAndUnknown(t *testing.T) {
 	check(RuntimeStopped)
 	if _, changed, err := m.SetCPUs(context.Background(), vm.Name, 4); err != nil || !changed {
 		t.Fatalf("confirmed exited process prevented update: changed=%t, %v", changed, err)
+	}
+}
+
+func TestPreviousRuntimeArtifactsBlockMutations(t *testing.T) {
+	st, _ := newTestStore(t)
+	m := New(st)
+	m.previousRuntime = filepath.Join(st.Paths().Runtime, "previous")
+	endpoint := forward.Decl{Protocol: "tcp", Bind: "127.0.0.1", HostPort: 8000, GuestPort: 80}
+	vm := &state.VMRecord{
+		SchemaVersion: 1, ID: "vm", Name: "vm", Driver: "vfkit",
+		Resources: state.VMResources{CPUs: 2, MemoryMiB: 2048},
+		Network:   state.VMNetwork{Forwards: []forward.Decl{endpoint}},
+	}
+	if err := st.SaveVM(vm); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RegisterVM(vm.Name, vm.ID); err != nil {
+		t.Fatal(err)
+	}
+	disk := st.VMDiskPath(vm)
+	if err := os.WriteFile(disk, []byte("guest disk"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if status, err := m.ObserveRuntime(vm); status != RuntimeStopped || err != nil {
+		t.Fatalf("without previous runtime: %s, %v", status, err)
+	}
+
+	old := state.RuntimeAt(m.previousRuntime, vm)
+	if err := os.MkdirAll(old.Dir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old.GVProxyProcessRecord(), []byte("legacy artifact"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	checkBlocked := func() {
+		t.Helper()
+		hint := "VOOM_RUNTIME_DIR=" + m.previousRuntime + " voom stop " + vm.Name
+		status, err := m.ObserveRuntime(vm)
+		if status != RuntimeUnknown || err == nil || !strings.Contains(err.Error(), hint) {
+			t.Fatalf("previous runtime: %s, %v", status, err)
+		}
+		if err := m.Remove(context.Background(), vm.Name); err == nil || !strings.Contains(err.Error(), hint) {
+			t.Fatalf("Remove error: %v", err)
+		}
+		if _, err := m.Stop(context.Background(), vm.Name); err == nil || !strings.Contains(err.Error(), hint) {
+			t.Fatalf("Stop error: %v", err)
+		}
+		if _, _, err := m.SetCPUs(context.Background(), vm.Name, 4); err == nil || !strings.Contains(err.Error(), hint) {
+			t.Fatalf("SetCPUs error: %v", err)
+		}
+		data, err := os.ReadFile(disk)
+		if err != nil || string(data) != "guest disk" {
+			t.Fatalf("guest disk changed: %q, %v", data, err)
+		}
+	}
+	checkBlocked()
+	removeForward := func() error {
+		return m.RemoveForward(context.Background(), vm.Name, endpoint.HostPort, endpoint.Bind, endpoint.Protocol)
+	}
+	for _, pending := range []bool{false, true} {
+		journal := st.Runtime(vm).ForwardMutation()
+		if pending {
+			if err := state.WriteJSONAtomic(journal, []forward.Decl{endpoint}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := removeForward(); err == nil || !strings.Contains(err.Error(), old.GVProxyProcessRecord()) || !strings.Contains(err.Error(), "VOOM_RUNTIME_DIR=") {
+			t.Fatalf("RemoveForward with pending recovery %t: %v", pending, err)
+		}
+		saved, err := st.LoadVM(vm.Name)
+		if err != nil || len(saved.Network.Forwards) != 1 || saved.Network.Forwards[0] != endpoint {
+			t.Fatalf("forward declaration changed: %v, %v", saved, err)
+		}
+		if pending {
+			reservations, err := forward.ReadMutationReservations(journal)
+			if err != nil || len(reservations) != 1 || reservations[0] != endpoint {
+				t.Fatalf("pending recovery changed: %v, %v", reservations, err)
+			}
+			if err := os.Remove(journal); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := os.Remove(old.GVProxyProcessRecord()); err != nil {
+		t.Fatal(err)
+	}
+	if status, err := m.ObserveRuntime(vm); status != RuntimeStopped || err != nil {
+		t.Fatalf("after previous runtime artifacts are cleared: %s, %v", status, err)
+	}
+	if err := removeForward(); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Remove(context.Background(), vm.Name); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(disk); !os.IsNotExist(err) {
+		t.Fatalf("disk remains after removal: %v", err)
+	}
+}
+
+func TestInvalidPreviousRuntimeOnlyBlocksVMsWithEvidence(t *testing.T) {
+	st, _ := newTestStore(t)
+	m := New(st)
+	m.previousRuntime = filepath.Join(st.Paths().Runtime, "previous")
+	vm := &state.VMRecord{SchemaVersion: 1, ID: "vm", Name: "vm", Driver: "vfkit"}
+	old := state.RuntimeAt(m.previousRuntime, vm)
+	if err := os.MkdirAll(old.Dir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(m.previousRuntime, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if status, err := m.ObserveRuntime(vm); status != RuntimeStopped || err != nil {
+		t.Fatalf("empty previous runtime: %s, %v", status, err)
+	}
+	if err := os.WriteFile(old.GVProxyProcessRecord(), []byte("unresolved"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	status, err := m.ObserveRuntime(vm)
+	if status != RuntimeUnknown || err == nil || !strings.Contains(err.Error(), old.GVProxyProcessRecord()) {
+		t.Fatalf("previous runtime with evidence: %s, %v", status, err)
+	}
+	other := &state.VMRecord{ID: "other", Name: "other", Driver: "vfkit"}
+	if status, err := m.ObserveRuntime(other); status != RuntimeStopped || err != nil {
+		t.Fatalf("unrelated VM: %s, %v", status, err)
 	}
 }

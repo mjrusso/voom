@@ -1,6 +1,9 @@
 package state
 
-import "github.com/mjrusso/voom/internal/forward"
+import (
+	"github.com/mjrusso/voom/internal/forward"
+	"github.com/mjrusso/voom/internal/host"
+)
 
 type portKey struct {
 	protocol string
@@ -39,6 +42,23 @@ func (r PortReservations) add(protocol, bind string, port int) {
 // PortReservations reads one snapshot while the caller holds the global lock.
 // Only the caller's automatic rows are excluded; unresolved mutations remain reserved.
 func (s *Store) PortReservations(exceptAutoVMID string) (PortReservations, error) {
+	read, err := s.CheckPortReservations()
+	if err != nil {
+		return PortReservations{}, err
+	}
+	return read(exceptAutoVMID)
+}
+
+// CheckPortReservations returns a snapshot reader after checking the old runtime.
+// Hold the global lock from this check through any reads and publication.
+func (s *Store) CheckPortReservations() (func(string) (PortReservations, error), error) {
+	if err := CheckPreviousRuntimes(host.PreviousRuntimeDir(s.paths.Runtime)); err != nil {
+		return nil, err
+	}
+	return s.readPortReservations, nil
+}
+
+func (s *Store) readPortReservations(exceptAutoVMID string) (PortReservations, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	vms, err := s.listVMsLocked()

@@ -25,14 +25,33 @@ func TestResolvePathsUsesOverrides(t *testing.T) {
 	}
 }
 
-func TestResolvePathsUsesShortDarwinRuntimeDir(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Darwin-specific runtime path")
-	}
+func TestDarwinRuntimeDirKeepsVFKitSocketsOutsideTemp(t *testing.T) {
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "deliberately", "long", "temporary", "directory"))
 	t.Setenv("VOOM_RUNTIME_DIR", "")
-	if got, want := ResolvePaths().Runtime, filepath.Join("/tmp", "voom-"+strconv.Itoa(os.Getuid())); got != want {
-		t.Fatalf("ResolvePaths().Runtime = %s, want %s", got, want)
+	uid := os.Getuid()
+	dir := darwinRuntimeDir(uid)
+	if runtime.GOOS == "darwin" {
+		dir = ResolvePaths().Runtime
+	}
+	if want := filepath.Join("/Users/Shared", ".voom-"+strconv.Itoa(uid)); dir != want {
+		t.Fatalf("darwinRuntimeDir = %s, want %s", dir, want)
+	}
+	if socket := filepath.Join(dir, "vms", strings.Repeat("a", 32), "vfkit-ffffffff-ffff.sock"); len(socket) >= 104 {
+		t.Fatalf("vfkit socket pathname exceeds the Darwin limit: %s", socket)
+	}
+}
+
+func TestPreviousRuntimeDirAppliesOnlyToNewDarwinDefault(t *testing.T) {
+	uid := os.Getuid()
+	want := ""
+	if runtime.GOOS == "darwin" {
+		want = "/tmp/voom-" + strconv.Itoa(uid)
+	}
+	if got := PreviousRuntimeDir(darwinRuntimeDir(uid)); got != want {
+		t.Errorf("previous directory = %q, want %q", got, want)
+	}
+	if got := PreviousRuntimeDir("/tmp/voom-" + strconv.Itoa(uid)); got != "" {
+		t.Errorf("old runtime override also triggered the guard: %q", got)
 	}
 }
 

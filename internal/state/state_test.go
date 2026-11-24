@@ -185,7 +185,6 @@ func TestRuntimeLayoutPaths(t *testing.T) {
 		rt.VFKitNetSock():                   filepath.Join(wantDir, "vfkit-net.sock"),
 		rt.QEMUMonitor():                    filepath.Join(wantDir, "qemu.mon"),
 		rt.VFKitRestSock():                  filepath.Join(wantDir, "vfkit.sock"),
-		rt.EFIStore():                       filepath.Join(wantDir, "efi-variable-store"),
 		rt.GUIApp():                         filepath.Join(wantDir, "display.app"),
 		rt.LegacyAutoForwardProcessRecord(): filepath.Join(wantDir, "auto-forward.process.json"),
 		rt.AutoForwardsJSON():               filepath.Join(wantDir, "auto-forwards.json"),

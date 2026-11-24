@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+> [!IMPORTANT]
+>
+> **On MacOS, stop all VMs before upgrading if you use the default runtime
+> directory (`/tmp/voom-$UID`).** Pause automation that starts or restarts VMs
+> and wait for active `voom` commands to finish. Then stop the VMs with the
+> version already installed.
+>
+> Linux users can upgrade with VMs running. On MacOS, the same applies if
+> you already set `VOOM_RUNTIME_DIR` and keep it unchanged. If files under
+> `/tmp/voom-$UID` cause errors after upgrading, see the
+> [MacOS runtime recovery steps](docs/diagnostics-and-recovery.md#recover-vms-after-the-macos-runtime-directory-move).
+
+- Move the default runtime directory on MacOS from `/tmp/voom-$UID` to
+  `/Users/Shared/.voom-$UID`. System temp cleanup could delete the process
+  record of a running VM and make Voom report it as stopped.
+- Store Linux guests' EFI variables in persistent VM storage on MacOS.
+  [Copy any existing EFI store](docs/reference.md#migrate-an-efi-variable-store)
+  after stopping the guest and before starting it with the new version.
+
 ## v1.6.0 - 2026-11-19
 
 > [!IMPORTANT]

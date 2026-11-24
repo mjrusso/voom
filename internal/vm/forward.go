@@ -53,7 +53,7 @@ func (m *Manager) AddForward(ctx context.Context, name string, guestPort, hostPo
 	if err := m.recoverPendingForwardMutation(ctx, vm); err != nil {
 		return forward.Decl{}, err
 	}
-	observed, err := m.ObserveRuntime(vm)
+	observed, err := m.observeCurrentRuntime(ctx, vm)
 	if err != nil {
 		return forward.Decl{}, err
 	}

@@ -21,7 +21,12 @@ type VirtiofsdPaths struct {
 
 // Runtime returns the RuntimeLayout rooted at the VM's runtime directory.
 func (s *Store) Runtime(vm *VMRecord) RuntimeLayout {
-	return RuntimeLayout{dir: s.RuntimeVMDir(vm)}
+	return RuntimeAt(s.paths.Runtime, vm)
+}
+
+// RuntimeAt resolves a VM's runtime layout under the given root.
+func RuntimeAt(root string, vm *VMRecord) RuntimeLayout {
+	return RuntimeLayout{dir: filepath.Join(root, "vms", vm.ID)}
 }
 
 // Dir returns the runtime base directory.
@@ -75,11 +80,6 @@ func (r RuntimeLayout) VFKitRestSock() string {
 // GUIApp returns the per-VM display app bundle path.
 func (r RuntimeLayout) GUIApp() string {
 	return filepath.Join(r.dir, "display.app")
-}
-
-// EFIStore returns the path to the EFI variable store file.
-func (r RuntimeLayout) EFIStore() string {
-	return filepath.Join(r.dir, "efi-variable-store")
 }
 
 // LegacyAutoForwardProcessRecord returns the obsolete watcher record used during upgrade cleanup.

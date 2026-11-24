@@ -48,7 +48,7 @@ func TestCleanupAttemptsGatewayAfterOtherHelperFailure(t *testing.T) {
 	if err := os.WriteFile(rt.LegacyAutoForwardProcessRecord(), []byte("invalid"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	stop, err := New(st).stopRuntime(context.Background(), record)
+	stop, err := New(st).stopConfiguredRuntime(context.Background(), record)
 	if err == nil || !stop.changed {
 		t.Fatal("unknown helper identity was accepted")
 	}
@@ -83,9 +83,9 @@ func TestCleanupFindsVirtiofsProcessRecord(t *testing.T) {
 	if err := os.WriteFile(paths.LockFile, []byte("123\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	stop, err := New(st).stopRuntime(context.Background(), record)
+	stop, err := New(st).stopConfiguredRuntime(context.Background(), record)
 	if err != nil || !stop.changed {
-		t.Fatalf("stopRuntime result=%+v error=%v", stop, err)
+		t.Fatalf("stopConfiguredRuntime result=%+v error=%v", stop, err)
 	}
 	_, _ = cmd.Process.Wait()
 	if process.Alive(cmd.Process.Pid) {
@@ -117,9 +117,9 @@ func TestCleanupRetainsVirtiofsArtifactsWithoutProcessRecord(t *testing.T) {
 	if err := os.WriteFile(paths.LockFile, []byte("123\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	stop, err := New(st).stopRuntime(context.Background(), record)
+	stop, err := New(st).stopConfiguredRuntime(context.Background(), record)
 	if err == nil || !strings.Contains(err.Error(), "virtiofsd termination unconfirmed") || !stop.changed {
-		t.Fatalf("stopRuntime result=%+v error=%v", stop, err)
+		t.Fatalf("stopConfiguredRuntime result=%+v error=%v", stop, err)
 	}
 	for _, path := range []string{paths.Socket, paths.LockFile} {
 		if _, err := os.Lstat(path); err != nil {
@@ -151,9 +151,9 @@ func TestCleanupStopsVirtiofsServicesIndependently(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = unconfirmedListener.Close() }()
-	stop, err := New(st).stopRuntime(context.Background(), record)
+	stop, err := New(st).stopConfiguredRuntime(context.Background(), record)
 	if err == nil || !strings.Contains(err.Error(), "virtiofsd termination unconfirmed") || !stop.changed {
-		t.Fatalf("stopRuntime result=%+v error=%v", stop, err)
+		t.Fatalf("stopConfiguredRuntime result=%+v error=%v", stop, err)
 	}
 	_, _ = cmd.Process.Wait()
 	for _, path := range []string{confirmed.ProcessRecord, confirmed.Socket} {

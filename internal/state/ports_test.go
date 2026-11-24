@@ -2,10 +2,68 @@ package state
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/mjrusso/voom/internal/forward"
 )
+
+func TestPreviousRuntimeArtifactsFenceUpgrade(t *testing.T) {
+	root := t.TempDir()
+	vm := &VMRecord{ID: "owner", Name: "owner", Driver: "vfkit"}
+	rt := RuntimeAt(root, vm)
+	if err := os.MkdirAll(rt.Dir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rt.Dir(), "efi-variable-store"), []byte("saved EFI variables"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{rt.RuntimeWatcherProcessRecord(), rt.VFKitRestSock(), rt.ForwardMutation(), rt.AutoForwardsJSON()} {
+		if err := CheckPreviousRuntimes(root); err != nil {
+			t.Fatalf("no legacy session artifacts: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("legacy artifact"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := CheckPreviousRuntimes(root); err == nil {
+			t.Errorf("global upgrade guard ignored %s", path)
+		}
+		if err := CheckPreviousVMRuntime(root, vm); err == nil {
+			t.Errorf("VM upgrade guard ignored %s", path)
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestPreviousRuntimeGuardIgnoresSymlinkedDirectories(t *testing.T) {
+	target := t.TempDir()
+	vm := &VMRecord{ID: "vm", Name: "vm", Driver: "vfkit"}
+	rt := RuntimeAt(target, vm)
+	if err := os.MkdirAll(rt.Dir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rt.GVProxyProcessRecord(), []byte("artifact"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rootLink := filepath.Join(t.TempDir(), "old-runtime")
+	if err := os.Symlink(target, rootLink); err != nil {
+		t.Fatal(err)
+	}
+	nestedRoot := t.TempDir()
+	if err := os.Symlink(filepath.Join(target, "vms"), filepath.Join(nestedRoot, "vms")); err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{rootLink, nestedRoot} {
+		if err := CheckPreviousRuntimes(root); err != nil {
+			t.Errorf("global guard followed symlink under %s: %v", root, err)
+		}
+		if err := CheckPreviousVMRuntime(root, vm); err != nil {
+			t.Errorf("VM guard followed symlink under %s: %v", root, err)
+		}
+	}
+}
 
 func TestSSHPortReservationsIncludeRuntimeForwards(t *testing.T) {
 	for _, tc := range []struct {

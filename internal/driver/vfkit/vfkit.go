@@ -51,12 +51,13 @@ type Share struct {
 
 // LinuxBoot configures direct kernel or EFI boot for a Linux guest.
 type LinuxBoot struct {
-	KernelPath string
-	InitrdPath string
-	KernelCmd  string
-	EFIStore   string
-	SeedImage  string
-	SerialLog  string
+	KernelPath     string
+	InitrdPath     string
+	KernelCmd      string
+	EFIStore       string
+	CreateEFIStore bool
+	SeedImage      string
+	SerialLog      string
 }
 
 // MacOSBoot identifies the persistent Apple platform files and GUI identity.
@@ -106,7 +107,7 @@ func Args(c ArgsConfig) ([]string, error) {
 	} else {
 		boot := c.Linux
 		if boot.KernelPath != "" {
-			if boot.EFIStore != "" {
+			if boot.EFIStore != "" || boot.CreateEFIStore {
 				return nil, fmt.Errorf("vfkit Linux boot cannot combine kernel and EFI configuration")
 			}
 			args = append(args, "--kernel", boot.KernelPath)
@@ -120,7 +121,11 @@ func Args(c ArgsConfig) ([]string, error) {
 			if boot.EFIStore == "" || boot.InitrdPath != "" || boot.KernelCmd != "" {
 				return nil, fmt.Errorf("vfkit Linux EFI boot requires a variable store and no kernel options")
 			}
-			args = append(args, "--bootloader", "efi,variable-store="+boot.EFIStore+",create")
+			loader := "efi,variable-store=" + boot.EFIStore
+			if boot.CreateEFIStore {
+				loader += ",create"
+			}
+			args = append(args, "--bootloader", loader)
 		}
 		args = append(args, "--device", "virtio-serial,logFilePath="+boot.SerialLog)
 		if boot.SeedImage != "" {

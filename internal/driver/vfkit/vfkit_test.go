@@ -87,7 +87,7 @@ func TestArgsOmitsSeedDiskWhenUnset(t *testing.T) {
 		NetSock:   "/vm/vfkit.sock",
 		MAC:       "02:12:34:56:78:9a",
 		RestSock:  "/vm/rest.sock",
-		Linux:     &LinuxBoot{SerialLog: "/vm/serial.log", EFIStore: "/vm/efi.nvram"},
+		Linux:     &LinuxBoot{SerialLog: "/vm/serial.log", EFIStore: "/vm/efi.nvram", CreateEFIStore: true},
 	})
 	if !contains(args, "efi,variable-store=/vm/efi.nvram,create") {
 		t.Fatalf("missing EFI bootloader: %v", args)

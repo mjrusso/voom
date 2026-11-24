@@ -5,6 +5,7 @@ package vm
 import (
 	"github.com/mjrusso/voom/internal/events"
 	"github.com/mjrusso/voom/internal/forward"
+	"github.com/mjrusso/voom/internal/host"
 	"github.com/mjrusso/voom/internal/process"
 	"github.com/mjrusso/voom/internal/state"
 	"github.com/mjrusso/voom/internal/usb"
@@ -14,6 +15,7 @@ import (
 // against a backing state store.
 type Manager struct {
 	store             *state.Store
+	previousRuntime   string
 	events            EventEmitter
 	startSelfRecorded func([]string, string, string) error
 	scanUSB           func() (usbInventory, error)
@@ -61,6 +63,7 @@ type GuestListener = forward.Listener
 func New(store *state.Store, opts ...Option) *Manager {
 	m := &Manager{
 		store:             store,
+		previousRuntime:   host.PreviousRuntimeDir(store.Paths().Runtime),
 		events:            noopEmitter{},
 		startSelfRecorded: process.StartSelfRecorded,
 		scanUSB: func() (usbInventory, error) {

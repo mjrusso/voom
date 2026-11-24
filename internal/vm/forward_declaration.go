@@ -30,19 +30,27 @@ func (m *Manager) applyForwardDeclarations(ctx context.Context, vm *state.VMReco
 	}
 	// Reservation checks and publication must share the global lock.
 	err := m.store.WithGlobalVMContext(ctx, vm.Name, vm.ID, func() error {
+		readReservations := m.store.PortReservations
+		if slices.ContainsFunc(journal.Requests, forward.MutationRequest.Exposes) {
+			read, err := m.store.CheckPortReservations()
+			if err != nil {
+				return err
+			}
+			readReservations = read
+		}
 		owned, err := m.ownedForwardEndpoints(vm)
 		if err != nil {
 			return err
 		}
 		switch {
 		case proposal.Manual != nil:
-			intent, err := m.prepareManualDeclaration(*proposal.Manual, owned)
+			intent, err := prepareManualDeclaration(*proposal.Manual, owned, readReservations)
 			if err != nil {
 				return err
 			}
 			journal.Manual, journal.Requests[0].Endpoint = &intent, intent.Endpoint
 		case journal.AutoForwards != nil:
-			if err := m.prepareAutomaticDeclarations(&journal, owned); err != nil {
+			if err := prepareAutomaticDeclarations(&journal, owned, readReservations); err != nil {
 				return err
 			}
 		default:
@@ -92,7 +100,7 @@ func (m *Manager) editStoppedForward(ctx context.Context, vm *state.VMRecord, in
 		if err != nil {
 			return err
 		}
-		intent, err = m.prepareManualDeclaration(intent, owned)
+		intent, err = prepareManualDeclaration(intent, owned, m.store.PortReservations)
 		if err != nil {
 			return err
 		}
@@ -101,7 +109,7 @@ func (m *Manager) editStoppedForward(ctx context.Context, vm *state.VMRecord, in
 	return intent.Endpoint, err
 }
 
-func (m *Manager) prepareManualDeclaration(intent forward.ManualMutation, owned []forward.Decl) (forward.ManualMutation, error) {
+func prepareManualDeclaration(intent forward.ManualMutation, owned []forward.Decl, readReservations func(string) (state.PortReservations, error)) (forward.ManualMutation, error) {
 	endpoint := intent.Endpoint
 	if intent.Kind == forward.ManualUnexpose {
 		if !slices.Contains(owned, endpoint) {
@@ -109,7 +117,7 @@ func (m *Manager) prepareManualDeclaration(intent forward.ManualMutation, owned 
 		}
 		return intent, nil
 	}
-	reserved, err := m.store.PortReservations("")
+	reserved, err := readReservations("")
 	if err != nil {
 		return intent, err
 	}
@@ -126,7 +134,7 @@ func (m *Manager) prepareManualDeclaration(intent forward.ManualMutation, owned 
 	return intent, nil
 }
 
-func (m *Manager) prepareAutomaticDeclarations(journal *forward.MutationJournal, owned []forward.Decl) error {
+func prepareAutomaticDeclarations(journal *forward.MutationJournal, owned []forward.Decl, readReservations func(string) (state.PortReservations, error)) error {
 	var reserved *state.PortReservations
 	accepted := make([]forward.MutationRequest, 0, len(journal.Requests))
 	for _, request := range journal.Requests {
@@ -138,7 +146,7 @@ func (m *Manager) prepareAutomaticDeclarations(journal *forward.MutationJournal,
 			return errors.New("automatic removal is not owned by this VM")
 		}
 		if reserved == nil {
-			snapshot, err := m.store.PortReservations("")
+			snapshot, err := readReservations("")
 			if err != nil {
 				return err
 			}

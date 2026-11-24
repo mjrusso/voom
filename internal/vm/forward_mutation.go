@@ -19,8 +19,11 @@ func (m *Manager) forwardMutationPending(vm *state.VMRecord) bool {
 
 // The caller must hold the VM lock.
 func (m *Manager) recoverPendingForwardMutation(ctx context.Context, vm *state.VMRecord) error {
+	if err := state.CheckPreviousVMRuntime(m.previousRuntime, vm); err != nil {
+		return err
+	}
 	if !m.forwardMutationPending(vm) {
-		_, err := m.ObserveRuntime(vm)
+		_, err := m.observeCurrentRuntime(ctx, vm)
 		return err
 	}
 	releaseSafe, err := m.recoverAndReportForwardMutation(ctx, vm, m.pendingForwardMutationError(vm))

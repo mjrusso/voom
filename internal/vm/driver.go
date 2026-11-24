@@ -68,10 +68,38 @@ func (m *Manager) vfkitArgs(vm *state.VMRecord, im *state.ImageRecord, shares []
 			SeedImage: m.store.SeedImagePath(vm), SerialLog: m.store.LogPath(vm, "serial"),
 		}
 		if kernelPath == "" {
-			config.Linux.EFIStore = m.store.Runtime(vm).EFIStore()
+			path, create, err := m.vfkitEFIStore(vm)
+			if err != nil {
+				return nil, err
+			}
+			config.Linux.EFIStore, config.Linux.CreateEFIStore = path, create
 		}
 	}
 	return vfkit.Args(config)
+}
+
+func (m *Manager) vfkitEFIStore(vm *state.VMRecord) (path string, create bool, err error) {
+	dst := m.store.VMEFIStorePath(vm)
+	info, err := os.Lstat(dst)
+	if err == nil {
+		if !info.Mode().IsRegular() {
+			return "", false, fmt.Errorf("EFI variable store %s must be a regular file", dst)
+		}
+		return dst, false, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", false, err
+	}
+	for _, root := range []string{m.store.Paths().Runtime, m.previousRuntime} {
+		src, err := state.RuntimeEFIStore(root, vm)
+		if err != nil {
+			return "", false, err
+		}
+		if src != "" {
+			return "", false, fmt.Errorf("copy the existing EFI variable store from %q to %q before starting VM %q", src, dst, vm.Name)
+		}
+	}
+	return dst, true, nil
 }
 
 // ResolveAarch64UEFI locates a usable aarch64 UEFI firmware blob, honoring the

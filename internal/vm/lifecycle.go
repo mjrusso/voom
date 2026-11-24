@@ -232,8 +232,11 @@ func (m *Manager) Remove(ctx context.Context, name string) error {
 		return err
 	}
 	defer unlock()
+	if err := state.CheckPreviousVMRuntime(m.previousRuntime, vm); err != nil {
+		return err
+	}
 	if hasRuntimeState(vm, m.store.Runtime(vm)) {
-		if _, err := m.stopRuntime(ctx, vm); err != nil {
+		if _, err := m.stopConfiguredRuntime(ctx, vm); err != nil {
 			return err
 		}
 	}
@@ -310,7 +313,10 @@ func (m *Manager) ResetDisk(ctx context.Context, name, imageName string) error {
 		return err
 	}
 	candidate := vmFromImage(*vm, im)
-	if _, err := m.stopRuntime(ctx, vm); err != nil {
+	if err := state.CheckPreviousVMRuntime(m.previousRuntime, vm); err != nil {
+		return err
+	}
+	if _, err := m.stopConfiguredRuntime(ctx, vm); err != nil {
 		return err
 	}
 	candidate.UpdatedAt = time.Now().UTC()
@@ -325,6 +331,9 @@ func (m *Manager) Start(ctx context.Context, stderr io.Writer, name string) (*st
 		return nil, err
 	}
 	defer unlock()
+	if err := state.CheckPreviousRuntimes(m.previousRuntime); err != nil {
+		return nil, err
+	}
 	return m.startLocked(ctx, stderr, vm)
 }
 
@@ -335,13 +344,16 @@ func (m *Manager) Restart(ctx context.Context, stderr io.Writer, name string) (*
 		return nil, err
 	}
 	defer unlock()
+	if err := state.CheckPreviousRuntimes(m.previousRuntime); err != nil {
+		return nil, err
+	}
 	if _, err := m.stopLocked(ctx, vm, "restart"); err != nil {
 		return nil, err
 	}
 	return m.startLocked(ctx, stderr, vm)
 }
 
-// The caller must hold the VM lock.
+// The caller must hold the VM lock and rule out a previous runtime session.
 func (m *Manager) startLocked(ctx context.Context, stderr io.Writer, vm *state.VMRecord) (*state.VMRecord, error) {
 	if err := ValidateGuestDeclarations(vm); err != nil {
 		return nil, err
@@ -351,7 +363,7 @@ func (m *Manager) startLocked(ctx context.Context, stderr io.Writer, vm *state.V
 			return nil, err
 		}
 	}
-	if m.IsRunning(vm) {
+	if status, _ := m.observeCurrentRuntime(ctx, vm); status == RuntimeRunning {
 		return vm, nil
 	}
 	if vm.Network.AutoForward {
@@ -377,7 +389,7 @@ func (m *Manager) startLocked(ctx context.Context, stderr io.Writer, vm *state.V
 			return nil, err
 		}
 	}
-	if _, err := m.stopRuntime(ctx, vm); err != nil {
+	if _, err := m.stopConfiguredRuntime(ctx, vm); err != nil {
 		return nil, err
 	}
 	if err := m.prepareGuestStorage(ctx, vm); err != nil {
@@ -472,7 +484,7 @@ func (m *Manager) startLocked(ctx context.Context, stderr io.Writer, vm *state.V
 		if started {
 			return
 		}
-		if _, cerr := m.stopRuntime(ctx, vm); cerr != nil {
+		if _, cerr := m.stopConfiguredRuntime(ctx, vm); cerr != nil {
 			_, _ = fmt.Fprintf(stderr, "VM %s cleanup after failed start: %v\n", vm.Name, cerr)
 		}
 	}()
@@ -502,6 +514,7 @@ func (m *Manager) startLocked(ctx context.Context, stderr io.Writer, vm *state.V
 	if err := m.installDeclaredForwardsLocked(ctx, vm); err != nil {
 		return nil, err
 	}
+	var controlSocket string
 	switch vm.Driver {
 	case "qemu":
 		qargs, err := m.qemuArgs(vm, firmwarePath, virtiofsShares, usbBindings)
@@ -513,9 +526,7 @@ func (m *Manager) startLocked(ctx context.Context, stderr io.Writer, vm *state.V
 		}); err != nil {
 			return nil, err
 		}
-		if err := waitFor(ctx, func() bool { return m.IsRunning(vm) && socketExists(rt.QEMUMonitor()) }, driverStartTimeout); err != nil {
-			return nil, m.driverStartError(vm, "qemu")
-		}
+		controlSocket = rt.QEMUMonitor()
 	case "vfkit":
 		vargs, err := m.vfkitArgs(vm, im, virtiofsShares)
 		if err != nil {
@@ -524,9 +535,13 @@ func (m *Manager) startLocked(ctx context.Context, stderr io.Writer, vm *state.V
 		if err := process.StartRecorded(driverExe, vargs, m.store.LogPath(vm, "vfkit"), rt.VMProcessRecord()); err != nil {
 			return nil, err
 		}
-		if err := waitFor(ctx, func() bool { return m.IsRunning(vm) && socketExists(rt.VFKitRestSock()) }, driverStartTimeout); err != nil {
-			return nil, m.driverStartError(vm, "vfkit")
-		}
+		controlSocket = rt.VFKitRestSock()
+	}
+	if err := waitFor(ctx, func() bool {
+		status, _ := m.observeCurrentRuntime(ctx, vm)
+		return status == RuntimeRunning && socketExists(controlSocket)
+	}, driverStartTimeout); err != nil {
+		return nil, m.driverStartError(vm, vm.Driver)
 	}
 	if err := m.startRuntimeWatcher(vm); err != nil {
 		return nil, err
@@ -545,13 +560,18 @@ func (m *Manager) Stop(ctx context.Context, name string) (bool, error) {
 		return false, err
 	}
 	defer unlock()
+	if !hasRuntimeState(vm, m.store.Runtime(vm)) {
+		if err := state.CheckPreviousVMRuntime(m.previousRuntime, vm); err != nil {
+			return false, err
+		}
+	}
 	stop, err := m.stopLocked(ctx, vm, "requested")
 	return stop.changed, err
 }
 
 // The caller must hold the VM lock.
 func (m *Manager) stopLocked(ctx context.Context, vm *state.VMRecord, reason string) (runtimeStopResult, error) {
-	stop, err := m.stopRuntime(ctx, vm)
+	stop, err := m.stopConfiguredRuntime(ctx, vm)
 	if err != nil {
 		return stop, err
 	}
@@ -639,11 +659,10 @@ func stopService(service runtimeService) (bool, error) {
 	return true, nil
 }
 
-// stopRuntime requires the VM lock. It attempts every helper and retains records
-// when termination cannot be confirmed. Gateway confirmation is independent of
+// The caller holds the VM lock. Gateway confirmation is independent of
 // other cleanup errors because live egress rollback depends on it.
 // Cancellation ends graceful waits; signal escalation has a separate time bound.
-func (m *Manager) stopRuntime(ctx context.Context, vm *state.VMRecord) (runtimeStopResult, error) {
+func (m *Manager) stopConfiguredRuntime(ctx context.Context, vm *state.VMRecord) (runtimeStopResult, error) {
 	changed := hasRuntimeState(vm, m.store.Runtime(vm))
 	processErr := m.stopVMProcesses(ctx, vm)
 	confirmed, gatewayErr := m.stopGVProxy(vm)

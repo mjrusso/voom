@@ -29,6 +29,16 @@ func (m *Manager) ObserveRuntime(vm *state.VMRecord) (RuntimeState, error) {
 
 // ObserveRuntimeContext applies ctx to runtime inspection and preserves cancellation as RuntimeUnknown.
 func (m *Manager) ObserveRuntimeContext(ctx context.Context, vm *state.VMRecord) (RuntimeState, error) {
+	status, err := m.observeCurrentRuntime(ctx, vm)
+	if status == RuntimeStopped {
+		if err := state.CheckPreviousVMRuntime(m.previousRuntime, vm); err != nil {
+			return RuntimeUnknown, err
+		}
+	}
+	return status, err
+}
+
+func (m *Manager) observeCurrentRuntime(ctx context.Context, vm *state.VMRecord) (RuntimeState, error) {
 	rt := m.store.Runtime(vm)
 	path := rt.VMProcessRecord()
 	observed, err := process.ObserveRecordContext(ctx, path, state.VMProcessKind(vm.Driver), "")

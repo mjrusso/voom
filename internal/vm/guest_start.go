@@ -23,6 +23,9 @@ func (m *Manager) prepareGuestStorage(ctx context.Context, vm *state.VMRecord) e
 
 func (m *Manager) validateGuestDriver(vm *state.VMRecord, im *state.ImageRecord) error {
 	if vm.MacOS == nil && vm.Driver == "vfkit" && im.Metadata.KernelPath == "" {
+		if _, _, err := m.vfkitEFIStore(vm); err != nil {
+			return err
+		}
 		if err := image.ValidateVFKitBootDisk(m.store.VMDiskPath(vm)); err != nil {
 			return err
 		}

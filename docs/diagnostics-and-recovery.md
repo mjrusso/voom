@@ -209,3 +209,19 @@ deletes persistent state; see the [state and runtime layout](reference.md#state-
 If you intend to delete the VM and its storage, use `voom remove dev`.
 Removal asks for confirmation; `--force` skips it. Removal is not necessary
 for ordinary stop/start recovery.
+
+### Recover VMs after the MacOS runtime directory move
+
+Voom 1.6.0 used `/tmp/voom-$UID` as the default runtime directory on MacOS.
+The default is now `/Users/Shared/.voom-$UID`. If a VM was still running
+from `/tmp/voom-$UID` when you upgraded, use the following command if its
+process record is intact. Replace `my-vm` with the VM name.
+
+```sh
+VOOM_RUNTIME_DIR="/tmp/voom-$(id -u)" voom stop my-vm
+```
+
+If files under `/tmp/voom-$UID` still block VM startup or port allocation,
+confirm that all VMs and helpers using that directory have exited. Before
+moving it aside, [copy any EFI stores you want to keep](reference.md#migrate-an-efi-variable-store).
+For future starts, including from automation, use the new default directory.

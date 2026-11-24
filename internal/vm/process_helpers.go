@@ -46,7 +46,7 @@ const maxLogLineLen = 300
 // has exited, the last line of its log usually states why.
 func (m *Manager) driverStartError(vm *state.VMRecord, driver string) error {
 	logPath := m.store.LogPath(vm, driver)
-	if !m.IsRunning(vm) {
+	if status, _ := m.observeCurrentRuntime(context.Background(), vm); status != RuntimeRunning {
 		if line := lastLogLine(logPath); line != "" {
 			return fmt.Errorf("%s exited during startup: %s; see %s", driver, line, logPath)
 		}

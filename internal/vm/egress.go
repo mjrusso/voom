@@ -157,12 +157,16 @@ func (m *Manager) updateEgress(ctx context.Context, name, action, expectedID str
 	if err != nil {
 		return result, err
 	}
-	running := m.IsRunning(vm)
+	status, _ := m.observeCurrentRuntime(ctx, vm)
+	running := status == RuntimeRunning
 	if running && !sameEgressTarget(current, nextDecl) {
 		return result, errors.New("stop the VM before setting or clearing egress")
 	}
 	if !running {
-		stop, err := m.stopRuntime(ctx, vm)
+		if err := state.CheckPreviousVMRuntime(m.previousRuntime, vm); err != nil {
+			return result, err
+		}
+		stop, err := m.stopConfiguredRuntime(ctx, vm)
 		result.RuntimeChanged = stop.changed
 		if err != nil {
 			return result, err
@@ -313,7 +317,7 @@ func (m *Manager) enableLiveEgress(ctx context.Context, vm *state.VMRecord, next
 			m.recordEgressRecoveryStop(vm, "expose", egress.Listener, err)
 			recovery, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
-			stop, stopErr := m.stopRuntime(recovery, vm)
+			stop, stopErr := m.stopConfiguredRuntime(recovery, vm)
 			result.RuntimeChanged = result.RuntimeChanged || stop.changed
 			return result, errors.Join(err, stopErr)
 		}
@@ -361,7 +365,7 @@ func (m *Manager) removeLiveEgress(ctx context.Context, vm *state.VMRecord) (boo
 		m.recordEgressRecoveryStop(vm, "unexpose", egress.Listener, err)
 		recovery, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		stop, stopErr := m.stopRuntime(recovery, vm)
+		stop, stopErr := m.stopConfiguredRuntime(recovery, vm)
 		changed = true
 		if stopErr != nil {
 			if !stop.gatewayTerminationConfirmed {

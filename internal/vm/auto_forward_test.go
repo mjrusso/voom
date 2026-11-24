@@ -260,9 +260,9 @@ func TestStopRuntimeForgetsAutoForwardsAfterConfirmedGatewayStop(t *testing.T) {
 	if err := manager.saveRuntimeAutoForwards(vm, []RuntimeAutoForward{row}); err != nil {
 		t.Fatal(err)
 	}
-	stop, err := manager.stopRuntime(context.Background(), vm)
+	stop, err := manager.stopConfiguredRuntime(context.Background(), vm)
 	if err != nil || !stop.gatewayTerminationConfirmed {
-		t.Fatalf("stopRuntime result=%+v error=%v", stop, err)
+		t.Fatalf("stopConfiguredRuntime result=%+v error=%v", stop, err)
 	}
 	rows, err := manager.ReadRuntimeAutoForwards(vm)
 	if err != nil {
@@ -286,9 +286,9 @@ func TestStopRuntimeUnexposesAutoForwardsWhenGatewayStopIsUnconfirmed(t *testing
 	if err := manager.saveRuntimeAutoForwards(vm, []RuntimeAutoForward{row}); err != nil {
 		t.Fatal(err)
 	}
-	stop, err := manager.stopRuntime(context.Background(), vm)
+	stop, err := manager.stopConfiguredRuntime(context.Background(), vm)
 	if err == nil || stop.gatewayTerminationConfirmed {
-		t.Fatalf("stopRuntime result=%+v error=%v", stop, err)
+		t.Fatalf("stopConfiguredRuntime result=%+v error=%v", stop, err)
 	}
 	rows, readErr := manager.ReadRuntimeAutoForwards(vm)
 	if readErr != nil {

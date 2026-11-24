@@ -203,7 +203,7 @@ func testManualForwardMutationsAndCleanup(t *testing.T, st *state.Store, rec *st
 	if err := os.WriteFile(rt.GVProxyProcessRecord(), []byte("invalid identity"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	stop, err := m.stopRuntime(ctx, rec)
+	stop, err := m.stopConfiguredRuntime(ctx, rec)
 	if err == nil || stop.gatewayTerminationConfirmed {
 		t.Fatalf("unrecorded gateway shutdown: %+v %v", stop, err)
 	}

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,6 +23,50 @@ import (
 	"github.com/mjrusso/voom/internal/state"
 	"github.com/mjrusso/voom/internal/usb"
 )
+
+func TestVFKitUsesPersistentEFIStore(t *testing.T) {
+	st, _ := newTestStore(t)
+	m := New(st)
+	vm := &state.VMRecord{ID: "efi-vm", Name: "efi-vm", Driver: "vfkit"}
+	dst := st.VMEFIStorePath(vm)
+	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
+		t.Fatal(err)
+	}
+	boot := "efi,variable-store=" + dst
+	image := &state.ImageRecord{}
+	checkBoot := func(want string) {
+		t.Helper()
+		args, err := m.vfkitArgs(vm, image, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(args, want) {
+			t.Fatalf("missing EFI bootloader %q: %v", want, args)
+		}
+	}
+	checkBoot(boot + ",create")
+	m.previousRuntime = filepath.Join(st.Paths().Runtime, "previous")
+	old := filepath.Join(state.RuntimeAt(m.previousRuntime, vm).Dir(), "efi-variable-store")
+	if err := os.MkdirAll(filepath.Dir(old), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, []byte("stored EFI variables"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	checkCopyError := func(err error) {
+		t.Helper()
+		if err == nil || !strings.Contains(err.Error(), old) || !strings.Contains(err.Error(), dst) {
+			t.Fatalf("missing EFI copy instructions: %v", err)
+		}
+	}
+	checkCopyError(m.validateGuestDriver(vm, image))
+	_, err := m.vfkitArgs(vm, image, nil)
+	checkCopyError(err)
+	if err := os.WriteFile(dst, []byte("stored EFI variables"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	checkBoot(boot)
+}
 
 func TestRequireGuestPortReportNeedsControlShare(t *testing.T) {
 	im := &state.ImageRecord{Name: "nixos", Capabilities: state.ImageCapabilities{GuestPortReport: true}}

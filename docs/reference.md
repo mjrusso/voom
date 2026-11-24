@@ -50,8 +50,10 @@ shell setup.
 
 Run `voom debug paths` to inspect resolved directories. On MacOS, state and
 configuration default to `~/Library/Application Support/voom`, cache to
-`~/Library/Caches/voom`, and runtime to `/tmp/voom-$UID`. MacOS uses the same
-`VOOM_*` overrides and ignores `XDG_*` variables.
+`~/Library/Caches/voom`, and runtime to the owner-only directory
+`/Users/Shared/.voom-$UID`. MacOS uses the same `VOOM_*` overrides and ignores
+`XDG_*` variables. If you set `VOOM_RUNTIME_DIR` on MacOS, choose a short
+path outside the system temporary directories so Unix socket paths fit.
 
 For gvproxy, vfkit, and the Apple identity helper, Voom checks an existing
 `VOOM_GVPROXY`, `VOOM_VFKIT`, or `VOOM_MACOS_IDENTITY` override first, then a
@@ -83,6 +85,28 @@ boot metadata from the imported image or an EFI-bootable disk. MacOS guests
 use the disk and Apple platform files from their bundle. New vfkit VMs use
 `disk.raw`; existing Linux VMs using `disk.img` keep that filename until
 reset. Both contain raw disks, and image import accepts either extension.
+
+### Migrate an EFI variable store
+
+Voom 1.6.0 stored EFI variables for EFI-booted Linux guests on MacOS under
+the runtime directory. Voom now stores them alongside `vm.json` in the VM's
+state directory. Copy the store before starting the VM with the new version
+or moving its previous runtime directory aside.
+
+1. Before upgrading, stop the VM with `voom stop <name>`. If you already
+   upgraded with the VM running in `/tmp/voom-$UID`, follow the
+   [MacOS runtime recovery steps](diagnostics-and-recovery.md#recover-vms-after-the-macos-runtime-directory-move).
+2. Find the VM's ID with `voom info <name>`. Look for
+   `vms/<vm-id>/efi-variable-store` under the runtime directory
+   the VM used before the upgrade. The MacOS default in Voom 1.6.0 was
+   `/tmp/voom-$UID`, where `$UID` is the output of `id -u`. If you set
+   `VOOM_RUNTIME_DIR` for that VM, use that directory.
+3. Run `voom debug paths` to find the `state` directory. Copy the store to
+   `<state>/vms/<vm-id>/efi-variable-store` if that file is missing.
+
+If Voom finds a store in the runtime directory and none in the VM's state
+directory, it prints both paths and blocks startup. To start with fresh EFI
+variables, move the runtime copy aside.
 
 ## Networking and SSH
 
@@ -246,6 +270,7 @@ to investigate state inconsistencies.
 <state>/images/<image-id>/disk.qcow2|raw    # imported image disk
 <state>/vms/<vm-id>/vm.json                 # config, forwards, shares, USB and PCI assignments
 <state>/vms/<vm-id>/disk.qcow2|raw          # legacy Linux VM disk copy
+<state>/vms/<vm-id>/efi-variable-store      # persistent EFI variables for vfkit Linux guests
 <state>/vms/<vm-id>/storage-<generation>/   # VM disk and any Apple platform files
 <state>/locks/...                           # state and per-VM locks
 ```
@@ -257,17 +282,20 @@ files live under `<state>/vms/<vm-id>/storage-<generation>/`, selected by
 `vm.json`. These files survive stop and restart. Legacy Linux vfkit VMs may
 retain `disk.img`.
 
-Runtime files are disposable. Notable paths under `<runtime>/vms/<vm-id>/`:
+Notable paths under `<runtime>/vms/<vm-id>/`:
 
 - `vm.process.json`, `gvproxy.process.json`, `auto-forward.process.json`,
   `runtime-watch.process.json`, `virtiofs-<tag>.process.json` — process IDs
   and system-specific start identities
+- `forward-mutation`, `auto-forwards.json` — forwarding recovery and automatic
+  forwarding state
 - `seed.img` — Linux-only regenerated cloud-init NoCloud disk
   (`meta-data`, `user-data`, `network-config`)
+- `display.app` — signed vfkit application bundle for a MacOS guest
 - `control/metadata.json`, `control/mounts.json`, `control/ports.json` —
   Linux-only host side of the reserved `voom-control` share
-- `network.sock`, `qemu.mon`, `vfkit.sock`, `virtiofs-<tag>.sock` — driver and
-  helper sockets
+- `network.sock`, `qemu.mon`, `vfkit.sock`, `vfkit-net.sock`,
+  `virtiofs-<tag>.sock` — driver and helper sockets
 
 Cache holds disposable logs: `serial.log`, `qemu.log` or `vfkit.log`,
 `gvproxy.log`, `auto-forward.log`, `share-mount.log`, `runtime-watch.log`, and

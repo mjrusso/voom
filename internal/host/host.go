@@ -32,9 +32,6 @@ func ResolvePaths() Paths {
 		base := filepath.Join(home, "Library", "Application Support", "voom")
 		p.Config, p.State = base, base
 		p.Cache = filepath.Join(home, "Library", "Caches", "voom")
-		// Keep Darwin Unix-domain socket paths short. os.TempDir() normally
-		// expands to /var/folders/... and leaves too little room for per-VM
-		// socket names under Darwin's sockaddr_un limit.
 		p.Runtime = darwinRuntimeDir(uid)
 		p.Config = firstEnv("VOOM_CONFIG_DIR", p.Config)
 		p.State = firstEnv("VOOM_STATE_DIR", p.State)
@@ -58,7 +55,30 @@ func EnsureRuntimeDir(path string) error {
 }
 
 func darwinRuntimeDir(uid int) string {
-	return filepath.Join("/tmp", fmt.Sprintf("voom-%d", uid))
+	// The root must fit Darwin's socket limit regardless of home directory length.
+	return filepath.Join("/Users/Shared", fmt.Sprintf(".voom-%d", uid))
+}
+
+// PreviousRuntimeDir returns the old MacOS default when current is the new default.
+func PreviousRuntimeDir(current string) string {
+	uid := os.Getuid()
+	if runtime.GOOS == "darwin" && filepath.Clean(current) == darwinRuntimeDir(uid) {
+		return filepath.Join("/tmp", fmt.Sprintf("voom-%d", uid))
+	}
+	return ""
+}
+
+// OwnsRuntimeDir reports whether path names a real directory owned by this user.
+func OwnsRuntimeDir(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
+		return false, nil
+	}
+	if err != nil || !info.IsDir() {
+		return false, err
+	}
+	uid, err := runtimeDirOwner(path, info)
+	return err == nil && uid == os.Getuid(), err
 }
 
 func ensurePrivateRuntimeDir(path string, uid int) error {
@@ -75,12 +95,12 @@ func ensurePrivateRuntimeDir(path string, uid int) error {
 	if !info.IsDir() {
 		return fmt.Errorf("runtime path %s is not a directory", path)
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return fmt.Errorf("could not inspect ownership of runtime directory %s", path)
+	owner, err := runtimeDirOwner(path, info)
+	if err != nil {
+		return err
 	}
-	if int(stat.Uid) != uid {
-		return fmt.Errorf("runtime directory %s is owned by uid %d, want %d", path, stat.Uid, uid)
+	if owner != uid {
+		return fmt.Errorf("runtime directory %s is owned by uid %d, want %d", path, owner, uid)
 	}
 	if info.Mode().Perm() != 0o700 {
 		if err := os.Chmod(path, 0o700); err != nil {
@@ -88,6 +108,14 @@ func ensurePrivateRuntimeDir(path string, uid int) error {
 		}
 	}
 	return nil
+}
+
+func runtimeDirOwner(path string, info os.FileInfo) (int, error) {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, fmt.Errorf("could not inspect ownership of runtime directory %s", path)
+	}
+	return int(stat.Uid), nil
 }
 
 // RuntimeDir returns the voom runtime directory for uid, using XDG_RUNTIME_DIR when set and falling back to a per-uid path under the system temp directory.
