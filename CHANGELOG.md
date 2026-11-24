@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.7.0 - 2026-11-24
+
 > [!IMPORTANT]
 >
 > **On MacOS, stop all VMs before upgrading if you use the default runtime
@@ -16,7 +18,8 @@
 
 - Move the default runtime directory on MacOS from `/tmp/voom-$UID` to
   `/Users/Shared/.voom-$UID`. System temp cleanup could delete the process
-  record of a running VM and make Voom report it as stopped.
+  record of a running VM and make Voom report it as stopped. A closed vfkit
+  client socket left in the old directory no longer blocks VM startup.
 - Store Linux guests' EFI variables in persistent VM storage on MacOS.
   [Copy any existing EFI store](docs/reference.md#migrate-an-efi-variable-store)
   after stopping the guest and before starting it with the new version.
