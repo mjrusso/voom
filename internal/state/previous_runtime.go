@@ -3,16 +3,20 @@ package state
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 
 	"github.com/mjrusso/voom/internal/host"
 )
 
-// CheckPreviousRuntimes blocks VM startup and port allocation while old
-// process records, sockets, or forwarding files remain.
+var vfkitClientSocketName = regexp.MustCompile(`^vfkit-[0-9a-f]+-[0-9a-f]+\.sock$`)
+
+// CheckPreviousRuntimes blocks VM startup and port allocation when the
+// previous runtime may still be active.
 func CheckPreviousRuntimes(root string) error {
 	if root == "" {
 		return nil
@@ -89,14 +93,28 @@ func previousRuntimeArtifact(dir string) (string, error) {
 		name := entry.Name()
 		switch name {
 		case "vm.process.json", "gvproxy.process.json", "runtime-watch.process.json",
-			"auto-forward.process.json", "vfkit.sock", "network.sock", "forward-mutation", "auto-forwards.json":
+			"auto-forward.process.json", "vfkit.sock", "network.sock",
+			"forward-mutation", "auto-forwards.json":
 			return filepath.Join(dir, name), nil
 		}
 		if strings.HasPrefix(name, "vfkit-") && strings.HasSuffix(name, ".sock") {
-			return filepath.Join(dir, name), nil
+			path := filepath.Join(dir, name)
+			if !vfkitClientSocketName.MatchString(name) || entry.Type()&os.ModeSocket == 0 || !vfkitClientSocketGone(path) {
+				return path, nil
+			}
 		}
 	}
 	return "", nil
+}
+
+// vfkit can leave its per-process datagram pathname behind when it exits.
+func vfkitClientSocketGone(path string) bool {
+	conn, err := net.DialUnix("unixgram", nil, &net.UnixAddr{Name: path, Net: "unixgram"})
+	if err != nil {
+		return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, os.ErrNotExist)
+	}
+	_ = conn.Close()
+	return false
 }
 
 func readPreviousRuntime(dir string) ([]os.DirEntry, error) {

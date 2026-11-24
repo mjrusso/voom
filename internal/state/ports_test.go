@@ -1,12 +1,73 @@
 package state
 
 import (
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mjrusso/voom/internal/forward"
 )
+
+func TestPreviousRuntimeGuardIgnoresOnlyClosedVFKitClientSockets(t *testing.T) {
+	root, err := os.MkdirTemp("/tmp", "voom-legacy-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	vm := &VMRecord{ID: "vm", Name: "vm", Driver: "vfkit"}
+	rt := RuntimeAt(root, vm)
+	dir := rt.Dir()
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	gatewayAddr := &net.UnixAddr{Name: filepath.Join(root, "gateway.sock"), Net: "unixgram"}
+	gateway, err := net.ListenUnixgram("unixgram", gatewayAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = gateway.Close() })
+	path := filepath.Join(dir, "vfkit-104d3-d3f8.sock")
+	conn, err := net.DialUnix("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"}, gatewayAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	if err := CheckPreviousRuntimes(root); err == nil || !strings.Contains(err.Error(), path) {
+		t.Fatalf("expected the live vfkit socket to block startup, got %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatalf("closed socket did not leave a pathname: %v", err)
+	}
+	if err := CheckPreviousRuntimes(root); err != nil {
+		t.Fatalf("closed vfkit socket blocked startup: %v", err)
+	}
+	if err := CheckPreviousVMRuntime(root, vm); err != nil {
+		t.Fatalf("closed vfkit socket blocked VM operations: %v", err)
+	}
+	for _, path := range []string{rt.VFKitNetSock(), filepath.Join(dir, "vfkit-dead-helper.sock")} {
+		socket, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := socket.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := CheckPreviousRuntimes(root); err == nil || !strings.Contains(err.Error(), path) {
+			t.Errorf("expected %s to block startup, got %v", path, err)
+		}
+		if err := CheckPreviousVMRuntime(root, vm); err == nil || !strings.Contains(err.Error(), path) {
+			t.Errorf("expected %s to block VM operations, got %v", path, err)
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 
 func TestPreviousRuntimeArtifactsFenceUpgrade(t *testing.T) {
 	root := t.TempDir()
